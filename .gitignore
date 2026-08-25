@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+
+workflow_platform.db
+inbox/
+archive/
+*.pdf
+
+.DS_Store
