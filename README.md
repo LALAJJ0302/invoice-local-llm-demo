@@ -1,0 +1,201 @@
+# Invoice Local LLM Demo
+
+Local-first invoice and receipt automation prototype using Gmail IMAP, Ollama, SQLite, and Streamlit.
+
+## Overview
+
+This project demonstrates an end-to-end document workflow that replaces the original Microsoft/SharePoint/Copilot-heavy design with a local prototype.
+
+The current workflow is:
+
+```text
+Gmail invoice email
+-> email_listener.py downloads attachments
+-> local inbox folder
+-> main.py extracts invoice data using Ollama
+-> workflow_platform.db stores structured results
+-> app.py displays results in a Streamlit dashboard
+```
+
+The system can also be tested without Gmail by manually placing PDF invoices into the `inbox/` folder.
+
+## Why This Local Version Exists
+
+The original plan used Microsoft tools such as SharePoint, OneDrive, Outlook/Graph API, Azure Entra, Azure AI Document Intelligence, and Copilot Studio. During implementation, we hit account and permission limits with UTS/student accounts, especially around Graph API access and Copilot Studio credits.
+
+Following supervisor feedback, the project was de-scoped into a local-first workflow using open-source tools. This lets the team demonstrate the core automation logic without waiting for enterprise permissions or paid cloud access.
+
+## Features
+
+- Gmail attachment ingestion using IMAP
+- Secure local credential handling through `.env`
+- Local inbox/archive workflow
+- Mock invoice generation for testing
+- PDF text extraction with `pypdf`
+- Local LLM extraction through Ollama
+- Structured invoice fields stored in SQLite
+- Confidence scoring and `Validated` / `NeedsReview` status
+- Streamlit dashboard with KPIs, tables, filters, charts, and review actions
+
+## Project Structure
+
+| File / Folder | Purpose |
+|---|---|
+| `generate_mock_invoices.py` | Generates sample invoice PDFs for testing. |
+| `email_listener.py` | Connects to Gmail via IMAP and downloads invoice-related attachments into `inbox/`. |
+| `.env.example` | Template for local email configuration. Copy this to `.env`. |
+| `inbox/` | Local folder for incoming invoice files. Ignored by Git. |
+| `main.py` | Core processing pipeline: reads files, extracts text, calls Ollama, validates confidence, saves records, and archives files. |
+| `workflow_platform.db` | Local SQLite database. Ignored by Git. |
+| `query_db.py` | Utility script for inspecting SQLite records. |
+| `app.py` | Streamlit dashboard for viewing processed invoice results. |
+| `archive/` | Stores processed files. Ignored by Git. |
+| `test_ollama.py` | Debug script for testing Ollama extraction on a single PDF. |
+| `Enterprise_AI_Workflow_Briefing.docx` | Project briefing document for team/report use. |
+
+## Setup
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/LALAJJ0302/invoice-local-llm-demo.git
+cd invoice-local-llm-demo
+```
+
+### 2. Install Python dependencies
+
+```bash
+pip3 install ollama pypdf pydantic streamlit pandas plotly python-dotenv reportlab
+```
+
+### 3. Install and prepare Ollama
+
+Install Ollama from:
+
+```text
+https://ollama.com
+```
+
+Then pull the model:
+
+```bash
+ollama pull llama3.2
+```
+
+Make sure Ollama is running before using `main.py`.
+
+### 4. Configure Gmail credentials
+
+Copy the example environment file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+EMAIL_HOST=imap.gmail.com
+EMAIL_PORT=993
+EMAIL_USER=your_email@gmail.com
+EMAIL_PASSWORD=your_gmail_app_password
+ATTACHMENT_DIR=./inbox
+```
+
+Important:
+
+- Use a Gmail App Password, not your normal Gmail password.
+- Do not commit `.env`.
+- Do not share screenshots showing credentials.
+
+## How to Run
+
+### Option A: Test with mock invoices
+
+Generate sample invoices:
+
+```bash
+python3 generate_mock_invoices.py
+```
+
+Process the invoices:
+
+```bash
+python3 main.py
+```
+
+Open the dashboard:
+
+```bash
+python3 -m streamlit run app.py
+```
+
+Then open:
+
+```text
+http://localhost:8501
+```
+
+### Option B: Test with Gmail attachments
+
+Send an email to your Gmail account with:
+
+- Subject containing `invoice`
+- One or more invoice/receipt attachments
+
+Download matching attachments:
+
+```bash
+python3 email_listener.py
+```
+
+Process downloaded files:
+
+```bash
+python3 main.py
+```
+
+Open the dashboard:
+
+```bash
+python3 -m streamlit run app.py
+```
+
+## Useful Commands
+
+| Task | Command |
+|---|---|
+| Generate mock invoices | `python3 generate_mock_invoices.py` |
+| Download Gmail invoice attachments | `python3 email_listener.py` |
+| Process inbox files | `python3 main.py` |
+| Inspect SQLite records | `python3 query_db.py` |
+| Start dashboard | `python3 -m streamlit run app.py` |
+
+## Current Limitations
+
+- Some scanned or image-based PDFs are skipped because `pypdf` can only read PDFs with a text layer.
+- OCR support is not implemented yet.
+- Some fields, especially `vendor_name` and `currency`, may need prompt refinement.
+- SQLite currently appends new records each time the pipeline runs, so repeated tests may create duplicate records.
+- Real email attachments may contain private information, so demo data should be cleaned before presentation.
+
+## Planned Improvements
+
+- Add OCR support for scanned/image-based PDFs.
+- Add duplicate detection for repeated attachments or invoice numbers.
+- Add a `run_id` or `batch_id` field to separate test runs.
+- Improve extraction prompt and fallback rules for vendor, currency, date, and total amount.
+- Use mock or anonymised invoices for final presentation.
+
+## Privacy Notes
+
+Do not commit or share:
+
+- `.env`
+- Gmail App Password
+- Real invoices or receipts
+- `inbox/`
+- `archive/`
+- `workflow_platform.db`
+
+These files are intentionally ignored by `.gitignore`.
