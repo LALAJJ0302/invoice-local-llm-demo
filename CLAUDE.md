@@ -34,7 +34,7 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python query_db.py                   # inspect records
 ./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
 ./.venv/bin/python evaluation/run_eval.py        # per-field accuracy vs ground truth
-./.venv/bin/python -m pytest tests/ -q           # 141 storage and migration tests
+./.venv/bin/python -m pytest tests/ -q           # 160 storage, migration and gate tests
 ./.venv/bin/python reprocess.py --list           # what is stored, and is its file still there
 ```
 
@@ -82,9 +82,12 @@ Do not attribute these failures to the model or attempt to fix them with prompt 
 
 ### Other confirmed defects
 
-- **The gate never verifies `total_amount`.** A hallucinated total of `999999.99` on a $1,500 invoice
-  scores 1.00 and passes as `Validated`. Only the amount lacks a source-text check. **This is now the
-  single largest open defect.** Needs its own spec before implementation.
+- ~~**The gate never verifies `total_amount`.**~~ **Fixed 2026-08-28.** See
+  `validation-gate-spec.md`. The gate now checks the amount against the document in three tiers
+  (`verified` / `present` / `absent`) and refuses to mark anything `Validated` unless the amount
+  sits within two lines of a grand-total label. `999999.99` now scores 0.75 and goes to review.
+  Note the weights changed, so `validation_score` is not comparable across that date: the samples
+  moved from 0.40 to 0.25. The automation pass rate is unchanged at 0/3.
 - **`confidence_score` is not a confidence score.** It measures field completeness and substring
   agreement. Renamed to `validation_score` in the database (Phase 4). The in-memory Pydantic field
   is still `confidence_score`, because `ProcessedRecord` is a shared contract and renaming it needs
