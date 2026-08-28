@@ -4,8 +4,8 @@
 Supersedes `database-redesign-spec.md` and `database-completion-spec.md`, both of which are folded
 into this document. Their earlier versions remain in git history.
 
-**Owner:** Neo. **Branch:** `neo/database-redesign`. **Schema version:** 4.
-**Last verified:** 2026-08-28, by 138 automated tests plus an end-to-end pipeline run.
+**Owner:** Neo. **Branch:** `neo/database-redesign`. **Schema version:** 5.
+**Last verified:** 2026-08-28, by 141 automated tests plus an end-to-end pipeline run.
 
 ---
 
@@ -63,7 +63,7 @@ erDiagram
         text vendor_name
         int  total_cents
         real validation_score
-        text status
+        text validation_status
         text approval_status
     }
     line_items {
@@ -140,7 +140,7 @@ One row per unique document. The central table.
 | `total_cents` | INTEGER | yes | The payable total **in cents**, `CHECK >= 0`. Integer, not float, so money never touches floating point. Divide by 100 at the display edge only. |
 | `currency` | TEXT | yes | A 3-letter code, or the literal `Unknown`. Reads `Unknown` on all current rows. |
 | `validation_score` | REAL | no | The gate's score, `CHECK BETWEEN 0 AND 1`. **Not a confidence score.** See §5.4. |
-| `status` | TEXT | no | `Validated` / `NeedsReview` / `Failed`. **A judgement about data quality, made by the pipeline.** Never written by a human. |
+| `validation_status` | TEXT | no | `Validated` / `NeedsReview` / `Failed`. The gate's verdict, obtained by thresholding `validation_score`. **Written by `ConfidenceValidator`, never by the model and never by a person.** Called `status` before migration 005. See §5.9. |
 | `total_source` | TEXT | no | `model` / `fallback` / `manual`. **Describes only `total_cents`, not the whole row.** `fallback` means the total was derived from line items. Renamed from `extraction_source` in migration 002 because the old name implied row-level scope. |
 | `approval_status` | TEXT | no | `Pending` / `Approved` / `Rejected`. **A business decision, made by a person.** Never written by the pipeline, and never overwritten by re-processing. Written by the dashboard's Approve and Reject buttons. |
 | `reviewed_at` | TEXT | yes | When a person decided. NULL until then. Set alongside `approval_status`. |
@@ -329,7 +329,30 @@ A task leaves the queue when a person decides. Approving resolves it as `Done`; 
 it as `Cancelled`, because the document was not accepted and nothing downstream should treat it as
 processed.
 
-### 5.9 Write, then archive
+### 5.9 The column is named for who writes it, not for what it is about
+
+`status` was renamed to `validation_status` in migration 005. The old name said nothing
+about whose judgement it holds, which stopped being acceptable once `approval_status` sat
+next to it: a reader seeing `NeedsReview` and `Approved` together had no way to tell the two
+are independent.
+
+`model_result_status` was proposed and rejected. The value does not come from the model. It
+is computed in `ConfidenceValidator`:
+
+```python
+status = "Validated" if final_score >= self.threshold else "NeedsReview"
+```
+
+which thresholds a score this project's own gate calculates from field completeness and
+substring matching. Lower the threshold to 0.30 tomorrow and every value in the column
+changes while the model does identical work. Naming it after the model would have written
+a false causal story into the schema, in the exact direction this project keeps having to
+correct: attributing to model accuracy what is actually our own code's behaviour.
+
+`validation_status` shares a stem with `validation_score`, so the pair reads as one thing:
+the gate produced a score, and a verdict derived from that score.
+
+### 5.10 Write, then archive
 
 The database write commits before `shutil.move`. If the move fails, the file stays in `inbox/` and
 the next run upserts onto the same row. The old order archived the file first and could leave a file
@@ -345,6 +368,7 @@ with no record.
 | 2 | `migrations/002_rename_total_source.py` | Renamed `extraction_source` to `total_source`. | **Applied** |
 | 3 | `migrations/003_fix_date_check.py` | Repaired the `invoice_date` CHECK. Table rebuild, since SQLite cannot ALTER a constraint. | **Applied** |
 | 4 | `migrations/004_email_and_tasks.py` | Added `email_messages` and `tasks`, and `invoices.email_id`. Purely additive. | **Applied** |
+| 5 | `migrations/005_rename_validation_status.py` | Renamed `status` to `validation_status`. | **Applied** |
 
 Every migration backs the database up first, refuses to run out of order, is idempotent, and prints
 a before/after report that proves no money moved.
@@ -450,7 +474,9 @@ Both are placeholders that make the shape right without pretending the integrati
 3. **Never write a schema change without a migration.** `CREATE TABLE IF NOT EXISTS` does not migrate.
 4. **Anything derived rather than extracted must be labelled** so a reader cannot mistake it for a
    model output.
-5. **Pipeline columns and human columns stay separate.** `status` belongs to the pipeline,
-   `approval_status` belongs to a person.
-6. **Test a constraint by inserting a value that should pass**, not only one that should fail. §5.7
+5. **Pipeline columns and human columns stay separate.** `validation_status` belongs to the
+   gate, `approval_status` belongs to a person.
+6. **Name a column after who writes it** when more than one party can write to the table.
+   `validation_` and `approval_` are stems, not decoration.
+7. **Test a constraint by inserting a value that should pass**, not only one that should fail. §5.7
    existed because the constraint had only ever been tested with NULL.

@@ -29,7 +29,7 @@ def list_documents(db_path):
     with connect(db_path) as conn:
         rows = conn.execute("""
             SELECT invoice_id, file_name, archive_path, total_cents, currency,
-                   status, approval_status, total_source
+                   validation_status, approval_status, total_source
             FROM invoices ORDER BY invoice_id
         """).fetchall()
 
@@ -44,7 +44,7 @@ def list_documents(db_path):
         total_text = "n/a" if total is None else f"{total:,.2f}"
         present = "yes" if row["archive_path"] and os.path.exists(row["archive_path"]) else "MISSING"
         print(f"{row['invoice_id']:<4} | {row['file_name'][:36]:<36} | {total_text:>12} | "
-              f"{row['status']:<12} | {row['approval_status']:<9} | {present}")
+              f"{row['validation_status']:<12} | {row['approval_status']:<9} | {present}")
     return 0
 
 

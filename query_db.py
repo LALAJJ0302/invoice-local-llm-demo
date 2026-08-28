@@ -17,7 +17,7 @@ def view_database_records(db_path: str = DEFAULT_DB_PATH):
             i.invoice_id,
             i.run_id,
             i.file_name,
-            i.status,
+            i.validation_status,
             i.validation_score,
             i.invoice_number,
             i.vendor_name,
@@ -45,7 +45,7 @@ def view_database_records(db_path: str = DEFAULT_DB_PATH):
         total = from_cents(row["total_cents"])
         total_str = "N/A" if total is None else f"{total:,.2f} {row['currency'] or ''}".strip()
         print(f"{row['invoice_id']:<4} | {row['run_id']:<4} | {row['file_name'][:34]:<34} | "
-              f"{row['status']:<12} | {row['validation_score']:<6.2f} | "
+              f"{row['validation_status']:<12} | {row['validation_score']:<6.2f} | "
               f"{(row['invoice_number'] or 'N/A'):<14} | {(row['vendor_name'] or 'N/A')[:18]:<18} | "
               f"{total_str:<14} | {row['total_source']:<9} | {row['line_items']:<5}")
 

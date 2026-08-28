@@ -29,11 +29,12 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python migrations/002_rename_total_source.py
 ./.venv/bin/python migrations/003_fix_date_check.py
 ./.venv/bin/python migrations/004_email_and_tasks.py
+./.venv/bin/python migrations/005_rename_validation_status.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
 ./.venv/bin/python query_db.py                   # inspect records
 ./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
 ./.venv/bin/python evaluation/run_eval.py        # per-field accuracy vs ground truth
-./.venv/bin/python -m pytest tests/ -q           # 138 storage and migration tests
+./.venv/bin/python -m pytest tests/ -q           # 141 storage and migration tests
 ./.venv/bin/python reprocess.py --list           # what is stored, and is its file still there
 ```
 

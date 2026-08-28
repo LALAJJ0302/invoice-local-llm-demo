@@ -15,10 +15,10 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 DEFAULT_DB_PATH = "workflow_platform.db"
 
-VALID_STATUSES = ("Validated", "NeedsReview", "Failed")
+VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
 VALID_TOTAL_SOURCES = ("model", "fallback", "manual")
 VALID_TASK_TYPES = ("Review", "Approve", "Fix")
 VALID_TASK_STATES = ("Open", "InProgress", "Done", "Cancelled")
@@ -82,8 +82,12 @@ CREATE TABLE invoices (
                                      invoice_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
     total_cents       INTEGER CHECK (total_cents IS NULL OR total_cents >= 0),
     currency          TEXT    CHECK (currency IS NULL OR currency = 'Unknown' OR length(currency) = 3),
+    -- The gate's score, and the verdict derived from it by thresholding. Both are
+    -- written by ConfidenceValidator, never by the model and never by a person. The
+    -- 'validation_' stem keeps that ownership visible next to approval_status below.
     validation_score  REAL    NOT NULL CHECK (validation_score BETWEEN 0 AND 1),
-    status            TEXT    NOT NULL CHECK (status IN ('Validated','NeedsReview','Failed')),
+    validation_status TEXT    NOT NULL
+                              CHECK (validation_status IN ('Validated','NeedsReview','Failed')),
     total_source      TEXT    NOT NULL DEFAULT 'model'
                               CHECK (total_source IN ('model','fallback','manual')),
     approval_status   TEXT    NOT NULL DEFAULT 'Pending'
@@ -98,7 +102,7 @@ CREATE TABLE invoices (
 );
 
 CREATE UNIQUE INDEX ux_invoices_content ON invoices(content_sha256);
-CREATE INDEX ix_invoices_status ON invoices(status);
+CREATE INDEX ix_invoices_status ON invoices(validation_status);
 CREATE INDEX ix_invoices_vendor ON invoices(vendor_name);
 CREATE INDEX ix_invoices_run    ON invoices(run_id);
 
@@ -411,7 +415,7 @@ class StorageManager:
         content_sha256: str,
         extracted: Dict[str, Any],
         validation_score: float,
-        status: str,
+        validation_status: str,
         archive_path: Optional[str],
         raw_json: str,
         email_id: Optional[int] = None,
@@ -422,8 +426,9 @@ class StorageManager:
         of appending a duplicate. approval_status and reviewed_at are never overwritten:
         they record a human decision, not an extraction result.
         """
-        if status not in VALID_STATUSES:
-            raise ValueError(f"status must be one of {VALID_STATUSES}, got {status!r}")
+        if validation_status not in VALID_VALIDATION_STATUSES:
+            raise ValueError(f"validation_status must be one of {VALID_VALIDATION_STATUSES}, "
+                             f"got {validation_status!r}")
 
         rows = normalise_items(extracted.get("items"))
         total_cents = to_cents(extracted.get("total_amount"))
@@ -448,7 +453,7 @@ class StorageManager:
                 INSERT INTO invoices (
                     run_id, file_name, source_sha256, content_sha256, invoice_number,
                     vendor_name, invoice_date, total_cents, currency, validation_score,
-                    status, total_source, archive_path, raw_json, email_id, processed_at
+                    validation_status, total_source, archive_path, raw_json, email_id, processed_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(content_sha256) DO UPDATE SET
                     run_id            = excluded.run_id,
@@ -460,7 +465,7 @@ class StorageManager:
                     total_cents       = excluded.total_cents,
                     currency          = excluded.currency,
                     validation_score  = excluded.validation_score,
-                    status            = excluded.status,
+                    validation_status = excluded.validation_status,
                     total_source      = excluded.total_source,
                     archive_path      = excluded.archive_path,
                     raw_json          = excluded.raw_json,
@@ -481,7 +486,7 @@ class StorageManager:
                     total_cents,
                     coerce_currency(extracted.get("currency")),
                     validation_score,
-                    status,
+                    validation_status,
                     total_source,
                     archive_path,
                     raw_json,
@@ -641,7 +646,7 @@ class StorageManager:
                 f"""
                 SELECT t.task_id, t.task_type, t.reason, t.assignee, t.state, t.created_at,
                        i.invoice_id, i.file_name, i.vendor_name, i.total_cents,
-                       i.status, i.approval_status
+                       i.validation_status, i.approval_status
                 FROM tasks t
                 JOIN invoices i ON i.invoice_id = t.invoice_id
                 WHERE t.state IN ({placeholders})

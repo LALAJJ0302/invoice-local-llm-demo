@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import storage  # noqa: E402
 from storage import (  # noqa: E402
-    VALID_STATUSES,
+    VALID_VALIDATION_STATUSES,
     coerce_currency,
     coerce_date,
     connect,
@@ -236,7 +236,7 @@ def migrate(db_path, dry_run=False):
                     total_cents, extraction_source, note = recovered, "fallback", reason
 
             status = legacy.get("status")
-            if status not in VALID_STATUSES:
+            if status not in VALID_VALIDATION_STATUSES:
                 warnings.append(f"row {legacy_id} ({file_name}): status {status!r} is not valid, set to NeedsReview")
                 status = "NeedsReview"
 

@@ -278,7 +278,7 @@ class WorkflowOrchestrator:
                 content_sha256=content_sha256,
                 extracted=data.model_dump(),
                 validation_score=record.confidence_score,
-                status=record.status,
+                validation_status=record.status,
                 archive_path=record.archive_path,
                 raw_json=data.model_dump_json(),
             )

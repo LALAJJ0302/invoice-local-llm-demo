@@ -28,7 +28,7 @@ def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
             invoice_id AS id,
             run_id,
             file_name,
-            status,
+            validation_status,
             approval_status,
             reviewed_at,
             validation_score,
@@ -115,7 +115,7 @@ def load_open_tasks() -> pd.DataFrame:
         "File": r["file_name"],
         "Vendor": r["vendor_name"],
         "Amount": None if r["total_cents"] is None else r["total_cents"] / 100.0,
-        "Data Quality": r["status"],
+        "Data Quality": r["validation_status"],
         "Approval": r["approval_status"],
         "Why": r["reason"],
         "Opened": r["created_at"],
@@ -137,8 +137,8 @@ if df.empty:
 # 3. KPI Metrics
 # =====================================================================
 total_docs = len(df)
-validated_docs = len(df[df["status"] == "Validated"])
-needs_review_docs = len(df[df["status"] == "NeedsReview"])
+validated_docs = len(df[df["validation_status"] == "Validated"])
+needs_review_docs = len(df[df["validation_status"] == "NeedsReview"])
 auto_rate = (validated_docs / total_docs) * 100 if total_docs > 0 else 0
 total_spend = df[df["total_amount"] > 0]["total_amount"].sum()
 avg_validation = df["validation_score"].mean()
@@ -181,7 +181,7 @@ chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
     st.subheader("📊 Validation Status Breakdown")
-    status_summary = df["status"].value_counts().reset_index()
+    status_summary = df["validation_status"].value_counts().reset_index()
     status_summary.columns = ["Status", "Count"]
     fig_status = px.pie(
         status_summary, 
@@ -248,7 +248,7 @@ status_filter = st.sidebar.multiselect(
 )
 search_text = st.sidebar.text_input("Search Vendor / Invoice # / File:")
 
-filtered_df = df[df["status"].isin(status_filter)]
+filtered_df = df[df["validation_status"].isin(status_filter)]
 if search_text:
     filtered_df = filtered_df[
         filtered_df["vendor_name"].str.contains(search_text, case=False, na=False) |
@@ -260,7 +260,7 @@ if search_text:
 table_display = filtered_df[[
     "id",
     "file_name",
-    "status",                 # pipeline judgement
+    "validation_status",      # the gate's verdict, not the model's and not a person's
     "validation_score",
     "approval_status",        # human decision
     "total_source",
@@ -315,13 +315,13 @@ if selected_id:
             st.info("This total was derived from the line items, not read from the document.")
 
         st.divider()
-        st.markdown(f"**Data Quality (pipeline):** `{row['status']}` "
+        st.markdown(f"**Data Quality (pipeline):** `{row['validation_status']}` "
                     f"at score `{row['validation_score']:.2f}`")
         st.markdown(f"**Approval (human):** `{row['approval_status']}`")
         if row["reviewed_at"]:
             st.markdown(f"**Reviewed At:** `{row['reviewed_at']}`")
 
-        if row["status"] == "NeedsReview":
+        if row["validation_status"] == "NeedsReview":
             st.warning("⚠️ The pipeline was not confident about this document. Check it before approving.")
 
         decision_col1, decision_col2 = st.columns(2)

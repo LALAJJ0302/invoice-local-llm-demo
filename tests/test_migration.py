@@ -36,6 +36,7 @@ m001 = load_migration("001_normalise.py")
 m002 = load_migration("002_rename_total_source.py")
 m003 = load_migration("003_fix_date_check.py")
 m004 = load_migration("004_email_and_tasks.py")
+m005 = load_migration("005_rename_validation_status.py")
 
 
 LEGACY_DDL = """
@@ -108,6 +109,7 @@ def migrated_db(legacy_db):
     assert m002.migrate(legacy_db) == 0
     assert m003.migrate(legacy_db) == 0
     assert m004.migrate(legacy_db) == 0
+    assert m005.migrate(legacy_db) == 0
     return legacy_db
 
 
@@ -316,7 +318,7 @@ class TestChain:
         with connect(migrated_db) as conn:
             versions = [r["version"] for r in
                         conn.execute("SELECT version FROM schema_version ORDER BY version")]
-        assert versions == [1, 2, 3, 4]
+        assert versions == [1, 2, 3, 4, 5]
 
     def test_migrated_matches_fresh(self, migrated_db, tmp_path):
         """A replayed migration chain and a fresh storage.DDL database must agree.
@@ -354,7 +356,7 @@ class TestChain:
                        "date": "2026-08-10", "total_amount": 42.5, "currency": "AUD",
                        "items": [{"description": "Thing", "quantity": 1,
                                   "unit_price": 42.5, "total": 42.5}]},
-            validation_score=0.9, status="Validated",
+            validation_score=0.9, validation_status="Validated",
             archive_path="/tmp/new.pdf", raw_json="{}")
         assert result["was_update"] is False
         assert result["total_cents"] == 4250
@@ -374,5 +376,5 @@ class TestChain:
     def test_rerunning_the_whole_sequence_is_a_clean_no_op(self, migrated_db):
         """A teammate following the quickstart runs every migration in order. Doing that
         twice must succeed, not report failure on the ones already applied."""
-        for module in (m001, m002, m003, m004):
+        for module in (m001, m002, m003, m004, m005):
             assert module.migrate(migrated_db) == 0, f"{module.__name__} failed on re-run"

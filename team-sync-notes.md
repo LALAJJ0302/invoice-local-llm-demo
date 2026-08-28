@@ -152,6 +152,7 @@ These touch shared contracts, so I am not making them alone.
 | # | Decision | My recommendation | Cost if we defer |
 |---|---|---|---|
 | D1 | Rename `ProcessedRecord.confidence_score` to `validation_score` | Rename. It measures completeness and substring matching, not confidence, and calling it confidence misleads whoever reads the report | Low, but the name misleads the marker too |
+| D6 | The database column `status` is now `validation_status` | **Already renamed** in migration 005. `model_result_status` was considered and rejected, because the value comes from our gate thresholding its own score, not from the model. Ratify or tell me to change it | Low. The rename is done and reversible with one more migration |
 | D2 | Split `status` (data quality, written by the pipeline) from `approval_status` (business decision, written by a person) | Split. **Already implemented**: approving now writes `approval_status` and `reviewed_at` and leaves `status` and `validation_score` untouched. I need you to ratify it, or tell me to revert | Medium. A row can now read `NeedsReview` and `Approved` at once. That is intended, but you should agree it reads correctly before a marker sees it |
 | D3 | Do we fix extraction (§3.1) before the demo, or demo the 20% and explain it? | **Fix it, and report both numbers.** Before and after is a stronger result than either alone | High. This shapes the whole presentation |
 | ~~D4~~ | ~~Who owns sending the Copilot email~~ | **Closed 2026-08-28, Copilot confirmed not mandatory** | n/a |
@@ -244,6 +245,25 @@ settled.**
 The Teams and Jira calls are still simulated. `external_ref` is there for a real Jira key and stays
 NULL. We do not need a real integration to demonstrate the concept, and pretending we have one would
 be worse than an honest placeholder.
+
+### One column renamed, 2026-08-28
+
+`invoices.status` is now `invoices.validation_status` (migration 005). The old name did not say
+whose judgement it held, which stopped being acceptable once `approval_status` sat next to it.
+
+I want to record why `model_result_status` was rejected, because the reasoning is the same one in
+§3.1. That value never comes from the model:
+
+```python
+status = "Validated" if final_score >= self.threshold else "NeedsReview"
+```
+
+It thresholds a score our own gate calculates. Drop the threshold to 0.30 tomorrow and every row
+flips to Validated while the model does identical work. Naming the column after the model would
+have written the wrong cause into the schema, where it outlives everyone's memory of this
+conversation. `validation_status` pairs with `validation_score`: one gate, a score and a verdict.
+
+Nothing about the data changed. Same three rows, same totals, CHECK constraint carried across.
 
 ## 6. What this means for the report
 

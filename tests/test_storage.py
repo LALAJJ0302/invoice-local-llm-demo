@@ -78,7 +78,7 @@ def save(store, run_id, **overrides):
         "content_sha256": "b" * 64,
         "extracted": extracted,
         "validation_score": 0.4,
-        "status": "NeedsReview",
+        "validation_status": "NeedsReview",
         "archive_path": "/tmp/archive/invoice.pdf",
         "raw_json": "{}",
     }
@@ -325,9 +325,9 @@ class TestUpsert:
         with connect(store.db_path) as conn:
             assert conn.execute("SELECT archive_path a FROM invoices").fetchone()["a"].startswith("/")
 
-    def test_rejects_an_invalid_status_before_reaching_sql(self, store, run_id):
+    def test_rejects_an_invalid_validation_status_before_reaching_sql(self, store, run_id):
         with pytest.raises(ValueError):
-            save(store, run_id, status="banana")
+            save(store, run_id, validation_status="banana")
 
 
 # =====================================================================
@@ -340,7 +340,7 @@ class TestConstraints:
         return store.db_path
 
     @pytest.mark.parametrize("label,sql", [
-        ("status",           "UPDATE invoices SET status='banana'"),
+        ("validation_status", "UPDATE invoices SET validation_status='banana'"),
         ("validation_score", "UPDATE invoices SET validation_score=99.7"),
         ("negative total",   "UPDATE invoices SET total_cents=-500000"),
         ("date format",      "UPDATE invoices SET invoice_date='not-a-date'"),
@@ -358,8 +358,8 @@ class TestConstraints:
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(
                     "INSERT INTO invoices (run_id, file_name, source_sha256, content_sha256, "
-                    "validation_score, status) SELECT run_id, file_name, source_sha256, "
-                    "content_sha256, validation_score, status FROM invoices")
+                    "validation_score, validation_status) SELECT run_id, file_name, source_sha256, "
+                    "content_sha256, validation_score, validation_status FROM invoices")
 
     def test_orphan_line_item_is_rejected(self, populated):
         with connect(populated) as conn:
@@ -587,3 +587,55 @@ class TestTasks:
     def test_resolve_rejects_a_non_terminal_state(self, store, invoice_id):
         with pytest.raises(ValueError):
             store.resolve_tasks(invoice_id, "Open")
+
+
+# =====================================================================
+# The validation / approval split, by name
+# =====================================================================
+class TestValidationVersusApproval:
+    """The column was called `status` until migration 005.
+
+    It was renamed because `status` did not say whose judgement it holds, which matters now
+    that approval_status sits beside it. `model_result_status` was rejected: the value is
+    produced by ConfidenceValidator thresholding its own score, not by the model. Changing
+    the threshold changes every value here while the model does identical work.
+    """
+
+    def test_the_gate_writes_validation_status_and_a_person_writes_approval_status(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT validation_status, approval_status FROM invoices").fetchone()
+        assert row["validation_status"] == "NeedsReview"   # from the gate
+        assert row["approval_status"] == "Pending"          # untouched by the pipeline
+
+        # A person decides. The gate's verdict and score must survive it.
+        with connect(store.db_path) as conn:
+            conn.execute("UPDATE invoices SET approval_status = 'Approved', "
+                         "reviewed_at = datetime('now') WHERE invoice_id = ?", (invoice_id,))
+            conn.commit()
+            row = conn.execute(
+                "SELECT validation_status, validation_score, approval_status FROM invoices").fetchone()
+        assert row["validation_status"] == "NeedsReview", "approval must not overwrite the gate"
+        assert row["validation_score"] == 0.4, "approval must not overwrite the measurement"
+        assert row["approval_status"] == "Approved"
+
+    def test_needs_review_and_approved_can_hold_at_once(self, store, run_id):
+        """Not a contradiction. It means the gate was not confident and a person accepted
+        the document anyway, which is the case the whole split exists to record."""
+        invoice_id = save(store, run_id)["invoice_id"]
+        with connect(store.db_path) as conn:
+            conn.execute("UPDATE invoices SET approval_status = 'Approved', "
+                         "reviewed_at = datetime('now') WHERE invoice_id = ?", (invoice_id,))
+            conn.commit()
+            count = conn.execute(
+                "SELECT COUNT(*) c FROM invoices "
+                "WHERE validation_status = 'NeedsReview' AND approval_status = 'Approved'"
+            ).fetchone()["c"]
+        assert count == 1
+
+    def test_the_old_column_name_is_gone(self, db):
+        with connect(db) as conn:
+            columns = [r["name"] for r in conn.execute("PRAGMA table_info(invoices)")]
+        assert "validation_status" in columns
+        assert "status" not in columns
