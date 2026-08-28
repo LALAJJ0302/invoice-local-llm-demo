@@ -1,0 +1,27 @@
+# Direct dependencies, pinned to the versions this project was developed and measured against.
+# Install with:  ./.venv/bin/python -m pip install -r requirements.txt
+#
+# Ollama the Python client is listed here. The Ollama *server* is a separate install
+# from https://ollama.com and must be running before main.py. Pull the model with:
+#     ollama pull llama3.2
+
+# Pipeline
+ollama==0.6.2
+pypdf==6.16.2
+pydantic==2.13.4
+python-dotenv==1.2.3
+
+# Dashboard
+streamlit==1.62.0
+pandas==3.0.5
+plotly==6.9.0
+
+# Test fixtures and mock invoice generation
+reportlab==5.0.1
+
+# Briefing document generation. The .docx is no longer tracked in git, because git cannot
+# merge a binary. generate_briefing_docx.py is the source of truth; this regenerates it.
+python-docx==1.2.0
+
+# Tests
+pytest==9.1.1
