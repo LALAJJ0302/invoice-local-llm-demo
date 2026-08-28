@@ -1,12 +1,14 @@
 import os
 import re
 import shutil
-import sqlite3
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 import ollama
+
+import storage
+from storage import StorageManager
 
 # =====================================================================
 # 1. Enhanced Data Schema Definitions
@@ -143,66 +145,45 @@ class ConfidenceValidator:
 # =====================================================================
 # 4. Storage Layer
 # =====================================================================
-class StorageManager:
-    """Manages SQLite operations."""
-
-    def __init__(self, db_path: str = "workflow_platform.db"):
-        self.db_path = db_path
-        self._init_database()
-
-    def _init_database(self):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS workflow_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    file_name TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    confidence_score REAL NOT NULL,
-                    invoice_number TEXT,
-                    vendor_name TEXT,
-                    date TEXT,
-                    total_amount REAL,
-                    currency TEXT,
-                    archive_path TEXT,
-                    raw_json TEXT,
-                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-
-    def save_record(self, record: ProcessedRecord):
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO workflow_records (
-                    file_name, status, confidence_score, invoice_number,
-                    vendor_name, date, total_amount, currency,
-                    archive_path, raw_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                record.file_name,
-                record.status,
-                record.confidence_score,
-                record.extracted_data.invoice_number,
-                record.extracted_data.vendor_name,
-                record.extracted_data.date,
-                record.extracted_data.total_amount,
-                record.extracted_data.currency,
-                record.archive_path,
-                record.extracted_data.model_dump_json()
-            ))
-            conn.commit()
+# The normalised schema, the content-hash upsert and the money helpers live in storage.py.
+# StorageManager is imported above. See database-spec.md.
 
 class DownstreamDispatcher:
-    """Simulates Teams and Jira notifications."""
-    @staticmethod
-    def send_teams_alert(file_name: str, status: str, confidence: float):
-        print(f"  └─ [Teams Webhook] Dispatched notification for {file_name} (Status: {status}, Score: {confidence})")
+    """Turns a processed document into the human work it implies.
 
-    @staticmethod
-    def create_jira_ticket(file_name: str, reason: str):
-        print(f"  └─ [Jira REST API] Created ticket for {file_name} (Reason: {reason})")
+    The Teams and Jira lines are still simulated: nothing here makes an HTTP call, and
+    tasks.external_ref stays NULL until a real integration exists. What changed is that the
+    task is now written to the database instead of only printed, so "how many documents are
+    waiting for a person" is answerable and survives the terminal being closed.
+
+    The routing rule is deliberately about what the document needs, not about the score:
+
+        NeedsReview -> Review    the pipeline could not read it confidently
+        Validated   -> Approve   it was read cleanly, but money still needs a human signature
+
+    A Validated document therefore still creates work. Automation reduces the reading, it
+    does not remove the approval.
+    """
+
+    def __init__(self, storage_manager: StorageManager):
+        self.storage = storage_manager
+
+    def dispatch(self, invoice_id: int, file_name: str, status: str, score: float) -> None:
+        if status == "NeedsReview":
+            task_type = "Review"
+            reason = f"Validation score {score:.2f} is below the gate threshold."
+        else:
+            task_type = "Approve"
+            reason = "Passed the validation gate. Awaiting business approval."
+
+        print(f"  └─ [Teams Webhook] Notified for {file_name} (Status: {status}, Score: {score})")
+
+        result = self.storage.open_task(invoice_id, task_type, reason)
+        if result["was_created"]:
+            print(f"  └─ [Task Queue] Opened {task_type} task #{result['task_id']}: {reason}")
+        else:
+            print(f"  └─ [Task Queue] {task_type} task #{result['task_id']} is already open, "
+                  "not duplicated.")
 
 # =====================================================================
 # 5. Workflow Orchestrator
@@ -218,7 +199,7 @@ class WorkflowOrchestrator:
         self.extractor = DocumentExtractor(model_name="llama3.2")
         self.validator = ConfidenceValidator(threshold=self.threshold)
         self.storage = StorageManager(db_path="workflow_platform.db")
-        self.dispatcher = DownstreamDispatcher()
+        self.dispatcher = DownstreamDispatcher(self.storage)
 
         os.makedirs(self.inbox_dir, exist_ok=True)
         os.makedirs(self.archive_dir, exist_ok=True)
@@ -231,8 +212,13 @@ class WorkflowOrchestrator:
             print(f"[*] Notice: No documents found in '{self.inbox_dir}'.")
             return
 
-        print(f"=== Starting AI Automation Pipeline ({len(files)} files found) ===")
+        run_id = self.storage.start_run(
+            model_name=self.extractor.model_name,
+            threshold=self.threshold,
+        )
+        print(f"=== Starting AI Automation Pipeline ({len(files)} files found, run_id={run_id}) ===")
 
+        processed_count = 0
         for file_name in files:
             source_path = os.path.join(self.inbox_dir, file_name)
             print(f"\n[Step 1: Ingestion] Reading file: {file_name}")
@@ -263,9 +249,18 @@ class WorkflowOrchestrator:
             confidence, status = self.validator.evaluate(data, raw_text)
             print(f"  └─ [Step 3: Confidence Gate] Confidence: {confidence} -> Status: {status}")
 
-            # 4. Storage and Archive
-            target_archive_path = os.path.join(self.archive_dir, file_name)
-            shutil.move(source_path, target_archive_path)
+            # 4. Storage, then archive.
+            # The database write commits first. If the move then fails, the file simply stays
+            # in inbox/ and the next run upserts onto the same row, rather than the old
+            # failure mode of a file archived with no record.
+            target_archive_path = os.path.abspath(os.path.join(self.archive_dir, file_name))
+            source_sha256 = storage.sha256_file(source_path)
+            if source_sha256 is None:
+                # The file was readable a moment ago, so this is close to impossible. Guard
+                # anyway: source_sha256 is NOT NULL, and a violation here would abort the run.
+                print(f"  └─ [Skip] Could not hash {file_name}.")
+                continue
+            content_sha256 = storage.content_hash(raw_text, source_sha256)
 
             record = ProcessedRecord(
                 file_name=file_name,
@@ -275,15 +270,40 @@ class WorkflowOrchestrator:
                 archive_path=target_archive_path,
                 processed_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             )
-            self.storage.save_record(record)
-            print(f"  └─ [Step 4: Storage] Saved to SQLite & moved to: {target_archive_path}")
+
+            result = self.storage.save_invoice(
+                run_id=run_id,
+                file_name=record.file_name,
+                source_sha256=source_sha256,
+                content_sha256=content_sha256,
+                extracted=data.model_dump(),
+                validation_score=record.confidence_score,
+                status=record.status,
+                archive_path=record.archive_path,
+                raw_json=data.model_dump_json(),
+            )
+            processed_count += 1
+
+            action = "Updated" if result["was_update"] else "Inserted"
+            total = storage.from_cents(result["total_cents"])
+            total_text = "no total" if total is None else f"{total:,.2f}"
+            if result["recovery_note"]:
+                total_text += f" (recovered from {result['recovery_note']})"
+            print(f"  └─ [Step 4: Storage] {action} invoice_id={result['invoice_id']}: "
+                  f"{total_text}, {result['line_item_count']} line items")
+
+            try:
+                shutil.move(source_path, target_archive_path)
+                print(f"  └─ [Step 4b: Archive] Moved to: {target_archive_path}")
+            except OSError as error:
+                print(f"  └─ [Warn] Record saved but archiving failed: {error}. "
+                      f"File left in {self.inbox_dir} for the next run.")
 
             # 5. Downstream Dispatch
-            self.dispatcher.send_teams_alert(file_name, status, confidence)
-            if status == "NeedsReview":
-                self.dispatcher.create_jira_ticket(file_name, "Low confidence score.")
+            self.dispatcher.dispatch(result["invoice_id"], file_name, status, confidence)
 
-        print("\n=== Workflow Completed Successfully ===")
+        self.storage.finish_run(run_id, processed_count)
+        print(f"\n=== Workflow Completed: {processed_count}/{len(files)} documents stored (run_id={run_id}) ===")
 
 if __name__ == "__main__":
     orchestrator = WorkflowOrchestrator(
