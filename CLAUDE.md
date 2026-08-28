@@ -24,17 +24,27 @@ Requires Ollama serving and a virtualenv (both already set up on Neo's machine).
 ```bash
 ollama serve &                                   # must be running before main.py
 ./.venv/bin/python generate_mock_invoices.py     # writes 3 sample PDFs to inbox/
+./.venv/bin/python -m pip install -r requirements.txt
+./.venv/bin/python migrations/001_normalise.py   # one-off: flat table -> normalised schema
+./.venv/bin/python migrations/002_rename_total_source.py
+./.venv/bin/python migrations/003_fix_date_check.py
+./.venv/bin/python migrations/004_email_and_tasks.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
 ./.venv/bin/python query_db.py                   # inspect records
 ./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
 ./.venv/bin/python evaluation/run_eval.py        # per-field accuracy vs ground truth
+./.venv/bin/python -m pytest tests/ -q           # 138 storage and migration tests
+./.venv/bin/python reprocess.py --list           # what is stored, and is its file still there
 ```
 
-Use `./.venv/bin/python`, not bare `python3`. Dependencies are not pinned; there is no
-`requirements.txt` yet (a known gap, see below).
+Use `./.venv/bin/python`, not bare `python3`. Dependencies are pinned in `requirements.txt`.
 
-`main.py` **moves** files out of `inbox/` into `archive/` and **appends** to SQLite on every run, so
-repeated runs accumulate duplicate rows. Regenerate the mocks before each run.
+`main.py` **moves** files out of `inbox/` into `archive/`. Since the Phase 4 redesign it **upserts**
+on a content hash, so regenerating the mocks and re-running updates the same three rows instead of
+accumulating duplicates. It writes to SQLite first and archives only after the commit.
+
+The migration is one-off and idempotent. It renames `workflow_records` to `workflow_records_v1`,
+keeps it, and takes a `.bak` copy of the database first. Running it twice is a no-op.
 
 ## Ownership
 
@@ -45,13 +55,13 @@ Three people, one codebase. Stay in your lane or say so first.
 | Intake (Phase 1) | `email_listener.py` | Luke |
 | Extraction (Phases 2-3) | `DocumentExtractor` in `main.py` | JJ |
 | Validation gate (Phase 5) | `ConfidenceValidator` in `main.py` | **Neo** |
-| Storage & archive (Phase 4) | `StorageManager` in `main.py` | **Neo** |
+| Storage & archive (Phase 4) | `storage.py`, `migrations/`, `query_db.py`, `reprocess.py` | **Neo** |
 | Dashboard & approval (Phase 5) | `app.py` | **Neo** |
 | Schemas | `ExtractedInvoice` etc. in `main.py` | shared contract, change by agreement |
 
-`main.py` is a single 293-line module holding four classes, which is the main source of merge
-conflicts. Splitting it along its own section banners into `extraction.py` / `validation.py` /
-`storage.py` / `pipeline.py` is proposed but not agreed.
+`main.py` is now 283 lines holding three classes: the storage layer moved out to `storage.py` in the
+Phase 4 redesign. Splitting the rest along its own section banners into `extraction.py` /
+`validation.py` / `pipeline.py` is proposed but not agreed.
 
 ## Current state (2026-08-26)
 
@@ -72,28 +82,52 @@ Do not attribute these failures to the model or attempt to fix them with prompt 
 ### Other confirmed defects
 
 - **The gate never verifies `total_amount`.** A hallucinated total of `999999.99` on a $1,500 invoice
-  scores 1.00 and passes as `Validated`. Only the amount lacks a source-text check.
+  scores 1.00 and passes as `Validated`. Only the amount lacks a source-text check. **This is now the
+  single largest open defect.** Needs its own spec before implementation.
 - **`confidence_score` is not a confidence score.** It measures field completeness and substring
-  agreement. Rename to `validation_score`.
-- **The approve button has never executed.** `app.py` uses `filtered_df["ID"]` where the frame has
-  lowercase `id`, raising `KeyError` and killing the whole Detail Inspector section.
-- **Correct totals are already in the database**, buried in the `raw_json` blob, while
-  `total_amount` reads `0.00`. On invoice 2 the model captured `"Grand Total": 2650.00` as a line
-  item. Normalising into a `line_items` table recovers all three totals with no extractor change.
+  agreement. Renamed to `validation_score` in the database (Phase 4). The in-memory Pydantic field
+  is still `confidence_score`, because `ProcessedRecord` is a shared contract and renaming it needs
+  the group's agreement.
+- ~~**The approve button has never executed.**~~ **Fixed 2026-08-26.** `app.py` used
+  `filtered_df["ID"]` where the frame has lowercase `id`, raising `KeyError` and killing the whole
+  Detail Inspector. Approving no longer overwrites `validation_score` with `1.0` either.
+- ~~**Correct totals trapped in the `raw_json` blob.**~~ **Fixed 2026-08-26** by migration 001. All
+  three stored totals now read 1500.00 / 2650.00 / 2350.00 against ground truth, recovered from
+  `line_items` with no extractor change. They carry `extraction_source = 'fallback'`, because the
+  model still extracts `0.00`: the *stored* totals are 3/3, the *extracted* totals are still 0/3.
 - Scanned/image PDFs are skipped entirely; `pypdf` needs a text layer, no OCR yet.
-- No `requirements.txt`, so teammates run different dependency versions.
-- `Enterprise_AI_Workflow_Briefing.docx` is tracked and binary, so git cannot merge it.
+- ~~No `requirements.txt`~~ **Fixed 2026-08-28.** Every direct dependency pinned.
+- ~~`Enterprise_AI_Workflow_Briefing.docx` is tracked and binary~~ **Fixed 2026-08-28.** Untracked
+  and gitignored; `generate_briefing_docx.py` rebuilds it. The files inside are byte-identical, but
+  the `.docx` itself is not: it is a ZIP that stamps each entry with the write time, so an unchanged
+  document still produces a file git reports as modified. That is the reason it cannot be tracked.
+- ~~The `invoice_date` CHECK rejected every real date~~ **Fixed 2026-08-28** by migration 003.
+  `GLOB '____-__-__'` has no wildcard: `_` is literal in GLOB, that is `LIKE`'s wildcard. Never fired
+  because every date is NULL. Found by the test suite on the day it was written.
 
 ## Work in progress
 
-Branch `evaluation-and-gate-fixes`, local only, **nothing pushed**.
+Branches `evaluation-and-gate-fixes` and `neo/database-redesign` (the latter off the former, so it
+carries the spec). Local only, **nothing pushed**.
 
 - `evaluation/` measures per-field accuracy against independently transcribed ground truth. Reads
   nothing from `inbox/` or `archive/` and edits no existing file. See `evaluation/evaluation-method.md`,
   including its honest "what this does NOT measure" section (n=3, synthetic, no OCR path).
-- `database-redesign-spec.md` is the Phase 4 plan: `processing_runs` / `invoices` / `line_items`,
-  constraints, content-hash dedup with upsert, integer cents, versioned migrations, and a backfill
-  that recovers the trapped totals. **Blocked on three decisions listed at the end of that file.**
+- `database-spec.md` is the **single source of truth for the data layer**: the schema, a
+  field-by-field data dictionary, the design decisions with their evidence, migration history, and
+  what the database does and does not prove. It absorbed the two earlier specs
+  (`database-redesign-spec.md`, `database-completion-spec.md`), which are gone from the tree but
+  remain in git history. Phase 4 is **implemented 2026-08-26** in `storage.py` and
+  `migrations/001_normalise.py`; §8 lists what is left.
+
+  One correction it records: the dedup key is a hash of the **extracted text**, not of the file
+  bytes. ReportLab writes a random `/ID` into every PDF, so regenerating the mocks changes the byte
+  hash while the content is identical. A byte-hash unique index would have deduplicated nothing.
+
+- `requirements-spec.md` is the functional and non-functional requirements with an honest
+  implementation status per requirement, plus assumptions and risks.
+- `team-sync-notes.md` is the agenda for the group: what is done, what Neo is concerned about,
+  the four decisions the group owes, and the work Neo is doing without waiting.
 
 Deferred until the group gets there: Trigger/Approval, the Jira task, and splitting `status`
 (data quality) from `approval_status` (business approval).
@@ -127,5 +161,5 @@ Neo's Obsidian vault is the source of truth for project history and decisions:
 - `.../local-pipeline-pivot.md` — the still-unanswered question of whether Copilot is mandatory,
   which could invalidate this entire local branch
 
-**Open and blocking:** the supervisor has not confirmed whether Copilot is still a mandatory tool.
-JJ built as though the answer is no. If it is yes, this becomes a hybrid, not a replacement.
+**Resolved 2026-08-28:** Copilot is confirmed **not** mandatory. The local stack stands as a
+replacement for the Microsoft design, not a hybrid. This was the project's largest open unknown.
