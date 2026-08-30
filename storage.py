@@ -15,12 +15,23 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
 VALID_TOTAL_SOURCES = ("model", "fallback", "manual")
-VALID_TASK_TYPES = ("Review", "Approve", "Fix")
+VALID_TASK_TYPES = ("Review", "Approve", "Fix", "Payment", "File")
+VALID_RECONCILIATIONS = ("exact", "plausible", "short", "unknown")
+VALID_DOCUMENT_TYPES = ("Invoice", "Receipt", "Unknown")
+VALID_OUTBOUND_CHANNELS = ("Teams", "Jira", "Planner", "Email")
+VALID_OUTBOUND_STATES = ("Pending", "Sent", "Failed")
+
+# What a document calls itself, usually on its first line. Checked against the opening lines
+# only, because these words also appear mid-document ("please pay this invoice") where they
+# say nothing about the document's type.
+INVOICE_MARKERS = ("tax invoice", "invoice", "bill to", "amount due", "payment due")
+RECEIPT_MARKERS = ("receipt", "paid", "payment received", "thank you for your payment")
+CLASSIFY_LINES = 6
 VALID_TASK_STATES = ("Open", "InProgress", "Done", "Cancelled")
 OPEN_TASK_STATES = ("Open", "InProgress")
 
@@ -98,7 +109,26 @@ CREATE TABLE invoices (
     processed_at      TEXT    NOT NULL DEFAULT (datetime('now')),
     -- Nullable on purpose: a document can be dropped straight into inbox/ by hand, which
     -- is the documented way to test without Gmail. NULL means "not delivered by email".
-    email_id          INTEGER REFERENCES email_messages(email_id)
+    email_id          INTEGER REFERENCES email_messages(email_id),
+    -- The three below sit last deliberately. ALTER TABLE ADD COLUMN can only append, so a
+    -- database built by replaying the migrations gets them here. Declaring them anywhere
+    -- else would make a fresh database differ from a migrated one in column order, which
+    -- changes what SELECT * returns. tests/test_migration.py asserts the two match.
+    --
+    -- Always 'model' until the extractor reports which path produced the vendor name: the
+    -- filename heuristic in DocumentExtractor can silently replace a model answer and
+    -- storage cannot see that it happened. See storage-completion-spec.md 1.2.
+    vendor_source     TEXT    NOT NULL DEFAULT 'model'
+                              CHECK (vendor_source IN ('model','fallback','manual')),
+    -- An invoice is unpaid and needs approval; a receipt is already paid and needs filing.
+    -- The follow-on task depends on this, not on how confidently the document was read.
+    document_type     TEXT    NOT NULL DEFAULT 'Unknown'
+                              CHECK (document_type IN ('Invoice','Receipt','Unknown')),
+    -- total_cents against the sum of line items. A flag, not a constraint: tax and shipping
+    -- make 'plausible' legitimate. Only 'short' is a genuine anomaly, because neither can
+    -- reduce a total.
+    reconciliation    TEXT    NOT NULL DEFAULT 'unknown'
+                              CHECK (reconciliation IN ('exact','plausible','short','unknown'))
 );
 
 CREATE UNIQUE INDEX ux_invoices_content ON invoices(content_sha256);
@@ -123,7 +153,7 @@ CREATE INDEX ix_line_items_invoice ON line_items(invoice_id);
 CREATE TABLE tasks (
     task_id      INTEGER PRIMARY KEY AUTOINCREMENT,
     invoice_id   INTEGER NOT NULL REFERENCES invoices(invoice_id) ON DELETE CASCADE,
-    task_type    TEXT    NOT NULL CHECK (task_type IN ('Review','Approve','Fix')),
+    task_type    TEXT    NOT NULL CHECK (task_type IN ('Review','Approve','Fix','Payment','File')),
     reason       TEXT,
     assignee     TEXT,
     state        TEXT    NOT NULL DEFAULT 'Open'
@@ -143,6 +173,28 @@ CREATE UNIQUE INDEX ux_tasks_one_open ON tasks(invoice_id, task_type)
 
 CREATE INDEX ix_tasks_state ON tasks(state);
 CREATE INDEX ix_tasks_invoice ON tasks(invoice_id);
+
+-- One row per thing that should reach an external system. Nothing sends anything yet: rows
+-- are written Pending and stay there. That is the honest state of the project, and a queue
+-- holding pending notifications demonstrates the workflow, where a print statement that has
+-- already scrolled past demonstrates nothing.
+CREATE TABLE outbound_messages (
+    outbox_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id      INTEGER REFERENCES tasks(task_id) ON DELETE SET NULL,
+    invoice_id   INTEGER NOT NULL REFERENCES invoices(invoice_id) ON DELETE CASCADE,
+    channel      TEXT    NOT NULL CHECK (channel IN ('Teams','Jira','Planner','Email')),
+    payload      TEXT    NOT NULL,
+    state        TEXT    NOT NULL DEFAULT 'Pending'
+                         CHECK (state IN ('Pending','Sent','Failed')),
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    sent_at      TEXT,
+    external_ref TEXT,
+    error        TEXT,
+    CHECK ((state = 'Sent') = (sent_at IS NOT NULL))
+);
+
+CREATE INDEX ix_outbound_state ON outbound_messages(state);
+CREATE INDEX ix_outbound_invoice ON outbound_messages(invoice_id);
 """
 
 
@@ -352,6 +404,51 @@ def recover_total_cents(rows: List[Dict[str, Any]]) -> Tuple[Optional[int], Opti
     return None, None
 
 
+def classify_document(raw_text: str) -> str:
+    """Guesses whether a document is an Invoice or a Receipt from how it labels itself.
+
+    Only the opening lines are read. The same words appear mid-document ("please pay this
+    invoice", "thank you for your payment") where they describe an instruction rather than
+    the document's type.
+
+    Returns 'Unknown' when neither or both kinds of marker appear. Unknown is a real answer
+    here: it routes the document to a person instead of routing it on a guess.
+    """
+    head = " ".join((raw_text or "").splitlines()[:CLASSIFY_LINES]).lower()
+    invoice_hit = any(marker in head for marker in INVOICE_MARKERS)
+    receipt_hit = any(marker in head for marker in RECEIPT_MARKERS)
+    if invoice_hit and not receipt_hit:
+        return "Invoice"
+    if receipt_hit and not invoice_hit:
+        return "Receipt"
+    return "Unknown"
+
+
+def reconcile(total_cents: Optional[int], rows: List[Dict[str, Any]]) -> str:
+    """Compares the stated total against the sum of the line items.
+
+    We hold the same amount twice, read two different ways: once from a total line, once
+    from a table of items. Disagreement means at least one of them is wrong.
+
+        exact      they agree
+        plausible  total is higher, which tax or shipping would explain
+        short      total is lower, which neither can explain
+        unknown    there are no line items to compare against
+
+    A flag, not a constraint. 'plausible' is the normal state of any real invoice carrying
+    GST or freight. Only 'short' is an anomaly on its own.
+    """
+    line_totals = [r["line_total_cents"] for r in rows
+                   if not r["is_summary_row"] and r["line_total_cents"] is not None]
+    if total_cents is None or not line_totals:
+        return "unknown"
+
+    line_sum = sum(line_totals)
+    if total_cents == line_sum:
+        return "exact"
+    return "plausible" if total_cents > line_sum else "short"
+
+
 # =====================================================================
 # Storage manager
 # =====================================================================
@@ -419,6 +516,7 @@ class StorageManager:
         archive_path: Optional[str],
         raw_json: str,
         email_id: Optional[int] = None,
+        raw_text: str = "",
     ) -> Dict[str, Any]:
         """Upserts one invoice and replaces its line items, in a single transaction.
 
@@ -440,6 +538,9 @@ class StorageManager:
             if recovered:
                 total_cents, total_source, recovery_note = recovered, "fallback", reason
 
+        document_type = classify_document(raw_text)
+        reconciliation = reconcile(total_cents, rows)
+
         if archive_path:
             archive_path = os.path.abspath(archive_path)
 
@@ -453,8 +554,9 @@ class StorageManager:
                 INSERT INTO invoices (
                     run_id, file_name, source_sha256, content_sha256, invoice_number,
                     vendor_name, invoice_date, total_cents, currency, validation_score,
-                    validation_status, total_source, archive_path, raw_json, email_id, processed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    validation_status, total_source, document_type, reconciliation,
+                    archive_path, raw_json, email_id, processed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(content_sha256) DO UPDATE SET
                     run_id            = excluded.run_id,
                     file_name         = excluded.file_name,
@@ -467,6 +569,12 @@ class StorageManager:
                     validation_score  = excluded.validation_score,
                     validation_status = excluded.validation_status,
                     total_source      = excluded.total_source,
+                    reconciliation    = excluded.reconciliation,
+                    -- document_type is preserved on update: a person may have corrected it,
+                    -- and a heuristic must not overwrite a human classification.
+                    document_type     = CASE WHEN invoices.document_type = 'Unknown'
+                                             THEN excluded.document_type
+                                             ELSE invoices.document_type END,
                     archive_path      = excluded.archive_path,
                     raw_json          = excluded.raw_json,
                     -- COALESCE so a manual re-run never erases the email a document
@@ -488,6 +596,8 @@ class StorageManager:
                     validation_score,
                     validation_status,
                     total_source,
+                    document_type,
+                    reconciliation,
                     archive_path,
                     raw_json,
                     email_id,
@@ -520,6 +630,8 @@ class StorageManager:
             "total_source": total_source,
             "recovery_note": recovery_note,
             "line_item_count": len(rows),
+            "document_type": document_type,
+            "reconciliation": reconciliation,
         }
 
     # -- email intake --------------------------------------------------
@@ -638,6 +750,69 @@ class StorageManager:
             conn.commit()
             return cursor.rowcount
 
+    # -- the post-approval hand-off ------------------------------------
+    # What a document needs once a person has accepted it. Depends on what the document IS,
+    # not on how confidently it was read: an invoice still has to be paid, a receipt only
+    # has to be filed. An unclassified document goes back to a person rather than being
+    # routed on a guess.
+    FOLLOWUP_BY_TYPE = {
+        "Invoice": ("Payment", "Approved invoice. Payment has not been scheduled."),
+        "Receipt": ("File", "Approved receipt. Nothing to pay; file and reconcile."),
+        "Unknown": ("Review", "Approved, but the document type is unknown. Classify it before routing."),
+    }
+
+    def open_followup_task(self, invoice_id: int) -> Optional[Dict[str, Any]]:
+        """Opens the task that follows approval. Returns None if the invoice is not approved.
+
+        Approval used to terminate: the task closed and nothing happened next. This is the
+        hand-off from Phase 5 to Phase 6. Rejection deliberately opens nothing, because the
+        document was not accepted and nothing downstream should act on it.
+        """
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, document_type FROM invoices WHERE invoice_id = ?",
+                (invoice_id,)).fetchone()
+        if not row or row["approval_status"] != "Approved":
+            return None
+
+        task_type, reason = self.FOLLOWUP_BY_TYPE[row["document_type"]]
+        result = self.open_task(invoice_id, task_type, reason)
+        result["task_type"] = task_type
+        return result
+
+    # -- the outbox ----------------------------------------------------
+    def queue_outbound(self, invoice_id: int, channel: str, payload: str,
+                       task_id: Optional[int] = None) -> int:
+        """Records that something should reach an external system. Sends nothing.
+
+        Rows are written Pending and stay there. No Teams, Jira or Planner call is made
+        anywhere in this codebase. This is the honest shape of where the project is: the
+        decision to notify is made and recorded, the transport is not built. A real
+        integration would read this table and fill in external_ref.
+        """
+        if channel not in VALID_OUTBOUND_CHANNELS:
+            raise ValueError(f"channel must be one of {VALID_OUTBOUND_CHANNELS}, got {channel!r}")
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "INSERT INTO outbound_messages (task_id, invoice_id, channel, payload) "
+                "VALUES (?, ?, ?, ?) RETURNING outbox_id",
+                (task_id, invoice_id, channel, payload))
+            outbox_id = int(cursor.fetchone()["outbox_id"])
+            conn.commit()
+        return outbox_id
+
+    def pending_outbound(self) -> List[sqlite3.Row]:
+        """The dispatch queue: what would be sent if the integrations existed."""
+        with connect(self.db_path) as conn:
+            return conn.execute("""
+                SELECT o.outbox_id, o.channel, o.payload, o.state, o.created_at,
+                       i.invoice_id, i.file_name, i.vendor_name, i.document_type
+                FROM outbound_messages o
+                JOIN invoices i ON i.invoice_id = o.invoice_id
+                WHERE o.state = 'Pending'
+                ORDER BY o.created_at, o.outbox_id
+            """).fetchall()
+
     def open_tasks(self) -> List[sqlite3.Row]:
         """The work queue: every live task with the invoice it belongs to."""
         placeholders = ",".join("?" for _ in OPEN_TASK_STATES)
@@ -646,7 +821,7 @@ class StorageManager:
                 f"""
                 SELECT t.task_id, t.task_type, t.reason, t.assignee, t.state, t.created_at,
                        i.invoice_id, i.file_name, i.vendor_name, i.total_cents,
-                       i.validation_status, i.approval_status
+                       i.validation_status, i.approval_status, i.document_type
                 FROM tasks t
                 JOIN invoices i ON i.invoice_id = t.invoice_id
                 WHERE t.state IN ({placeholders})

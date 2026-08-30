@@ -269,9 +269,16 @@ class DownstreamDispatcher:
         # which is the difference between a queue a person can triage and one they cannot.
         reason = reason or f"Validation score {score:.2f}."
 
-        print(f"  └─ [Teams Webhook] Notified for {file_name} (Status: {status}, Score: {score})")
-
         result = self.storage.open_task(invoice_id, task_type, reason)
+
+        # The Teams line is still simulated. What changed is that the intent is recorded in
+        # outbound_messages instead of only printed, so "what have we dispatched, and did it
+        # succeed" is answerable. Nothing here contacts Teams; the row stays Pending.
+        self.storage.queue_outbound(
+            invoice_id, "Teams",
+            f"{file_name}: {status} at score {score:.2f}. {reason}",
+            task_id=result["task_id"])
+        print(f"  └─ [Teams Webhook] Queued for {file_name} (Status: {status}, Score: {score})")
         if result["was_created"]:
             print(f"  └─ [Task Queue] Opened {task_type} task #{result['task_id']}: {reason}")
         else:
@@ -378,6 +385,7 @@ class WorkflowOrchestrator:
                 validation_status=record.status,
                 archive_path=record.archive_path,
                 raw_json=data.model_dump_json(),
+                raw_text=raw_text,
             )
             processed_count += 1
 
@@ -387,7 +395,11 @@ class WorkflowOrchestrator:
             if result["recovery_note"]:
                 total_text += f" (recovered from {result['recovery_note']})"
             print(f"  └─ [Step 4: Storage] {action} invoice_id={result['invoice_id']}: "
-                  f"{total_text}, {result['line_item_count']} line items")
+                  f"{total_text}, {result['line_item_count']} line items, "
+                  f"{result['document_type']}, reconciliation {result['reconciliation']}")
+            if result["reconciliation"] == "short":
+                print("     [Warn] The stated total is less than the line items add up to. "
+                      "Tax and shipping cannot reduce a total, so one of the two is wrong.")
 
             try:
                 shutil.move(source_path, target_archive_path)

@@ -24,6 +24,8 @@ def view_database_records(db_path: str = DEFAULT_DB_PATH):
             i.total_cents,
             i.currency,
             i.total_source,
+            i.document_type,
+            i.reconciliation,
             i.approval_status,
             (SELECT COUNT(*) FROM line_items l WHERE l.invoice_id = i.invoice_id) AS line_items
         FROM invoices i
@@ -47,7 +49,7 @@ def view_database_records(db_path: str = DEFAULT_DB_PATH):
         print(f"{row['invoice_id']:<4} | {row['run_id']:<4} | {row['file_name'][:34]:<34} | "
               f"{row['validation_status']:<12} | {row['validation_score']:<6.2f} | "
               f"{(row['invoice_number'] or 'N/A'):<14} | {(row['vendor_name'] or 'N/A')[:18]:<18} | "
-              f"{total_str:<14} | {row['total_source']:<9} | {row['line_items']:<5}")
+              f"{total_str:<14} | {row['total_source']:<9} | {row['reconciliation']:<12} | {row['line_items']:<5}")
 
     print("=" * len(header))
     print("Source 'fallback' means the total was derived from line items, not extracted.")

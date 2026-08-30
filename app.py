@@ -33,6 +33,8 @@ def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
             reviewed_at,
             validation_score,
             total_source,
+            document_type,
+            reconciliation,
             invoice_number,
             vendor_name,
             invoice_date,
@@ -99,8 +101,20 @@ def record_decision(record_id: int, decision: str):
     # The work the task stood for is finished, so it leaves the queue. A rejection cancels
     # rather than completes: the document was not accepted, so nothing downstream should
     # treat it as processed.
-    StorageManager(DB_PATH).resolve_tasks(
-        record_id, state="Done" if decision == "Approved" else "Cancelled")
+    store = StorageManager(DB_PATH)
+    store.resolve_tasks(record_id, state="Done" if decision == "Approved" else "Cancelled")
+
+    # The hand-off to post-approval work. Approving opens what the document needs next: an
+    # Invoice still has to be paid, a Receipt only has to be filed, and an unclassified
+    # document goes back to a person. Rejecting opens nothing, because the document was not
+    # accepted. Nothing is sent anywhere; the outbox row stays Pending.
+    if decision == "Approved":
+        followup = store.open_followup_task(record_id)
+        if followup and followup["was_created"]:
+            store.queue_outbound(
+                record_id, "Planner",
+                f"Invoice {record_id} approved. Opened a {followup['task_type']} task.",
+                task_id=followup["task_id"])
 
 
 def load_open_tasks() -> pd.DataFrame:
@@ -111,6 +125,7 @@ def load_open_tasks() -> pd.DataFrame:
     return pd.DataFrame([{
         "Task": r["task_id"],
         "Type": r["task_type"],
+        "Doc Type": r["document_type"],
         "Invoice": r["invoice_id"],
         "File": r["file_name"],
         "Vendor": r["vendor_name"],
@@ -260,10 +275,12 @@ if search_text:
 table_display = filtered_df[[
     "id",
     "file_name",
+    "document_type",
     "validation_status",      # the gate's verdict, not the model's and not a person's
     "validation_score",
     "approval_status",        # human decision
     "total_source",
+    "reconciliation",
     "vendor_name",
     "invoice_number",
     "invoice_date",           # Document Date
@@ -273,7 +290,8 @@ table_display = filtered_df[[
 ]].copy()
 
 table_display.columns = [
-    "ID", "File Name", "Data Quality", "Validation Score", "Approval", "Total Source",
+    "ID", "File Name", "Doc Type", "Data Quality", "Validation Score", "Approval",
+    "Total Source", "Reconciliation",
     "Vendor Name", "Invoice #", "Invoice Date (Doc)",
     "Total Amount", "Currency", "Processed At (System)"
 ]
@@ -309,7 +327,18 @@ if selected_id:
         total = row["total_amount"]
         total_text = "not extracted" if pd.isna(total) else f"{row['currency']} {total:,.2f}"
         st.markdown(f"**Total Amount:** `{total_text}`")
+        st.markdown(f"**Document Type:** `{row['document_type']}`")
         st.markdown(f"**Total Source:** `{row['total_source']}`")
+        st.markdown(f"**Reconciliation:** `{row['reconciliation']}`")
+
+        if row["reconciliation"] == "short":
+            st.error("The stated total is **less** than the line items add up to. Tax and "
+                     "shipping can only increase a total, so one of the two numbers is wrong.")
+        elif row["reconciliation"] == "plausible":
+            st.info("The total is higher than the line items, which tax or shipping would "
+                    "explain. Normal on a real invoice.")
+        elif row["reconciliation"] == "unknown":
+            st.warning("No line items to check the total against.")
 
         if row["total_source"] == "fallback":
             st.info("This total was derived from the line items, not read from the document.")

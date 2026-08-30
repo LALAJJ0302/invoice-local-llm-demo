@@ -26,6 +26,8 @@ from storage import (  # noqa: E402
     is_summary_row,
     normalise_items,
     normalise_label,
+    classify_document,
+    reconcile,
     recover_total_cents,
     to_cents,
 )
@@ -71,6 +73,7 @@ def sample_extracted(**overrides):
 
 def save(store, run_id, **overrides):
     extracted = overrides.pop("extracted", sample_extracted())
+    overrides.setdefault("raw_text", "TAX INVOICE\nApex Cloud Solutions Pty Ltd")
     kwargs = {
         "run_id": run_id,
         "file_name": "invoice.pdf",
@@ -639,3 +642,189 @@ class TestValidationVersusApproval:
             columns = [r["name"] for r in conn.execute("PRAGMA table_info(invoices)")]
         assert "validation_status" in columns
         assert "status" not in columns
+
+
+# =====================================================================
+# Reconciliation: the total against the line items
+# =====================================================================
+class TestReconciliation:
+    """We hold the same amount twice, read two ways. Nothing compared them until now.
+
+    The case that motivated this: required extraction fields make the model invent a total
+    on a document that states none. Given "Opening balance 1,200.00 / Payments received
+    800.00" it returned 2000.0, computing a plausible number rather than copying a wrong
+    one. Proximity checking cannot catch that. Arithmetic can.
+    """
+
+    def items(self, *totals):
+        return normalise_items([
+            {"description": f"Item {i}", "quantity": 1, "unit_price": t, "total": t}
+            for i, t in enumerate(totals, start=1)])
+
+    def test_exact_when_they_agree(self):
+        assert reconcile(150000, self.items(900.0, 360.0, 240.0)) == "exact"
+
+    def test_plausible_when_the_total_is_higher(self):
+        """Tax and shipping legitimately push a total above the line items."""
+        assert reconcile(170000, self.items(1000.0, 500.0)) == "plausible"
+
+    def test_short_when_the_total_is_lower(self):
+        """The genuine anomaly: neither tax nor shipping can reduce a total."""
+        assert reconcile(100000, self.items(1000.0, 500.0)) == "short"
+
+    def test_unknown_without_line_items(self):
+        assert reconcile(150000, []) == "unknown"
+
+    def test_unknown_without_a_total(self):
+        assert reconcile(None, self.items(100.0)) == "unknown"
+
+    def test_summary_rows_are_excluded_from_the_comparison(self):
+        """Otherwise a grand-total line would be counted twice and every invoice would
+        look 'short'."""
+        rows = normalise_items([
+            {"description": "Chair", "quantity": 5, "unit_price": 350.0, "total": 1750.0},
+            {"description": "Dock", "quantity": 5, "unit_price": 180.0, "total": 900.0},
+            {"description": "Grand Total", "quantity": 1, "unit_price": 0.0, "total": 2650.0},
+        ])
+        assert reconcile(265000, rows) == "exact"
+
+    def test_the_invented_total_case(self):
+        """The measured failure: 1,200 + 800 reported as a 2,000 total on a statement
+        that states no amount due."""
+        assert reconcile(200000, self.items(1200.0, 800.0)) == "exact", "the sum genuinely is 2000"
+        # but against the real line items of a different invoice it is caught:
+        assert reconcile(200000, self.items(900.0, 360.0, 240.0)) == "plausible"
+        assert reconcile(50000, self.items(900.0, 360.0, 240.0)) == "short"
+
+    def test_it_is_computed_on_write(self, store, run_id):
+        result = save(store, run_id)
+        assert result["reconciliation"] == "exact"
+        with connect(store.db_path) as conn:
+            assert conn.execute("SELECT reconciliation r FROM invoices").fetchone()["r"] == "exact"
+
+
+# =====================================================================
+# Document classification
+# =====================================================================
+class TestDocumentType:
+    def test_a_tax_invoice_is_an_invoice(self):
+        assert classify_document("TAX INVOICE\nVendor: Apex Cloud\nAmount Due 1500") == "Invoice"
+
+    def test_a_receipt_is_a_receipt(self):
+        assert classify_document("RECEIPT\nCorner Cafe\nPayment received") == "Receipt"
+
+    def test_ambiguous_is_unknown(self):
+        """Both kinds of marker, so the document does not say clearly what it is."""
+        assert classify_document("TAX INVOICE\nRECEIPT OF PAYMENT") == "Unknown"
+
+    def test_neither_is_unknown(self):
+        assert classify_document("Some notes about a taxi ride") == "Unknown"
+
+    def test_only_the_opening_lines_are_read(self):
+        """'please pay this invoice' at the foot of a receipt describes an instruction,
+        not the document's type."""
+        doc = "RECEIPT\nCorner Cafe\n" + "\n" * 20 + "please pay this invoice if unpaid"
+        assert classify_document(doc) == "Receipt"
+
+    def test_empty_text_is_unknown(self):
+        assert classify_document("") == "Unknown"
+
+    def test_a_human_classification_survives_reprocessing(self, store, run_id):
+        """A heuristic must not overwrite a person's correction."""
+        invoice_id = save(store, run_id, raw_text="TAX INVOICE\nApex")["invoice_id"]
+        with connect(store.db_path) as conn:
+            conn.execute("UPDATE invoices SET document_type = 'Receipt' WHERE invoice_id = ?",
+                         (invoice_id,))
+            conn.commit()
+        save(store, run_id, raw_text="TAX INVOICE\nApex")
+        with connect(store.db_path) as conn:
+            assert conn.execute("SELECT document_type d FROM invoices").fetchone()["d"] == "Receipt"
+
+
+# =====================================================================
+# The post-approval hand-off
+# =====================================================================
+class TestPostApproval:
+    @pytest.fixture
+    def approved(self, store, run_id):
+        def _make(document_type):
+            invoice_id = save(store, run_id, content_sha256=f"{document_type}"*8)["invoice_id"]
+            with connect(store.db_path) as conn:
+                conn.execute("UPDATE invoices SET approval_status='Approved', "
+                             "reviewed_at=datetime('now'), document_type=? WHERE invoice_id=?",
+                             (document_type, invoice_id))
+                conn.commit()
+            return invoice_id
+        return _make
+
+    def test_an_approved_invoice_opens_a_payment_task(self, store, approved):
+        """An invoice is unpaid. Approval means the money still has to move."""
+        result = store.open_followup_task(approved("Invoice"))
+        assert result["task_type"] == "Payment" and result["was_created"]
+
+    def test_an_approved_receipt_opens_a_file_task(self, store, approved):
+        """A receipt is already paid. There is nothing to schedule."""
+        assert store.open_followup_task(approved("Receipt"))["task_type"] == "File"
+
+    def test_an_unknown_type_goes_back_to_a_person(self, store, approved):
+        """Routing on a guess is worse than asking."""
+        assert store.open_followup_task(approved("Unknown"))["task_type"] == "Review"
+
+    def test_an_unapproved_invoice_opens_nothing(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        assert store.open_followup_task(invoice_id) is None
+
+    def test_a_rejected_invoice_opens_nothing(self, store, run_id):
+        """The document was not accepted, so nothing downstream should act on it."""
+        invoice_id = save(store, run_id)["invoice_id"]
+        with connect(store.db_path) as conn:
+            conn.execute("UPDATE invoices SET approval_status='Rejected', "
+                         "reviewed_at=datetime('now') WHERE invoice_id=?", (invoice_id,))
+            conn.commit()
+        assert store.open_followup_task(invoice_id) is None
+
+    def test_calling_it_twice_does_not_duplicate(self, store, approved):
+        invoice_id = approved("Invoice")
+        first = store.open_followup_task(invoice_id)
+        second = store.open_followup_task(invoice_id)
+        assert second["was_created"] is False and second["task_id"] == first["task_id"]
+
+
+# =====================================================================
+# The outbox
+# =====================================================================
+class TestOutbox:
+    @pytest.fixture
+    def invoice_id(self, store, run_id):
+        return save(store, run_id)["invoice_id"]
+
+    def test_queuing_records_a_pending_row(self, store, invoice_id):
+        store.queue_outbound(invoice_id, "Teams", "hello")
+        rows = store.pending_outbound()
+        assert len(rows) == 1 and rows[0]["state"] == "Pending"
+
+    def test_nothing_is_ever_sent(self, store, invoice_id):
+        """No code path in this project sets Sent. The transport does not exist, and the
+        outbox says so rather than pretending otherwise."""
+        store.queue_outbound(invoice_id, "Teams", "hello")
+        store.queue_outbound(invoice_id, "Jira", "world")
+        with connect(store.db_path) as conn:
+            states = {r["state"] for r in conn.execute("SELECT state FROM outbound_messages")}
+        assert states == {"Pending"}
+
+    def test_an_unknown_channel_is_rejected(self, store, invoice_id):
+        with pytest.raises(ValueError):
+            store.queue_outbound(invoice_id, "Carrier Pigeon", "hello")
+
+    def test_sent_requires_a_timestamp(self, store, invoice_id):
+        """Otherwise 'what is still pending' quietly stops being answerable."""
+        store.queue_outbound(invoice_id, "Teams", "hello")
+        with connect(store.db_path) as conn:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("UPDATE outbound_messages SET state = 'Sent'")
+
+    def test_deleting_an_invoice_cascades_to_its_outbox_rows(self, store, invoice_id):
+        store.queue_outbound(invoice_id, "Teams", "hello")
+        with connect(store.db_path) as conn:
+            conn.execute("DELETE FROM invoices WHERE invoice_id = ?", (invoice_id,))
+            assert conn.execute("SELECT COUNT(*) c FROM outbound_messages").fetchone()["c"] == 0

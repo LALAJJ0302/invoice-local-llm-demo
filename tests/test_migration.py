@@ -37,6 +37,8 @@ m002 = load_migration("002_rename_total_source.py")
 m003 = load_migration("003_fix_date_check.py")
 m004 = load_migration("004_email_and_tasks.py")
 m005 = load_migration("005_rename_validation_status.py")
+m006 = load_migration("006_storage_completion.py")
+m007 = load_migration("007_post_approval.py")
 
 
 LEGACY_DDL = """
@@ -110,6 +112,8 @@ def migrated_db(legacy_db):
     assert m003.migrate(legacy_db) == 0
     assert m004.migrate(legacy_db) == 0
     assert m005.migrate(legacy_db) == 0
+    assert m006.migrate(legacy_db) == 0
+    assert m007.migrate(legacy_db) == 0
     return legacy_db
 
 
@@ -306,6 +310,68 @@ class TestEmailAndTasks:
 
 
 # =====================================================================
+# Migrations 006 and 007
+# =====================================================================
+class TestStorageCompletionAndHandoff:
+    @pytest.fixture
+    def at_v5(self, legacy_db):
+        for m in (m001, m002, m003, m004, m005):
+            assert m.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_006_adds_the_three_columns(self, at_v5):
+        m006.migrate(at_v5)
+        with connect(at_v5) as conn:
+            columns = [r["name"] for r in conn.execute("PRAGMA table_info(invoices)")]
+        assert {"vendor_source", "document_type", "reconciliation"} <= set(columns)
+
+    def test_006_backfills_reconciliation_from_stored_data(self, at_v5):
+        """The three legacy invoices have totals recovered by summing their own line items,
+        so every one must reconcile exactly."""
+        m006.migrate(at_v5)
+        with connect(at_v5) as conn:
+            states = [r["reconciliation"] for r in
+                      conn.execute("SELECT reconciliation FROM invoices")]
+        assert states == ["exact"] * 3
+
+    def test_006_moves_no_money(self, at_v5):
+        m006.migrate(at_v5)
+        with connect(at_v5) as conn:
+            rows = conn.execute("SELECT file_name, total_cents FROM invoices").fetchall()
+        assert {r["file_name"]: r["total_cents"] for r in rows} == GROUND_TRUTH_CENTS
+
+    def test_006_is_idempotent(self, at_v5):
+        m006.migrate(at_v5)
+        assert m006.migrate(at_v5) == 0
+
+    def test_007_extends_task_type_without_losing_tasks(self, at_v5):
+        m006.migrate(at_v5)
+        with connect(at_v5) as conn:
+            conn.execute("INSERT INTO tasks (invoice_id, task_type) VALUES (1, 'Review')")
+            conn.commit()
+        m007.migrate(at_v5)
+        with connect(at_v5) as conn:
+            assert conn.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == 1
+            conn.execute("INSERT INTO tasks (invoice_id, task_type) VALUES (1, 'Payment')")
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("INSERT INTO tasks (invoice_id, task_type) VALUES (1, 'Nonsense')")
+
+    def test_007_creates_an_empty_outbox(self, at_v5):
+        m006.migrate(at_v5)
+        m007.migrate(at_v5)
+        with connect(at_v5) as conn:
+            assert conn.execute("SELECT COUNT(*) c FROM outbound_messages").fetchone()["c"] == 0
+
+    def test_007_refuses_to_run_before_006(self, at_v5):
+        assert m007.migrate(at_v5) == 1
+
+    def test_007_is_idempotent(self, at_v5):
+        m006.migrate(at_v5)
+        m007.migrate(at_v5)
+        assert m007.migrate(at_v5) == 0
+
+
+# =====================================================================
 # The whole chain
 # =====================================================================
 class TestChain:
@@ -318,7 +384,7 @@ class TestChain:
         with connect(migrated_db) as conn:
             versions = [r["version"] for r in
                         conn.execute("SELECT version FROM schema_version ORDER BY version")]
-        assert versions == [1, 2, 3, 4, 5]
+        assert versions == [1, 2, 3, 4, 5, 6, 7]
 
     def test_migrated_matches_fresh(self, migrated_db, tmp_path):
         """A replayed migration chain and a fresh storage.DDL database must agree.
@@ -333,7 +399,7 @@ class TestChain:
             with connect(path) as conn:
                 tables = {}
                 for table in ("processing_runs", "invoices", "line_items",
-                              "email_messages", "tasks"):
+                              "email_messages", "tasks", "outbound_messages"):
                     tables[table] = [
                         (r["name"], r["type"], r["notnull"], r["dflt_value"])
                         for r in conn.execute(f"PRAGMA table_info({table})")
@@ -376,5 +442,5 @@ class TestChain:
     def test_rerunning_the_whole_sequence_is_a_clean_no_op(self, migrated_db):
         """A teammate following the quickstart runs every migration in order. Doing that
         twice must succeed, not report failure on the ones already applied."""
-        for module in (m001, m002, m003, m004, m005):
+        for module in (m001, m002, m003, m004, m005, m006, m007):
             assert module.migrate(migrated_db) == 0, f"{module.__name__} failed on re-run"
