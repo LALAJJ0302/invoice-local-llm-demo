@@ -133,14 +133,15 @@ two of us rebuilt it.
 
 ### 3.5 ~~Nothing is pushed~~ MINE IS PUSHED 2026-08-30, yours probably still is not
 
-`neo/database-redesign` is on my fork, 16 commits, 194 tests:
+`neo/database-redesign` is on my fork, 17 commits, 194 tests, and **PR #1 is open**:
 
 ```
-https://github.com/NattakritPitayasiri/invoice-local-llm-demo/tree/neo/database-redesign
+https://github.com/LALAJJ0302/invoice-local-llm-demo/pull/1
 ```
 
-No PR yet and `main` is untouched, deliberately: the five decisions in §4 should be argued before
-they become the default.
+**Not asking for a merge yet.** It is open so you can comment on specific lines, and so that
+whatever lands next rebases onto it rather than the reverse. The five decisions in §4 should be
+argued before they become the default.
 
 **`upstream/main` has not moved since JJ's first commit**, so nobody else has pushed anything either.
 JJ has clearly been working, since he sent a list of seven issues, so that work is on his laptop. The

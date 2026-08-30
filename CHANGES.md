@@ -6,8 +6,9 @@
 https://github.com/NattakritPitayasiri/invoice-local-llm-demo/tree/neo/database-redesign
 ```
 
-Pushed to my fork, no PR opened and `main` untouched. The five items at the end are decisions, not
-just code, and I would rather you argue with them on a branch than have to undo them on `main`.
+**PR #1** https://github.com/LALAJJ0302/invoice-local-llm-demo/pull/1 — open, MERGEABLE,
+**not asking for a merge yet.** The five items at the end are decisions, not just code, and I would
+rather you argue with them in the PR than have to undo them on `main`.
 
 Everything here was verified by running something. Commands are included so you can check any of it.
 

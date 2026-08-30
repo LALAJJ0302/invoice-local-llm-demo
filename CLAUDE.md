@@ -115,10 +115,16 @@ Do not attribute these failures to the model or attempt to fix them with prompt 
 ## Work in progress
 
 `neo/database-redesign` is **pushed to `origin`**, 16 commits, 194 tests passing, schema version 7.
-`origin` is Neo's fork; `upstream` is JJ's repo. **No PR opened yet and `main` is untouched**, on
-purpose: five of the changes are decisions the group has not ratified, and a branch keeps them
-reversible. Both `origin/main` and `upstream/main` are still at `6ef6798`, so the branch merges
-fast-forward with no conflict, verified 2026-08-30.
+`origin` is Neo's fork; `upstream` is JJ's repo.
+
+**PR #1 is open against `upstream/main` and is deliberately not merged.**
+https://github.com/LALAJJ0302/invoice-local-llm-demo/pull/1 — 17 commits, 35 files, MERGEABLE.
+
+It is open so the changes are reviewable line by line and so anything landing later rebases onto it,
+not the other way round. It is not merged because five of the changes are decisions the group has
+not ratified, and on a branch each stays reversible with one migration. `upstream/main` has not
+moved since JJ's first commit on 2026-08-25, so the merge is fast-forward. **That will stop being
+true the moment JJ pushes**, and both branches touch `app.py`.
 
 `evaluation-and-gate-fixes` is the older local branch this one grew from. Still local.
 
