@@ -1,0 +1,446 @@
+{
+  "model": "llama3.2",
+  "variants": [
+    {
+      "variant": "optional",
+      "extracted_correctly": {
+        "right": 1,
+        "of": 13
+      },
+      "absent_fields": {
+        "admitted": 9,
+        "invented": 0
+      },
+      "rows": [
+        {
+          "document": "full_invoice",
+          "present": {
+            "invoice_number": {
+              "expected": "INV-2026-001",
+              "got": null,
+              "correct": false
+            },
+            "vendor_name": {
+              "expected": "Apex Cloud Solutions Pty Ltd",
+              "got": null,
+              "correct": false
+            },
+            "date": {
+              "expected": "2026-08-10",
+              "got": null,
+              "correct": false
+            },
+            "total_amount": {
+              "expected": 1500.0,
+              "got": null,
+              "correct": false
+            },
+            "currency": {
+              "expected": "USD",
+              "got": null,
+              "correct": false
+            }
+          },
+          "absent": {}
+        },
+        {
+          "document": "cafe_receipt",
+          "present": {
+            "vendor_name": {
+              "expected": "Corner Cafe",
+              "got": null,
+              "correct": false
+            },
+            "total_amount": {
+              "expected": 9.5,
+              "got": null,
+              "correct": false
+            }
+          },
+          "absent": {
+            "invoice_number": {
+              "got": null,
+              "admitted": true
+            },
+            "date": {
+              "got": null,
+              "admitted": true
+            },
+            "currency": {
+              "got": null,
+              "admitted": true
+            }
+          }
+        },
+        {
+          "document": "no_vendor",
+          "present": {
+            "invoice_number": {
+              "expected": "88231",
+              "got": "88231",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-03-12",
+              "got": "12 March 2026",
+              "correct": false
+            },
+            "total_amount": {
+              "expected": 2000.0,
+              "got": null,
+              "correct": false
+            },
+            "currency": {
+              "expected": "AUD",
+              "got": null,
+              "correct": false
+            }
+          },
+          "absent": {
+            "vendor_name": {
+              "got": null,
+              "admitted": true
+            }
+          }
+        },
+        {
+          "document": "no_total",
+          "present": {
+            "vendor_name": {
+              "expected": "Northwind Supplies",
+              "got": null,
+              "correct": false
+            },
+            "date": {
+              "expected": "2026-04-01",
+              "got": null,
+              "correct": false
+            }
+          },
+          "absent": {
+            "total_amount": {
+              "got": null,
+              "admitted": true
+            }
+          }
+        },
+        {
+          "document": "sparse_note",
+          "present": {},
+          "absent": {
+            "invoice_number": {
+              "got": null,
+              "admitted": true
+            },
+            "vendor_name": {
+              "got": null,
+              "admitted": true
+            },
+            "date": {
+              "got": null,
+              "admitted": true
+            },
+            "currency": {
+              "got": null,
+              "admitted": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "variant": "required",
+      "extracted_correctly": {
+        "right": 12,
+        "of": 13
+      },
+      "absent_fields": {
+        "admitted": 6,
+        "invented": 3
+      },
+      "rows": [
+        {
+          "document": "full_invoice",
+          "present": {
+            "invoice_number": {
+              "expected": "INV-2026-001",
+              "got": "INV-2026-001",
+              "correct": true
+            },
+            "vendor_name": {
+              "expected": "Apex Cloud Solutions Pty Ltd",
+              "got": "Apex Cloud Solutions Pty Ltd",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-08-10",
+              "got": "2026-08-10",
+              "correct": true
+            },
+            "total_amount": {
+              "expected": 1500.0,
+              "got": 1500.0,
+              "correct": true
+            },
+            "currency": {
+              "expected": "USD",
+              "got": "USD",
+              "correct": true
+            }
+          },
+          "absent": {}
+        },
+        {
+          "document": "cafe_receipt",
+          "present": {
+            "vendor_name": {
+              "expected": "Corner Cafe",
+              "got": "Corner Cafe",
+              "correct": true
+            },
+            "total_amount": {
+              "expected": 9.5,
+              "got": 9.5,
+              "correct": true
+            }
+          },
+          "absent": {
+            "invoice_number": {
+              "got": "Table 4",
+              "admitted": false
+            },
+            "date": {
+              "got": "Not specified",
+              "admitted": true
+            },
+            "currency": {
+              "got": "Not specified",
+              "admitted": true
+            }
+          }
+        },
+        {
+          "document": "no_vendor",
+          "present": {
+            "invoice_number": {
+              "expected": "88231",
+              "got": "88231",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-03-12",
+              "got": "12 March 2026",
+              "correct": false
+            },
+            "total_amount": {
+              "expected": 2000.0,
+              "got": 2000.0,
+              "correct": true
+            },
+            "currency": {
+              "expected": "AUD",
+              "got": "AUD",
+              "correct": true
+            }
+          },
+          "absent": {
+            "vendor_name": {
+              "got": "None",
+              "admitted": true
+            }
+          }
+        },
+        {
+          "document": "no_total",
+          "present": {
+            "vendor_name": {
+              "expected": "Northwind Supplies",
+              "got": "Northwind Supplies",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-04-01",
+              "got": "2026-04-01",
+              "correct": true
+            }
+          },
+          "absent": {
+            "total_amount": {
+              "got": 2000.0,
+              "admitted": false
+            }
+          }
+        },
+        {
+          "document": "sparse_note",
+          "present": {},
+          "absent": {
+            "invoice_number": {
+              "got": "None",
+              "admitted": true
+            },
+            "vendor_name": {
+              "got": "None",
+              "admitted": true
+            },
+            "date": {
+              "got": "None",
+              "admitted": true
+            },
+            "currency": {
+              "got": "dollars",
+              "admitted": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "variant": "sentinel",
+      "extracted_correctly": {
+        "right": 12,
+        "of": 13
+      },
+      "absent_fields": {
+        "admitted": 6,
+        "invented": 3
+      },
+      "rows": [
+        {
+          "document": "full_invoice",
+          "present": {
+            "invoice_number": {
+              "expected": "INV-2026-001",
+              "got": "INV-2026-001",
+              "correct": true
+            },
+            "vendor_name": {
+              "expected": "Apex Cloud Solutions Pty Ltd",
+              "got": "Apex Cloud Solutions Pty Ltd",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-08-10",
+              "got": "2026-08-10",
+              "correct": true
+            },
+            "total_amount": {
+              "expected": 1500.0,
+              "got": 1500.0,
+              "correct": true
+            },
+            "currency": {
+              "expected": "USD",
+              "got": "USD",
+              "correct": true
+            }
+          },
+          "absent": {}
+        },
+        {
+          "document": "cafe_receipt",
+          "present": {
+            "vendor_name": {
+              "expected": "Corner Cafe",
+              "got": "Corner Cafe",
+              "correct": true
+            },
+            "total_amount": {
+              "expected": 9.5,
+              "got": 9.5,
+              "correct": true
+            }
+          },
+          "absent": {
+            "invoice_number": {
+              "got": "Table 4",
+              "admitted": false
+            },
+            "date": {
+              "got": "Not specified",
+              "admitted": true
+            },
+            "currency": {
+              "got": "Not specified",
+              "admitted": true
+            }
+          }
+        },
+        {
+          "document": "no_vendor",
+          "present": {
+            "invoice_number": {
+              "expected": "88231",
+              "got": "88231",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-03-12",
+              "got": "12 March 2026",
+              "correct": false
+            },
+            "total_amount": {
+              "expected": 2000.0,
+              "got": 2000.0,
+              "correct": true
+            },
+            "currency": {
+              "expected": "AUD",
+              "got": "AUD",
+              "correct": true
+            }
+          },
+          "absent": {
+            "vendor_name": {
+              "got": "None",
+              "admitted": true
+            }
+          }
+        },
+        {
+          "document": "no_total",
+          "present": {
+            "vendor_name": {
+              "expected": "Northwind Supplies",
+              "got": "Northwind Supplies",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-04-01",
+              "got": "2026-04-01",
+              "correct": true
+            }
+          },
+          "absent": {
+            "total_amount": {
+              "got": 2000.0,
+              "admitted": false
+            }
+          }
+        },
+        {
+          "document": "sparse_note",
+          "present": {},
+          "absent": {
+            "invoice_number": {
+              "got": "None",
+              "admitted": true
+            },
+            "vendor_name": {
+              "got": "None",
+              "admitted": true
+            },
+            "date": {
+              "got": "None",
+              "admitted": true
+            },
+            "currency": {
+              "got": "dollars",
+              "admitted": false
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
