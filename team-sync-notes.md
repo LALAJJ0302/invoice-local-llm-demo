@@ -131,11 +131,21 @@ Same 40,129 bytes, different SHA-256. So regenerating an **unchanged** document 
 git sees as modified. Tracking it would have meant a merge conflict git cannot resolve every time any
 two of us rebuilt it.
 
-### 3.5 Nothing is pushed. This is now the biggest live risk
+### 3.5 ~~Nothing is pushed~~ MINE IS PUSHED 2026-08-30, yours probably still is not
 
-All three of my branches are local and uncommitted. About 3,000 lines of database work, tests,
-migrations and documentation exists in exactly one place: my laptop. I suspect I am not the only one.
-Cheapest risk on the list to eliminate, and the only one on this list still open.
+`neo/database-redesign` is on my fork, 12 commits:
+
+```
+https://github.com/NattakritPitayasiri/invoice-local-llm-demo/tree/neo/database-redesign
+```
+
+No PR yet and `main` is untouched, deliberately: the five decisions in §4 should be argued before
+they become the default.
+
+**`upstream/main` has not moved since JJ's first commit**, so nobody else has pushed anything either.
+JJ has clearly been working, since he sent a list of seven issues, so that work is on his laptop. The
+longer it sits there the worse the eventual merge gets. We have both touched `app.py` and the
+`filtered_df["ID"]` line specifically, which is the one place a conflict is close to certain.
 
 ### 3.6 ~~The Copilot question~~ RESOLVED 2026-08-28
 

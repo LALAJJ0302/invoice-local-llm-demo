@@ -35,6 +35,7 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
 ./.venv/bin/python evaluation/run_eval.py        # per-field accuracy vs ground truth
 ./.venv/bin/python -m pytest tests/ -q           # 160 storage, migration and gate tests
+./.venv/bin/python evaluation/schema_comparison.py  # Optional 3/15 vs required 15/15
 ./.venv/bin/python reprocess.py --list           # what is stored, and is its file still there
 ```
 
@@ -111,8 +112,13 @@ Do not attribute these failures to the model or attempt to fix them with prompt 
 
 ## Work in progress
 
-Branches `evaluation-and-gate-fixes` and `neo/database-redesign` (the latter off the former, so it
-carries the spec). Local only, **nothing pushed**.
+`neo/database-redesign` is **pushed to `origin`** as of 2026-08-30, 12 commits, 160 tests passing.
+`origin` is Neo's fork; `upstream` is JJ's repo. **No PR opened yet and `main` is untouched**, on
+purpose: five of the changes are decisions the group has not ratified, and a branch keeps them
+reversible. Both `origin/main` and `upstream/main` are still at `6ef6798`, so the branch merges
+fast-forward with no conflict, verified 2026-08-30.
+
+`evaluation-and-gate-fixes` is the older local branch this one grew from. Still local.
 
 - `evaluation/` measures per-field accuracy against independently transcribed ground truth. Reads
   nothing from `inbox/` or `archive/` and edits no existing file. See `evaluation/evaluation-method.md`,

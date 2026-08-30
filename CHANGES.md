@@ -1,6 +1,13 @@
 # Changes on `neo/database-redesign`
 
-**From:** Neo · **Branch:** `neo/database-redesign` · 11 commits ahead of `main` · 160 tests passing
+**From:** Neo · **Branch:** `neo/database-redesign` · 12 commits ahead of `main` · 160 tests passing
+
+```
+https://github.com/NattakritPitayasiri/invoice-local-llm-demo/tree/neo/database-redesign
+```
+
+Pushed to my fork, no PR opened and `main` untouched. The five items at the end are decisions, not
+just code, and I would rather you argue with them on a branch than have to undo them on `main`.
 
 Everything here was verified by running something. Commands are included so you can check any of it.
 
