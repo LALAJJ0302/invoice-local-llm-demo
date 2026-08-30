@@ -143,6 +143,18 @@ Four candidate lessons, all measured rather than asserted:
 4. **A fix can move a failure rather than remove it.** Required fields took extraction from 20% to
    100% and made the model invent values for a third of genuinely absent fields.
 
+**A fifth, and the strongest one.** This project is about whether an AI system can be trusted with
+document work. It was built with an AI assistant that made seven identifiable errors, every one
+caught by a verification mechanism. The assistant's two worst errors were the *same shape* as the
+model's: a gap filled with something that looked like an answer. The model filled it with a default,
+the assistant filled it with an unverified assertion, and both were invisible because `None` and a
+confident sentence both look like data.
+
+Full account with evidence in [ai-collaboration-account.md](ai-collaboration-account.md). It also
+records what caught each error, which is the part that matters: four by tests, one by measuring an
+assumption before building on it, and **two by a person asking how a claim was known**. No test
+could have caught those two, because the code was working correctly.
+
 ### 7. Recommendations and Future Work
 
 | Needs | Have |
