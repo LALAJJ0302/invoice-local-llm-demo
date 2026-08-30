@@ -96,19 +96,31 @@ Priority: **M** must have for the demonstration, **S** should have, **C** could 
 | ID | Requirement | Pri | Status |
 |---|---|---|---|
 | FR-5.1 | The system shall score each extraction and classify it as Validated or NeedsReview | M | Implemented |
-| FR-5.2 | The score shall verify extracted values against the source text, not only their presence | M | **Not implemented for `total_amount`** |
+| FR-5.2 | The score shall verify extracted values against the source text, not only their presence | M | Implemented for `total_amount`. `invoice_number` and `vendor_name` still use a substring test, deliberately not hardened until there are real documents to harden against |
 | FR-5.3 | A reviewer shall be able to see every record, its score, and its line items | M | Implemented |
 | FR-5.4 | A reviewer shall be able to approve or reject a record | M | Implemented |
 | FR-5.5 | Approval shall record a human decision without overwriting the pipeline's judgement or score | M | Implemented |
 | FR-5.6 | The dashboard shall show which totals were derived rather than extracted | S | Implemented |
+| FR-5.7 | The system shall check the stated total against the sum of the line items | S | Implemented as `reconciliation` |
+| FR-5.8 | The system shall distinguish an invoice from a receipt | S | Implemented as `document_type`, by heuristic, untested against real receipts |
+
+### Phase 6, post-approval (unowned since 2026-08-14)
+
+| ID | Requirement | Pri | Status |
+|---|---|---|---|
+| FR-6.1 | Approval shall create the work that follows it | S | Implemented. Invoice to `Payment`, Receipt to `File`, Unknown to `Review`, rejection to nothing |
+| FR-6.2 | Every intended outbound notification shall be recorded, not printed | S | Implemented as `outbound_messages` |
+| FR-6.3 | The system shall send notifications to Teams, Jira or Planner | C | **Not implemented and deliberately so.** Every outbox row stays `Pending`; no code path contacts an external system |
 
 ### Cross-cutting, evaluation
 
 | ID | Requirement | Pri | Status |
 |---|---|---|---|
-| FR-6.1 | The system shall measure per-field accuracy against independently transcribed ground truth | M | Implemented |
-| FR-6.2 | Ground truth shall not be derived from the document generator | M | Implemented |
-| FR-6.3 | The evaluation shall state what it does not measure | M | Implemented |
+| FR-7.1 | The system shall measure per-field accuracy against independently transcribed ground truth | M | Implemented |
+| FR-7.2 | Ground truth shall not be derived from the document generator | M | Implemented |
+| FR-7.3 | The evaluation shall state what it does not measure | M | Implemented |
+| FR-7.4 | The cause of an extraction failure shall be isolated by controlled comparison | M | Implemented as `schema_comparison.py`: 3/15 against 15/15, one variable |
+| FR-7.5 | The cost of a proposed fix shall be measured, not assumed | S | Implemented as `sentinel_comparison.py`: required fields invent values on 3 of 9 absent fields |
 
 ## 6. Non-functional requirements
 
@@ -117,7 +129,7 @@ Priority: **M** must have for the demonstration, **S** should have, **C** could 
 | NFR-1 | No document content leaves the machine | The reason for the local pivot. It is also a genuine privacy argument for the report | Met |
 | NFR-2 | The pipeline runs on a standard laptop with no GPU requirement | Every team member must be able to run it | Met |
 | NFR-3 | Any teammate can reproduce a run from a clean checkout | `requirements.txt` pins every direct dependency | Met |
-| NFR-4 | Claims about performance are reproducible by running something | The project's own standard | Met. `evaluation/` for extraction, 106 tests for storage |
+| NFR-4 | Claims about performance are reproducible by running something | The project's own standard | Met. `evaluation/` for extraction and its causes, 194 tests for storage |
 | NFR-5 | The dashboard remains readable while the pipeline writes | WAL is enabled on every connection | Met |
 | NFR-6 | Files owned by one team member are changed by pull request, not direct commit | Three people, one codebase | Process, currently observed |
 

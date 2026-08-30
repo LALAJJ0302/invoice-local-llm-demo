@@ -1,6 +1,6 @@
 # Changes on `neo/database-redesign`
 
-**From:** Neo · **Branch:** `neo/database-redesign` · 12 commits ahead of `main` · 160 tests passing
+**From:** Neo · **Branch:** `neo/database-redesign` · 16 commits ahead of `main` · 194 tests passing
 
 ```
 https://github.com/NattakritPitayasiri/invoice-local-llm-demo/tree/neo/database-redesign
@@ -57,6 +57,8 @@ belongs to JJ and is offered as a PR, not applied across the boundary.
 | `migrations/003_fix_date_check.py` | 189 | Repairs a CHECK constraint that rejected every valid date |
 | `migrations/004_email_and_tasks.py` | 171 | Adds `email_messages` and `tasks`, plus `invoices.email_id` |
 | `migrations/005_rename_validation_status.py` | 138 | `status` → `validation_status` |
+| `migrations/006_storage_completion.py` | 175 | Adds `reconciliation`, `vendor_source`, `document_type` |
+| `migrations/007_post_approval.py` | 190 | Extends `task_type`, adds `outbound_messages` |
 
 ### Tests
 
@@ -71,6 +73,7 @@ belongs to JJ and is offered as a PR, not applied across the boundary.
 | File | Lines | What it does |
 |---|---|---|
 | `evaluation/schema_comparison.py` | 179 | Controlled test: Optional schema 3/15 vs required schema 15/15 |
+| `evaluation/sentinel_comparison.py` | 218 | What required fields cost: invented values on 3 of 9 absent fields |
 | `evaluation/run_eval.py` | 151 | Per-field accuracy against hand-transcribed ground truth |
 
 ### Documentation
@@ -145,6 +148,10 @@ separate change in JJ's lane.
 I implemented them because they were blocking other work. Say so if you disagree; each is one
 migration or one commit to reverse.
 
+0. **Approval now hands off instead of terminating.** Approving an `Invoice` opens a `Payment`
+   task, a `Receipt` opens `File`, an `Unknown` opens `Review`, and rejecting opens nothing.
+   Preparation only: `outbound_messages` records what should be sent and every row stays `Pending`.
+   Nothing in the codebase contacts Teams, Jira or Planner.
 1. **`status` split from `approval_status`.** Approving no longer overwrites the pipeline's verdict.
    A row can now read `NeedsReview` and `Approved` at once, which is intended: the extractor was not
    confident and a person accepted it anyway.

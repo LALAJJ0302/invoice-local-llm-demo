@@ -133,7 +133,7 @@ two of us rebuilt it.
 
 ### 3.5 ~~Nothing is pushed~~ MINE IS PUSHED 2026-08-30, yours probably still is not
 
-`neo/database-redesign` is on my fork, 12 commits:
+`neo/database-redesign` is on my fork, 16 commits, 194 tests:
 
 ```
 https://github.com/NattakritPitayasiri/invoice-local-llm-demo/tree/neo/database-redesign
@@ -182,10 +182,10 @@ These are all inside my own lane, so they need no agreement. Listed so nobody du
 |---|---|---|
 | S1 | `requirements.txt`, every direct dependency pinned | **Done 2026-08-28** |
 | S2 | Untracked the `.docx`, kept the generator | **Done 2026-08-28** |
-| S3 | Fix the gate to verify `total_amount` against source text | **Not started.** Needs its own spec first |
+| S3 | Fix the gate to verify `total_amount` against source text | **Done 2026-08-28.** See `validation-gate-spec.md` |
 | S4 | Migration 002, `extraction_source` renamed to `total_source` | **Done 2026-08-28** |
 | S5 | Approval wired to `approval_status` and `reviewed_at` | **Done 2026-08-28** |
-| S6 | Tests for the storage layer and the migrations | **Done 2026-08-28**, 138 tests |
+| S6 | Tests for the storage layer and the migrations | **Done**, now 194 tests |
 | S7 | `reprocess.py` | **Done 2026-08-28** |
 
 **S2 touches a file we all share.** It is on my branch rather than committed to main, so treat it as

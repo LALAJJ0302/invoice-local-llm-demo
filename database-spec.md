@@ -4,8 +4,8 @@
 Supersedes `database-redesign-spec.md` and `database-completion-spec.md`, both of which are folded
 into this document. Their earlier versions remain in git history.
 
-**Owner:** Neo. **Branch:** `neo/database-redesign`. **Schema version:** 5.
-**Last verified:** 2026-08-28, by 141 automated tests plus an end-to-end pipeline run.
+**Owner:** Neo. **Branch:** `neo/database-redesign`. **Schema version:** 7.
+**Last verified:** 2026-08-30, by 194 automated tests plus an end-to-end pipeline run.
 
 ---
 
@@ -39,6 +39,8 @@ erDiagram
     email_messages  ||--o{ invoices : "delivered"
     invoices ||--o{ line_items : "contains"
     invoices ||--o{ tasks : "requires"
+    invoices ||--o{ outbound_messages : "notifies"
+    tasks    ||--o{ outbound_messages : "dispatches"
 
     email_messages {
         int  email_id PK
@@ -81,6 +83,14 @@ erDiagram
         text state
         text assignee
         text resolved_at
+    }
+    outbound_messages {
+        int  outbox_id PK
+        int  invoice_id FK
+        int  task_id FK
+        text channel
+        text state
+        text external_ref
     }
 ```
 
@@ -142,6 +152,9 @@ One row per unique document. The central table.
 | `validation_score` | REAL | no | The gate's score, `CHECK BETWEEN 0 AND 1`. **Not a confidence score.** See §5.4. |
 | `validation_status` | TEXT | no | `Validated` / `NeedsReview` / `Failed`. The gate's verdict, obtained by thresholding `validation_score`. **Written by `ConfidenceValidator`, never by the model and never by a person.** Called `status` before migration 005. See §5.9. |
 | `total_source` | TEXT | no | `model` / `fallback` / `manual`. **Describes only `total_cents`, not the whole row.** `fallback` means the total was derived from line items. Renamed from `extraction_source` in migration 002 because the old name implied row-level scope. |
+| `vendor_source` | TEXT | no | The same three values, for `vendor_name`. **Reads `model` on every row today and will until the extractor reports which path it took.** `DocumentExtractor` can silently substitute a filename guess and storage cannot see that it happened. Added during migration 006 because it was free there. |
+| `document_type` | TEXT | no | `Invoice` / `Receipt` / `Unknown`. An invoice is unpaid and needs approval; a receipt is already paid and needs filing. **The work that follows approval depends on this**, not on how confidently the document was read. Set by a keyword heuristic over the opening lines; `Unknown` when the document does not say clearly. A human correction survives reprocessing: the upsert only overwrites `Unknown`. |
+| `reconciliation` | TEXT | no | `exact` / `plausible` / `short` / `unknown`. `total_cents` against the sum of non-summary line items. **A flag, not a constraint.** See §5.10. |
 | `approval_status` | TEXT | no | `Pending` / `Approved` / `Rejected`. **A business decision, made by a person.** Never written by the pipeline, and never overwritten by re-processing. Written by the dashboard's Approve and Reject buttons. |
 | `reviewed_at` | TEXT | yes | When a person decided. NULL until then. Set alongside `approval_status`. |
 | `archive_path` | TEXT | yes | Absolute path to the archived file. Absolute on purpose: relative paths broke when the script ran from another directory. |
@@ -352,7 +365,51 @@ correct: attributing to model accuracy what is actually our own code's behaviour
 `validation_status` shares a stem with `validation_score`, so the pair reads as one thing:
 the gate produced a score, and a verdict derived from that score.
 
-### 5.10 Write, then archive
+### 5.10 Reconciliation is a flag, not a constraint
+
+The invoice total is held twice, read two different ways: once from a total line, once as the sum
+of the line items. Nothing compared them until migration 006.
+
+```
+exact      they agree
+plausible  the total is higher, which tax or shipping would explain
+short      the total is lower, which neither can explain
+unknown    there are no line items to compare against
+```
+
+Measured 2026-08-30, this catches a failure that proximity checking cannot. Required extraction
+fields make the model invent a total on a document that states none: given a statement of account
+reading `Opening balance 1,200.00 / Payments received 800.00`, it returned `2000.0`. It did not copy
+a wrong number, it **computed** a plausible one, and a proximity check passes anything the model can
+point at on the page. Arithmetic does not.
+
+It is a flag because `plausible` is the normal state of any real invoice carrying GST or freight.
+Only `short` is an anomaly on its own, because neither can reduce a total.
+
+Computed on write and stored, rather than derived on read, so the dashboard and any report query see
+the same value and a later change to the rule cannot silently rewrite history.
+
+### 5.11 Approval hands off; it does not terminate
+
+Approving used to close the open task and stop. Since migration 007 it opens the work that comes
+next, chosen by what the document **is**:
+
+```
+Invoice approved  -> Payment task    the money still has to move
+Receipt approved  -> File task       nothing to pay
+Unknown approved  -> Review task     routed to a person, not on a guess
+Rejected          -> nothing         the document was not accepted
+```
+
+This is what `document_type` is for. Without it the follow-on work could only depend on
+`validation_status`, which answers "was it read clearly", not "what needs to happen now".
+
+`outbound_messages` records each dispatch. **Nothing is sent.** Rows are written `Pending` and no
+code path in this project sets `Sent`; the `CHECK` requires `sent_at` alongside it. That is the
+honest state of the work rather than an oversight, and a queue holding pending notifications
+demonstrates the workflow where a `print` that has already scrolled past demonstrates nothing.
+
+### 5.12 Write, then archive
 
 The database write commits before `shutil.move`. If the move fails, the file stays in `inbox/` and
 the next run upserts onto the same row. The old order archived the file first and could leave a file
@@ -369,6 +426,8 @@ with no record.
 | 3 | `migrations/003_fix_date_check.py` | Repaired the `invoice_date` CHECK. Table rebuild, since SQLite cannot ALTER a constraint. | **Applied** |
 | 4 | `migrations/004_email_and_tasks.py` | Added `email_messages` and `tasks`, and `invoices.email_id`. Purely additive. | **Applied** |
 | 5 | `migrations/005_rename_validation_status.py` | Renamed `status` to `validation_status`. | **Applied** |
+| 6 | `migrations/006_storage_completion.py` | Added `reconciliation`, `vendor_source`, `document_type`, and backfilled the first two from stored data. Additive. | **Applied** |
+| 7 | `migrations/007_post_approval.py` | Extended `task_type` with `Payment` and `File`; added `outbound_messages`. | **Applied** |
 
 Every migration backs the database up first, refuses to run out of order, is idempotent, and prints
 a before/after report that proves no money moved.
@@ -418,21 +477,21 @@ Everything the previous version of this section listed is now done: `total_sourc
 approval wired, tests written, WAL enabled, reprocess tooling added, crashed runs made visible.
 What is left:
 
-### 8.1 Line totals are not reconciled (Tier 2)
+### 8.1 The heuristics are tuned on three synthetic documents
 
-Nothing checks `line_total_cents` against `quantity * unit_price`, or the sum of line items against
-`total_cents`. Now that both live in real columns, a mismatch is exactly the signal that an
-extraction went wrong, and it is cheap to surface. Proposed as a view rather than a constraint,
-because a legitimate invoice can carry tax and shipping that break the arithmetic.
+Two rules were fitted to output from one generator, and both will need revisiting against real
+documents:
 
-### 8.2 The document type is not recorded (Tier 2, concept-level)
+- `ConfidenceValidator.LABEL_WINDOW = 2`, because ReportLab happens to put a total one line below
+  its label. An invoice that puts the amount in a table cell would score `present` rather than
+  `verified` and go to a person. That fails in the safe direction, but it fails.
+- `classify_document` reads the opening lines for `TAX INVOICE`-style markers. It has never been
+  tested against a real receipt, because the project has none.
 
-The schema treats an invoice and a receipt identically, but they have different workflows: an
-invoice is unpaid and needs approval, a receipt is already paid and only needs filing. A
-`document_type` column is what would let the downstream task depend on what the document *is*,
-rather than only on how confidently it was read.
+Deliberately not hardened further until there are documents worth hardening against. Fitting more
+rules to three files we generated ourselves would produce work that has to be thrown away.
 
-### 8.3 Intake does not call the email API yet
+### 8.2 Intake does not call the email API yet
 
 `email_messages` exists, and `record_email` / `has_seen_email` are implemented and tested. But
 `email_listener.py` is **Luke's file** and has not been touched: per the ownership rules, changes to
@@ -454,13 +513,13 @@ The pipeline then needs a way to associate a saved file with that `email_id`, wh
 still undesigned. A sidecar file per attachment or a staging table are both plausible; this should be
 agreed with Luke rather than decided here.
 
-### 8.4 Tasks have no assignee and no real integration
+### 8.3 Tasks have no assignee and no real integration
 
 `tasks.assignee` is never written, because there is no user table and no notion of who is on the
 team. `external_ref` is never written either: the Teams and Jira calls are still simulated prints.
 Both are placeholders that make the shape right without pretending the integration exists.
 
-### 8.5 Lower severity
+### 8.4 Lower severity
 
 - **`.bak` files accumulate** and nothing cleans them up.
 - **The line-item and invoice tables have no soft delete.** `reprocess.py --delete` is permanent.

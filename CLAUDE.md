@@ -30,11 +30,13 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python migrations/003_fix_date_check.py
 ./.venv/bin/python migrations/004_email_and_tasks.py
 ./.venv/bin/python migrations/005_rename_validation_status.py
+./.venv/bin/python migrations/006_storage_completion.py
+./.venv/bin/python migrations/007_post_approval.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
 ./.venv/bin/python query_db.py                   # inspect records
 ./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
 ./.venv/bin/python evaluation/run_eval.py        # per-field accuracy vs ground truth
-./.venv/bin/python -m pytest tests/ -q           # 160 storage, migration and gate tests
+./.venv/bin/python -m pytest tests/ -q           # 194 storage, migration and gate tests
 ./.venv/bin/python evaluation/schema_comparison.py  # Optional 3/15 vs required 15/15
 ./.venv/bin/python reprocess.py --list           # what is stored, and is its file still there
 ```
@@ -112,7 +114,7 @@ Do not attribute these failures to the model or attempt to fix them with prompt 
 
 ## Work in progress
 
-`neo/database-redesign` is **pushed to `origin`** as of 2026-08-30, 12 commits, 160 tests passing.
+`neo/database-redesign` is **pushed to `origin`**, 16 commits, 194 tests passing, schema version 7.
 `origin` is Neo's fork; `upstream` is JJ's repo. **No PR opened yet and `main` is untouched**, on
 purpose: five of the changes are decisions the group has not ratified, and a branch keeps them
 reversible. Both `origin/main` and `upstream/main` are still at `6ef6798`, so the branch merges
