@@ -1,9 +1,40 @@
 # Final Report: Outline and Evidence Map
 
 **Assignment 1, Option A, 32040 Industry Project.** Individual, 80 marks, 80% of subject.
-~30-45 pages body. Draft due Week 8, final due end of Week 11. Must use the Canvas template.
+~30-45+ pages body, excluding cover page, TOC, references and appendices. Quality over volume.
+
+**Draft:** Week 8, reviewed in the supervisor meeting.
+**Final:** 11:59pm the Sunday before Week 12 starts.
+**Submit:** Canvas "Start Assignment", **and** email the documents to the UTS Supervisor, cc the
+Subject Coordinator. Both, not either.
+**Naming:** `Neo [Surname] – Final Report.docx`.
+**Structure:** the eight sections below are the brief's own suggested structure. The Canvas template
+sections are mandatory; sections may be added and the structure adapted, but template sections stay.
 
 **Status:** outline only, 2026-08-30. Nothing written yet.
+
+## Three requirements that are easy to miss
+
+**1. The Industry Supervisor Report is a second deliverable.** Required where an industry supervisor
+is appointed, covering professional conduct, technical performance, communication and industry
+engagement. **The student is responsible for it being submitted on time**, not the supervisor.
+Confirm whether one is appointed for this project; if so, chase it early, because it depends on
+someone else's calendar.
+
+**2. APA throughout, and every diagram, figure and table must be cited.** That includes ours. The ER
+diagram, the pipeline flow and the before/after tables all need captions and sources, and where a
+figure is generated from our own code that should be stated rather than left ambiguous.
+
+**3. Generative AI use must comply with the Subject Outline's requirements, and similarity
+detection applies.** This matters here more than on a typical assignment: a large amount of this
+project's code, specs and analysis was produced working with an AI assistant. **Read the Subject
+Outline's GenAI section before writing, not after.** Whatever it requires, the safe position is a
+clear, specific disclosure: what was used, for what, and what was verified independently.
+
+That position is also defensible on its own terms. The evidence in this project was produced by
+running things and can be re-run by anyone: `evaluation/schema_comparison.py`,
+`evaluation/sentinel_comparison.py`, 194 tests, seven migrations that print before-and-after
+reports. Reproducibility is the strongest answer to a question about how work was produced.
 
 This document maps each required section to the evidence that already exists, so drafting is
 assembly rather than invention. Where a section has no evidence it says so, because those are the
@@ -176,9 +207,16 @@ so it should not block the seven that can.
 
 ---
 
-## Two things to confirm before drafting
+## Four things to confirm before drafting
 
-1. **What week is it, and when exactly is the draft due?** The vault records "Week 8" without a
-   semester start date. Two weeks and four weeks are different plans.
-2. **Download the Canvas report template.** Section names must match it; the structure above follows
-   the suggested structure in the assignment brief, not the template itself.
+Checked against the assignment brief 2026-08-30. These are what the brief does not answer.
+
+1. **What week is it, and what date is the Week 8 draft due?** The brief says "Week 8" and the vault
+   has no semester start date. Two weeks and four weeks are different plans. Canvas will say.
+2. **Download the Canvas report template.** Canvas → Option A Students → Assignment 1 → Own Project
+   → Final Report. Its sections are mandatory. The eight below are the brief's *suggested* structure
+   and match it closely, but the template is what governs.
+3. **Is an Industry Supervisor appointed?** If so the Industry Supervisor Report is required and is
+   Neo's responsibility to chase.
+4. **What does the Subject Outline say about generative AI?** Read it before writing. See the third
+   point at the top of this document.
