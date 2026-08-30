@@ -13,6 +13,17 @@ sections are mandatory; sections may be added and the structure adapted, but tem
 
 **Status:** outline only, 2026-08-30. Nothing written yet.
 
+## Companion documents in this folder
+
+| File | What it is |
+|---|---|
+| `presentation.md` | **Neo's study guide.** Twelve questions a supervisor is likely to ask about the evaluation, answered, each with a command that reproduces the answer. Written to be understood, not copied. Build a PDF with `./report/build-pdf.sh report/presentation.md` |
+| `ai-collaboration-account.md` | What the AI assistant did, the seven errors it made, and what caught each one. Feeds the Discussion section and any disclosure the Subject Outline requires |
+| `build-pdf.sh` | markdown to PDF, via pandoc and headless Chrome. Chrome because these documents are in Thai and it uses the system font stack |
+
+The PDFs are gitignored, for the same reason the `.docx` is: git cannot merge a binary, and a PDF
+gets a new hash on every build even from identical source. The markdown is the source of truth.
+
 ## Three requirements that are easy to miss
 
 **1. The Industry Supervisor Report is a second deliverable.** Required where an industry supervisor
