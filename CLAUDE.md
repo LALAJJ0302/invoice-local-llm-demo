@@ -116,11 +116,12 @@ Do not attribute these failures to the model or attempt to fix them with prompt 
 
 ## Work in progress
 
-`neo/database-redesign` is **pushed to `origin`**, 16 commits, 194 tests passing, schema version 7.
+`neo/database-redesign` is **pushed to `origin`**, 194 tests passing, schema version 7.
 `origin` is Neo's fork; `upstream` is JJ's repo.
 
 **PR #1 is open against `upstream/main` and is deliberately not merged.**
-https://github.com/LALAJJ0302/invoice-local-llm-demo/pull/1 — 17 commits, 35 files, MERGEABLE.
+https://github.com/LALAJJ0302/invoice-local-llm-demo/pull/1 — check the PR for the live commit
+count and merge state; both change with every push, so they are not repeated here.
 
 It is open so the changes are reviewable line by line and so anything landing later rebases onto it,
 not the other way round. It is not merged because five of the changes are decisions the group has

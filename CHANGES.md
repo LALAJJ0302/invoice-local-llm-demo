@@ -1,6 +1,9 @@
 # Changes on `neo/database-redesign`
 
-**From:** Neo · **Branch:** `neo/database-redesign` · 16 commits ahead of `main` · 194 tests passing
+**From:** Neo · **Branch:** `neo/database-redesign` · schema version 7 · 194 tests passing
+
+_Commit and file counts are deliberately not written here: the PR shows them live and they go stale
+the moment anything is pushed._
 
 ```
 https://github.com/NattakritPitayasiri/invoice-local-llm-demo/tree/neo/database-redesign

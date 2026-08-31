@@ -133,7 +133,7 @@ two of us rebuilt it.
 
 ### 3.5 ~~Nothing is pushed~~ MINE IS PUSHED 2026-08-30, yours probably still is not
 
-`neo/database-redesign` is on my fork, 17 commits, 194 tests, and **PR #1 is open**:
+`neo/database-redesign` is on my fork, 194 tests, and **PR #1 is open**:
 
 ```
 https://github.com/LALAJJ0302/invoice-local-llm-demo/pull/1
