@@ -182,7 +182,7 @@ st.dataframe(
 st.subheader("🔍 Document Detail Inspector")
 selected_id = st.selectbox(
     "Select an ID to inspect or manually approve:",
-    options=filtered_df["ID"].tolist() if not filtered_df.empty else []
+    options=filtered_df["id"].tolist() if not filtered_df.empty else []
 )
 
 if selected_id:
