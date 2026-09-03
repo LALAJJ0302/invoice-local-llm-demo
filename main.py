@@ -3,12 +3,38 @@ import re
 import shutil
 from datetime import datetime
 from typing import List, Optional
+from dateutil import parser as date_parser
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 import ollama
 
 import storage
 from storage import StorageManager
+
+# =====================================================================
+# 0. Regex Patterns for Deterministic Fallback Field Extraction
+# =====================================================================
+# Small local LLMs are unreliable at pulling highly patterned, labeled
+# fields out of documents. These regexes backfill fields the model
+# missed (returned null / 0.0 / "Unknown") using the same "fallback
+# only fills gaps" approach as the existing vendor-name heuristic.
+INVOICE_NUMBER_PATTERN = re.compile(
+    r"(?:Invoice\s*(?:Number|No\.?|#)|Tax\s*Invoice\s*(?:Number|No\.?)|Receipt\s*(?:Number|No\.?)|Order\s*#|Ref\s*#)"
+    r"\s*[:\-]?\s*([A-Za-z0-9][A-Za-z0-9\-\/]{2,})",
+    re.IGNORECASE
+)
+DATE_LABEL_PATTERN = re.compile(
+    r"(?:Date\s*of\s*Issue|Invoice\s*Date|Bill\s*Date|Transaction\s*Date|Date)"
+    r"\s*[:\-]?\s*([A-Za-z0-9,\/\-\. ]{6,25})",
+    re.IGNORECASE
+)
+TOTAL_AMOUNT_PATTERN = re.compile(
+    r"(?:Grand\s*Total|Total\s*Amount\s*Due|Amount\s*Due|Balance\s*Due|Total\s*Payable)"
+    r"\s*[:\-]?\s*(?:[A-Z]{3}|\$|€|£)?\s*([\d,]+\.\d{2})",
+    re.IGNORECASE
+)
+CURRENCY_CODE_PATTERN = re.compile(r"\b(AUD|USD|EUR|GBP|CAD|NZD|TWD|JPY|SGD|HKD|CNY|INR)\b", re.IGNORECASE)
+INVOICE_CODE_TOKEN_PATTERN = re.compile(r"^[A-Za-z]{2,5}-?\d+", re.IGNORECASE)
 
 # =====================================================================
 # 1. Enhanced Data Schema Definitions
@@ -62,9 +88,18 @@ class DocumentExtractor:
     def _infer_vendor_fallback(self, raw_text: str, file_name: str) -> Optional[str]:
         """Heuristic fallback to extract vendor name from text header or filename."""
         # 1. Check filename patterns (e.g. 'sample_invoice_1_Apex_Cloud.pdf' or 'Google_Invoice.pdf')
+        # Split on underscores/spaces only (NOT hyphens) so invoice codes like
+        # "INV-2026-001" stay intact as a single token instead of fragmenting
+        # into "INV", "2026", "001" (which would otherwise leak "INV" as a
+        # bogus vendor name guess).
         cleaned_filename = os.path.splitext(file_name)[0]
-        name_parts = re.split(r"[-_ ]+", cleaned_filename)
-        filtered_parts = [p for p in name_parts if p.lower() not in ["invoice", "receipt", "sample", "tax", "bill", "doc"] and not p.isdigit()]
+        name_parts = re.split(r"[_ ]+", cleaned_filename)
+        filtered_parts = [
+            p for p in name_parts
+            if p.lower() not in ["invoice", "receipt", "sample", "tax", "bill", "doc"]
+            and not p.isdigit()
+            and not INVOICE_CODE_TOKEN_PATTERN.match(p)
+        ]
         if filtered_parts:
             return " ".join(filtered_parts)
 
@@ -88,6 +123,20 @@ class DocumentExtractor:
         5. "currency": Detect the explicit currency (e.g. USD, AUD, EUR, GBP, CAD, TWD, $). If ambiguous or not found, return "Unknown". Do NOT assume USD.
         6. "items": Extract line items if visible.
 
+        Never leave a field at its default (null / 0.0 / "Unknown") if the value is actually printed somewhere in the document -- read the whole document carefully before deciding a field is missing.
+
+        Example:
+        Document Content:
+        \"\"\"
+        Vendor: Bright Star Media Pty Ltd
+        Invoice Number: INV-2025-042
+        Date of Issue: 2025-03-12
+        Currency: AUD
+        Grand Total AUD 980.50
+        \"\"\"
+        Expected JSON:
+        {{"invoice_number": "INV-2025-042", "vendor_name": "Bright Star Media Pty Ltd", "date": "2025-03-12", "total_amount": 980.50, "currency": "AUD", "items": []}}
+
         Document Content:
         \"\"\"{raw_text}\"\"\"
         """
@@ -106,10 +155,49 @@ class DocumentExtractor:
             if not parsed_data.vendor_name or parsed_data.vendor_name.strip() in ["", "None", "null"]:
                 parsed_data.vendor_name = self._infer_vendor_fallback(raw_text, file_name)
 
+            # Deterministic regex fallback for the remaining structured fields
+            parsed_data = self._infer_missing_fields_fallback(parsed_data, raw_text)
+
             return parsed_data
         except Exception as error:
             print(f"  [Error] LLM Extraction failed: {error}")
             return None
+
+    def _infer_missing_fields_fallback(self, data: ExtractedInvoice, raw_text: str) -> ExtractedInvoice:
+        """Deterministic regex fallback that backfills fields the LLM missed.
+
+        Only overwrites a field when the LLM's value is missing/empty/zero/
+        "Unknown", so a correct LLM answer is never clobbered.
+        """
+        if not data.invoice_number or str(data.invoice_number).strip().lower() in ["", "none", "null"]:
+            match = INVOICE_NUMBER_PATTERN.search(raw_text)
+            if match:
+                data.invoice_number = match.group(1).strip().rstrip(".,")
+
+        if not data.date or str(data.date).strip().lower() in ["", "none", "null"]:
+            match = DATE_LABEL_PATTERN.search(raw_text)
+            if match:
+                candidate = match.group(1).strip()
+                try:
+                    parsed_date = date_parser.parse(candidate, fuzzy=True)
+                    data.date = parsed_date.strftime("%Y-%m-%d")
+                except (ValueError, OverflowError):
+                    pass
+
+        if not data.total_amount or data.total_amount <= 0:
+            match = TOTAL_AMOUNT_PATTERN.search(raw_text)
+            if match:
+                try:
+                    data.total_amount = float(match.group(1).replace(",", ""))
+                except ValueError:
+                    pass
+
+        if not data.currency or data.currency.strip().lower() == "unknown":
+            match = CURRENCY_CODE_PATTERN.search(raw_text)
+            if match:
+                data.currency = match.group(1).upper()
+
+        return data
 
 # =====================================================================
 # 3. Confidence Validator
