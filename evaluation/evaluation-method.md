@@ -17,10 +17,28 @@ extracted correctly. Those are different claims and only one of them is testable
 Deriving expected values from the generator would test the generator against itself and would pass
 even if both were wrong. `ground_truth.json` is a separate artifact read from the rendered PDFs.
 
-**Heuristic fallbacks are off by default.** `_infer_vendor_fallback` infers a vendor from the
-*filename* before falling back to document text. A filename-derived value is a guess, not an
-extraction, and counting it as a hit measures the naming convention rather than the model. Use
-`--with-fallback` to measure shipped behaviour instead.
+**Heuristic fallbacks are off by default.** A fallback is our own code recovering a value the
+model did not return. Counting one as a hit measures our patches rather than the model, so the
+default run switches them all off. Use `--with-fallback` to measure shipped behaviour instead.
+
+**The switch covers every method matching `_infer_*_fallback`, found at runtime.** It is not a
+list. It used to be a list of one, and on 2026-09-03 a second fallback was added to `main.py`;
+the harness kept printing "fallbacks: disabled" while that fallback ran, and reported 93.3% for
+a model scoring 66.7%. A hardcoded list cannot know about a fallback added after it was written.
+If nothing matches the pattern the harness **refuses to run**, because printing an accuracy figure
+that claims fallbacks are disabled, having disabled nothing, is the failure being prevented.
+
+The output names what it switched off rather than asserting a state, so a pasted result can be
+checked by whoever reads it:
+
+```
+=== Extraction accuracy: llama3.2 ===
+    fallbacks disabled: _infer_missing_fields_fallback, _infer_vendor_fallback
+```
+
+Currently covered: `_infer_vendor_fallback` (vendor from filename or header) and
+`_infer_missing_fields_fallback` (invoice number, date, total and currency by regular
+expression).
 
 **Fallbacks are disabled by monkey-patching at runtime.** `main.py` is not edited, so this harness
 measures the code as committed.
@@ -87,11 +105,34 @@ OVERALL               3/15       20.0%
 Gate outcome: 0/3 Validated (0.0% automation pass rate, threshold 0.8)
 ```
 
-Identical with `--with-fallback`, because the model returns a vendor on every sample, so
-`_infer_vendor_fallback` never fires. It is dead code on this test set. The contamination risk it
-poses is latent, not currently active.
+Identical with `--with-fallback` **as measured on 2026-08-26**, because the model returned a
+vendor on every sample, so `_infer_vendor_fallback` never fired.
 
 Raw results are saved in `results_before.json` and `results_before_with_fallback.json`.
+
+### This baseline is historical, not current
+
+`main.py` changed on 2026-09-03: the extraction prompt was rewritten and a regex fallback added.
+**The 3/15 above was measured against the previous prompt and no longer describes the code in the
+tree.** It stays here because the report needs it and it is a real measurement, but it must be
+cited as the 2026-08-26 baseline rather than as current behaviour.
+
+Two claims in the paragraph above are also no longer true of the current code. The model does not
+return a vendor on every sample: invoice 1 now returns `None`, reproducibly. And
+`_infer_vendor_fallback` is no longer dead code on this test set, because it fires on that sample.
+
+Four states have now been measured, all reproducible:
+
+| State | Overall | What it is |
+|---|---|---|
+| 2026-08-26 baseline | 3/15 | Previous prompt, `Optional` schema, no field fallback |
+| Model alone, 2026-09-03 | 10/15 | Current prompt, every fallback off, identical across three runs |
+| Shipped, 2026-09-03 | 14/15 | Current prompt plus the regex fallback |
+| Required fields | 15/15 | `schema_comparison.py`. Measured, **not shipped** |
+
+The gap between rows one and two is the prompt. The gap between two and three is our regex, not
+the model. The gap between two and four is the schema. Reporting only the last number would
+attribute all three to the same cause.
 
 ### Reading the result
 

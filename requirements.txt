@@ -10,6 +10,10 @@ ollama==0.6.2
 pypdf==6.16.2
 pydantic==2.13.4
 python-dotenv==1.2.3
+# Used by DocumentExtractor's regex date fallback. Declared explicitly even though
+# pandas pulls it in transitively: an import in our own code is a direct dependency,
+# and relying on someone else's tree to supply it is how a pinned file stops pinning.
+python-dateutil==2.9.0.post0
 
 # Dashboard
 streamlit==1.62.0

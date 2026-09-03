@@ -4,6 +4,12 @@ Reads nothing from the live pipeline's inbox/ or archive/, and modifies no file 
 the repository. The fallback switch is applied by monkey-patching at runtime so
 main.py stays untouched.
 
+The switch covers EVERY method matching _infer_*_fallback, discovered at runtime
+rather than listed here. It used to name one method. On 2026-09-03 a second
+fallback was added to main.py, the switch kept reporting "disabled", and the
+harness reported 93.3% for a model that scores 66.7%. A hardcoded list cannot
+know about a fallback added after it was written; a convention can.
+
 Usage:
     python evaluation/run_eval.py                    # default: fallbacks disabled
     python evaluation/run_eval.py --with-fallback    # measure the shipped behaviour
@@ -56,6 +62,40 @@ def matches(field, expected, actual):
     return normalise_text(actual) == normalise_text(expected)
 
 
+FALLBACK_PATTERN = re.compile(r"^_infer_.*_fallback$")
+
+
+def _neutraliser(name):
+    """A do-nothing stand-in matching how the pipeline uses each fallback.
+
+    Two shapes exist. A *gap-filler* is handed the parsed record and returns it,
+    so it must return its first argument unchanged or extraction loses the record.
+    A *value-producer* returns a single inferred value, so it must return None.
+    """
+    if "missing_fields" in name:
+        return lambda data, *a, **k: data
+    return lambda *a, **k: None
+
+
+def disable_fallbacks(extractor):
+    """Neutralise every fallback on the extractor. Returns the names switched off.
+
+    Refuses to continue if none match. Printing an accuracy figure while claiming
+    fallbacks are disabled, having disabled nothing, is the exact failure this
+    function exists to prevent, so it fails loudly instead.
+    """
+    names = sorted(n for n in dir(extractor) if FALLBACK_PATTERN.match(n))
+    if not names:
+        raise SystemExit(
+            "No methods matched _infer_*_fallback on DocumentExtractor.\n"
+            "Either main.py renamed them or the convention changed. Refusing to "
+            "report a number that claims fallbacks are disabled when nothing was."
+        )
+    for n in names:
+        setattr(extractor, n, _neutraliser(n))
+    return names
+
+
 def ensure_samples():
     existing = [f for f in os.listdir(SAMPLES_DIR)] if os.path.isdir(SAMPLES_DIR) else []
     if not any(f.endswith(".pdf") for f in existing):
@@ -69,8 +109,9 @@ def main():
     parser.add_argument(
         "--with-fallback",
         action="store_true",
-        help="Leave _infer_vendor_fallback active. Off by default: a filename-derived "
-             "vendor is a guess, not an extraction, and inflates the score.",
+        help="Leave every _infer_*_fallback active, measuring shipped behaviour. Off by "
+             "default: a filename-derived vendor or a regex-recovered total is our code "
+             "working, not the model, and counting it inflates the score.",
     )
     parser.add_argument("--threshold", type=float, default=0.80)
     parser.add_argument("--save", help="Write the results to a JSON file for before/after comparison")
@@ -80,8 +121,7 @@ def main():
     ensure_samples()
 
     extractor = DocumentExtractor(model_name=args.model)
-    if not args.with_fallback:
-        extractor._infer_vendor_fallback = lambda raw_text, file_name: None
+    disabled = [] if args.with_fallback else disable_fallbacks(extractor)
 
     validator = ConfidenceValidator(threshold=args.threshold)
 
@@ -118,7 +158,11 @@ def main():
         return 1
 
     mode = "enabled" if args.with_fallback else "disabled"
-    print(f"\n=== Extraction accuracy: {args.model} (heuristic fallbacks: {mode}) ===\n")
+    # Name what was switched off rather than asserting a state, so a pasted result
+    # can be checked by whoever reads it.
+    detail = ", ".join(disabled) if disabled else "none, measuring shipped behaviour"
+    print(f"\n=== Extraction accuracy: {args.model} ===")
+    print(f"    fallbacks {mode}: {detail}\n")
     print(f"{'Field':<16}{'Correct':>10}{'Accuracy':>12}")
     print("-" * 38)
     for f in FIELDS:
@@ -137,7 +181,9 @@ def main():
             print(f"{file_name}\n    {f}: expected {d['expected']!r}, got {d['actual']!r}")
 
     if args.save:
-        payload = {"model": args.model, "fallbacks": mode, "threshold": args.threshold,
+        # "fallbacks" is kept for compatibility with the frozen results_*.json files.
+        payload = {"model": args.model, "fallbacks": mode,
+                   "fallbacks_disabled": disabled, "threshold": args.threshold,
                    "per_field": {f: {"correct": hits[f], "total": total} for f in FIELDS},
                    "overall": {"correct": got, "total": poss},
                    "validated": validated, "documents": total, "rows": rows}
