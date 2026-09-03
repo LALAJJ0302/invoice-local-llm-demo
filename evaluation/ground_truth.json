@@ -1,0 +1,28 @@
+{
+  "_comment": "Independently transcribed from the rendered PDFs, not imported from generate_mock_invoices.py. Deriving ground truth from the generator would test the generator against itself.",
+  "_source": "evaluation/samples/*.pdf as produced by generate_mock_invoices.py",
+  "_transcribed": "2026-08-26",
+  "samples": {
+    "sample_invoice_1_INV-2026-001.pdf": {
+      "invoice_number": "INV-2026-001",
+      "vendor_name": "Apex Cloud Solutions Pty Ltd",
+      "date": "2026-08-10",
+      "total_amount": 1500.00,
+      "currency": "USD"
+    },
+    "sample_invoice_2_INV-2026-002.pdf": {
+      "invoice_number": "INV-2026-002",
+      "vendor_name": "NextGen Hardware Supplies",
+      "date": "2026-08-15",
+      "total_amount": 2650.00,
+      "currency": "AUD"
+    },
+    "sample_invoice_3_INV-2026-003.pdf": {
+      "invoice_number": "INV-2026-003",
+      "vendor_name": "Synthetix AI Consulting",
+      "date": "2026-08-20",
+      "total_amount": 2350.00,
+      "currency": "USD"
+    }
+  }
+}

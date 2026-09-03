@@ -1,0 +1,131 @@
+{
+  "model": "llama3.2",
+  "fallbacks": "enabled",
+  "threshold": 0.8,
+  "per_field": {
+    "vendor_name": {
+      "correct": 3,
+      "total": 3
+    },
+    "invoice_number": {
+      "correct": 0,
+      "total": 3
+    },
+    "date": {
+      "correct": 0,
+      "total": 3
+    },
+    "total_amount": {
+      "correct": 0,
+      "total": 3
+    },
+    "currency": {
+      "correct": 0,
+      "total": 3
+    }
+  },
+  "overall": {
+    "correct": 3,
+    "total": 15
+  },
+  "validated": 0,
+  "documents": 3,
+  "rows": [
+    {
+      "file": "sample_invoice_1_INV-2026-001.pdf",
+      "fields": {
+        "vendor_name": {
+          "expected": "Apex Cloud Solutions Pty Ltd",
+          "actual": "Apex Cloud Solutions Pty Ltd",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "INV-2026-001",
+          "actual": null,
+          "correct": false
+        },
+        "date": {
+          "expected": "2026-08-10",
+          "actual": null,
+          "correct": false
+        },
+        "total_amount": {
+          "expected": 1500.0,
+          "actual": 0.0,
+          "correct": false
+        },
+        "currency": {
+          "expected": "USD",
+          "actual": "Unknown",
+          "correct": false
+        }
+      },
+      "score": 0.4,
+      "status": "NeedsReview"
+    },
+    {
+      "file": "sample_invoice_2_INV-2026-002.pdf",
+      "fields": {
+        "vendor_name": {
+          "expected": "NextGen Hardware Supplies",
+          "actual": "NextGen Hardware Supplies",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "INV-2026-002",
+          "actual": null,
+          "correct": false
+        },
+        "date": {
+          "expected": "2026-08-15",
+          "actual": null,
+          "correct": false
+        },
+        "total_amount": {
+          "expected": 2650.0,
+          "actual": 0.0,
+          "correct": false
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "Unknown",
+          "correct": false
+        }
+      },
+      "score": 0.4,
+      "status": "NeedsReview"
+    },
+    {
+      "file": "sample_invoice_3_INV-2026-003.pdf",
+      "fields": {
+        "vendor_name": {
+          "expected": "Synthetix AI Consulting",
+          "actual": "Synthetix AI Consulting",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "INV-2026-003",
+          "actual": null,
+          "correct": false
+        },
+        "date": {
+          "expected": "2026-08-20",
+          "actual": null,
+          "correct": false
+        },
+        "total_amount": {
+          "expected": 2350.0,
+          "actual": 0.0,
+          "correct": false
+        },
+        "currency": {
+          "expected": "USD",
+          "actual": "Unknown",
+          "correct": false
+        }
+      },
+      "score": 0.4,
+      "status": "NeedsReview"
+    }
+  ]
+}

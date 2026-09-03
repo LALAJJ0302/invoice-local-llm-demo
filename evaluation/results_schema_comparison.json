@@ -1,0 +1,217 @@
+{
+  "model": "llama3.2",
+  "variants": [
+    {
+      "label": "Optional with defaults (what ships today)",
+      "per_field": {
+        "invoice_number": 0,
+        "vendor_name": 3,
+        "date": 0,
+        "total_amount": 0,
+        "currency": 0
+      },
+      "overall": {
+        "correct": 3,
+        "total": 15
+      },
+      "rows": [
+        {
+          "file": "sample_invoice_1_INV-2026-001.pdf",
+          "fields": {
+            "invoice_number": {
+              "expected": "INV-2026-001",
+              "got": null,
+              "correct": false
+            },
+            "vendor_name": {
+              "expected": "Apex Cloud Solutions Pty Ltd",
+              "got": "Apex Cloud Solutions Pty Ltd",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-08-10",
+              "got": null,
+              "correct": false
+            },
+            "total_amount": {
+              "expected": 1500.0,
+              "got": null,
+              "correct": false
+            },
+            "currency": {
+              "expected": "USD",
+              "got": null,
+              "correct": false
+            }
+          }
+        },
+        {
+          "file": "sample_invoice_2_INV-2026-002.pdf",
+          "fields": {
+            "invoice_number": {
+              "expected": "INV-2026-002",
+              "got": null,
+              "correct": false
+            },
+            "vendor_name": {
+              "expected": "NextGen Hardware Supplies",
+              "got": "NextGen Hardware Supplies",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-08-15",
+              "got": null,
+              "correct": false
+            },
+            "total_amount": {
+              "expected": 2650.0,
+              "got": null,
+              "correct": false
+            },
+            "currency": {
+              "expected": "AUD",
+              "got": null,
+              "correct": false
+            }
+          }
+        },
+        {
+          "file": "sample_invoice_3_INV-2026-003.pdf",
+          "fields": {
+            "invoice_number": {
+              "expected": "INV-2026-003",
+              "got": null,
+              "correct": false
+            },
+            "vendor_name": {
+              "expected": "Synthetix AI Consulting",
+              "got": "Synthetix AI Consulting",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-08-20",
+              "got": null,
+              "correct": false
+            },
+            "total_amount": {
+              "expected": 2350.0,
+              "got": null,
+              "correct": false
+            },
+            "currency": {
+              "expected": "USD",
+              "got": null,
+              "correct": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "label": "Required fields (the proposed change)",
+      "per_field": {
+        "invoice_number": 3,
+        "vendor_name": 3,
+        "date": 3,
+        "total_amount": 3,
+        "currency": 3
+      },
+      "overall": {
+        "correct": 15,
+        "total": 15
+      },
+      "rows": [
+        {
+          "file": "sample_invoice_1_INV-2026-001.pdf",
+          "fields": {
+            "invoice_number": {
+              "expected": "INV-2026-001",
+              "got": "INV-2026-001",
+              "correct": true
+            },
+            "vendor_name": {
+              "expected": "Apex Cloud Solutions Pty Ltd",
+              "got": "Apex Cloud Solutions Pty Ltd",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-08-10",
+              "got": "2026-08-10",
+              "correct": true
+            },
+            "total_amount": {
+              "expected": 1500.0,
+              "got": 1500.0,
+              "correct": true
+            },
+            "currency": {
+              "expected": "USD",
+              "got": "USD",
+              "correct": true
+            }
+          }
+        },
+        {
+          "file": "sample_invoice_2_INV-2026-002.pdf",
+          "fields": {
+            "invoice_number": {
+              "expected": "INV-2026-002",
+              "got": "INV-2026-002",
+              "correct": true
+            },
+            "vendor_name": {
+              "expected": "NextGen Hardware Supplies",
+              "got": "NextGen Hardware Supplies",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-08-15",
+              "got": "2026-08-15",
+              "correct": true
+            },
+            "total_amount": {
+              "expected": 2650.0,
+              "got": 2650.0,
+              "correct": true
+            },
+            "currency": {
+              "expected": "AUD",
+              "got": "AUD",
+              "correct": true
+            }
+          }
+        },
+        {
+          "file": "sample_invoice_3_INV-2026-003.pdf",
+          "fields": {
+            "invoice_number": {
+              "expected": "INV-2026-003",
+              "got": "INV-2026-003",
+              "correct": true
+            },
+            "vendor_name": {
+              "expected": "Synthetix AI Consulting",
+              "got": "Synthetix AI Consulting",
+              "correct": true
+            },
+            "date": {
+              "expected": "2026-08-20",
+              "got": "2026-08-20",
+              "correct": true
+            },
+            "total_amount": {
+              "expected": 2350.0,
+              "got": 2350.0,
+              "correct": true
+            },
+            "currency": {
+              "expected": "USD",
+              "got": "USD",
+              "correct": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
