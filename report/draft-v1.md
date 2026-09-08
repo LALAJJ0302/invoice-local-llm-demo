@@ -7,16 +7,19 @@ date: "8 September 2026"
 
 # Draft status
 
-**This is version 1 and it is incomplete.** Section 5 is written. The remaining sections are
-outlined with the evidence each will draw on, so that what is missing is visible rather than
-disguised by placeholder text.
+**This is version 1 and it is incomplete.** Sections 3, 4 and 5 are written. The remaining
+five are outlined with the evidence each will draw on, so that what is missing is visible
+rather than disguised by placeholder text.
+
+The three written sections are the three that carry the most marks: Analysis and Design (10),
+Solution of project (20) and Quality of project outcomes (20).
 
 | Section | Status | Evidence available |
 |---|---|---|
 | 1. Introduction | Outline | Objectives from `requirements-spec.md`; industry context **needs a citation** |
 | 2. Literature and Environmental Review | Outline | Anchor paper found; **the only section needing genuine new research** |
-| 3. Problem Analysis | Outline | Constraint history with dates; `database-spec.md` §8 |
-| 4. Design and Development | Outline | Nine design decisions, each with its evidence |
+| **3. Problem Analysis** | **Written** | Seven documented constraints with dates; six defects found by measurement |
+| **4. Design and Development** | **Written** | Ten design decisions, each with its alternative and its evidence |
 | **5. Evaluation and Testing** | **Written** | Controlled experiments, a negative result, three defects found by testing |
 | 6. Discussion | Outline | Five lessons, all measured |
 | 7. Recommendations | Outline | `database-spec.md` §8 |
@@ -85,52 +88,7 @@ intelligence toolkit and is the closest published system to the one built here.
 
 ---
 
-# 3. Problem Analysis
-
-*To be written. Evidence is complete; the prose is not.*
-
-## 3.1 The original design and why it was abandoned
-
-A Microsoft-based design (SharePoint, Power Automate, Copilot, Power BI) was blocked by a
-sequence of institutional constraints, each documented with a date: Dataverse unavailable,
-SharePoint provisioning refused, MCP consent denied, Copilot credits unavailable.
-
-The finding is not that one obstacle appeared. It is that **administrative unavailability
-was repeated and cumulative**, which is a real constraint on university-hosted projects and
-is worth reporting as such.
-
-## 3.2 Defects in the first working version
-
-Tiered by severity in `database-spec.md` §8. The headline defect is analysed in §5.
-
----
-
-# 4. Project Design and Development
-
-*To be written. The nine design decisions in `database-spec.md` §5 are the core.*
-
-## 4.1 Architecture after the pivot
-
-```
-Gmail (IMAP) -> email_listener -> inbox/ -> pypdf -> retrieval (prior correspondence)
-   -> Ollama llama3.2 with constrained decoding -> validation gate
-   -> SQLite (five related tables) -> archive/ -> Streamlit dashboard -> approval
-   -> task queue -> notification outbox
-```
-
-## 4.2 Data model
-
-Five related tables with constraints enforced by SQLite, reached through nine versioned
-migrations. Replaced a single flat table with no constraints, no uniqueness, and line items
-stored as JSON text.
-
-## 4.3 Design decisions
-
-Each states the decision, the alternative, and the measurement that settled it. The one to
-lead with: **the deduplication key**. The first design hashed the PDF file bytes. It
-reviewed correctly and would have deduplicated nothing, because ReportLab writes a random
-`/ID` into every generated PDF, so identical content produces different bytes. The key is a
-hash of the extracted text instead.
+*Sections 3 and 4 follow, in full.*
 
 ---
 

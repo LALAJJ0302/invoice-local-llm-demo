@@ -127,16 +127,48 @@ This is a stronger result than the one it replaces. A single-cause explanation f
 single comparison is a weaker piece of evidence than a two-by-two that identifies an
 interaction and quantifies both factors.
 
-### 5.4.3 An unresolved discrepancy
+### 5.4.3 A third factor: the shape of the schema, not only its required list
 
-The Original-Optional cell reads **6/15** in the two-by-two and **3/15** in
-`schema_comparison.py`, which still reproduces exactly. The difference is entirely in the
+The Original-Optional cell read **6/15** in the two-by-two above and **3/15** in
+`schema_comparison.py`, which still reproduces exactly. The difference was entirely in the
 `currency` field: 0/3 in one, 3/3 in the other.
 
-The cause has not been identified. It may be run-to-run variation in the decoder, or a
-difference in how the two scripts construct their calls. **Both figures are reported here
-rather than one being chosen**, because selecting the more convenient of two numbers that
-have not been reconciled is not a measurement.
+This was initially recorded as an unresolved discrepancy. It has since been resolved, and
+the cause is a finding in its own right.
+
+Both scripts call the model with the same prompt, the same temperature and the same model.
+The difference is what their `Optional` schema contains. `schema_comparison.py` imports
+`ExtractedInvoice` from `main.py`, which carries a sixth field, `items`, a **nested list**
+of line items. The two-by-two defined its own five-field schema and omitted it.
+
+Holding everything else constant and varying only the presence of that one field:
+
+```
+Optional schema WITH items      3/15    invoice:0  vendor:3  date:0  total:0  currency:0
+Optional schema WITHOUT items   6/15    invoice:0  vendor:3  date:0  total:0  currency:3
+```
+
+Repeated three times, identical every run. This is not decoder variation.
+
+**Adding a nested list to the schema costs three scalar field-values elsewhere.** The field
+lost is `currency`, the last scalar property before `items` in the declaration order. The
+most plausible mechanism is that the larger and more complex grammar makes early
+termination of the object more likely, and the field nearest the end is the one dropped.
+
+This extends the finding in §5.4.1 rather than contradicting it. That section established
+that an empty `required` list permits omission. This establishes that **the shape of the
+schema also affects which fields are emitted**, independently of which are required. Schema
+design is therefore a variable with at least two dimensions, not one.
+
+It also aligns with the framing in JSONSchemaBench (Geng et al., 2025), whose second
+evaluation dimension is *coverage of constraint types* rather than mere compliance: the
+question is not only whether a schema is enforced, but how different schemas behave under
+enforcement.
+
+**Which figure the report uses.** Both are correct and they answer different questions.
+**3/15 is the figure for the system as shipped**, because it uses the schema `main.py`
+actually declares, and it is the number quoted throughout this report. 6/15 is a controlled
+variant that exists to isolate the effect above, and is reported only in this subsection.
 
 ## 5.5 What the fix costs
 
@@ -268,6 +300,8 @@ intended architecture is not evidence that the architecture runs.
 - **Score comparability.** The gate's weighting changed on 28 August and again on
   3 September 2026. Scores are not comparable across those dates and the report marks which
   period each figure belongs to.
-- **Internal validity.** The 6/15 against 3/15 discrepancy in §5.4.3 is unresolved.
+- **Internal validity.** The 6/15 against 3/15 discrepancy in §5.4.3 was traced to a
+  schema difference and is resolved. It is retained in the report because finding it
+  required treating two disagreeing numbers as a defect rather than choosing one.
 - **External validity.** Three synthetic documents from one generator. Nothing here
   supports a claim about performance on real invoices, and no such claim is made.
