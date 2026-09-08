@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
@@ -73,10 +73,33 @@ CREATE TABLE email_messages (
     subject          TEXT,
     received_at      TEXT,
     fetched_at       TEXT    NOT NULL DEFAULT (datetime('now')),
-    attachment_count INTEGER NOT NULL DEFAULT 0 CHECK (attachment_count >= 0)
+    attachment_count INTEGER NOT NULL DEFAULT 0 CHECK (attachment_count >= 0),
+    -- The plain-text body (text/plain, or text/html stripped of markup as a fallback).
+    -- Added in migration 008 so intake has somewhere to put what it now captures. Only
+    -- ever displayed (app.py's Original Source panel), never parsed for structured
+    -- fields, so it is not held to the same accuracy bar as the extracted invoice data.
+    body             TEXT
 );
 
 CREATE INDEX ix_email_sender ON email_messages(sender);
+
+-- One row per saved attachment. Added in migration 008 alongside email_messages.body:
+-- before this, attachment-level dedup did not exist at all, and a re-run of
+-- email_listener.py could only avoid re-saving a file by noticing a filename collision on
+-- disk, which says nothing about whether the *content* was already seen.
+CREATE TABLE email_attachments (
+    attachment_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    email_id       INTEGER NOT NULL REFERENCES email_messages(email_id) ON DELETE CASCADE,
+    filename       TEXT    NOT NULL,
+    content_sha256 TEXT    NOT NULL,
+    saved_path     TEXT,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    -- The same attachment (by content, not by filename) recorded twice for one email is
+    -- always a bug in the caller, not a legitimate second attachment.
+    UNIQUE (email_id, content_sha256)
+);
+
+CREATE INDEX ix_email_attachments_email ON email_attachments(email_id);
 
 CREATE TABLE invoices (
     invoice_id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,7 +151,15 @@ CREATE TABLE invoices (
     -- make 'plausible' legitimate. Only 'short' is a genuine anomaly, because neither can
     -- reduce a total.
     reconciliation    TEXT    NOT NULL DEFAULT 'unknown'
-                              CHECK (reconciliation IN ('exact','plausible','short','unknown'))
+                              CHECK (reconciliation IN ('exact','plausible','short','unknown')),
+    -- Added in migration 009, alongside the action_items table below. Both come from
+    -- email_ai.py's EmailAnalysis (JJ's jj/email-ai branch), run as a second pass over the
+    -- same document text. category is one of email_ai.EmailOverview's Literal values;
+    -- summary is its one-or-two-sentence plain-English summary. Nullable: this pass can
+    -- fail (Ollama unreachable, a validation error) independently of the main extraction,
+    -- and a document should still be stored without it rather than not at all.
+    category          TEXT,
+    summary           TEXT
 );
 
 CREATE UNIQUE INDEX ux_invoices_content ON invoices(content_sha256);
@@ -149,6 +180,26 @@ CREATE TABLE line_items (
 );
 
 CREATE INDEX ix_line_items_invoice ON line_items(invoice_id);
+
+-- Added in migration 009. One row per follow-up action email_ai.py's ActionExtraction
+-- pulled out of the document text -- "Pay by 2026-09-30", "Renew the contract before it
+-- expires". Distinct from `tasks`: a task is this pipeline's own routing decision
+-- (Review/Approve/Payment/File); an action item is a claim about what the *document*
+-- itself asks for, with the model's supporting quote kept alongside it so a person can
+-- check the claim against the source without reopening the file.
+CREATE TABLE action_items (
+    action_item_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    invoice_id      INTEGER NOT NULL REFERENCES invoices(invoice_id) ON DELETE CASCADE,
+    line_no         INTEGER NOT NULL,
+    task            TEXT    NOT NULL,
+    owner           TEXT,
+    deadline_text   TEXT,
+    evidence_quote  TEXT,
+    is_done         INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0,1)),
+    UNIQUE (invoice_id, line_no)
+);
+
+CREATE INDEX ix_action_items_invoice ON action_items(invoice_id);
 
 CREATE TABLE tasks (
     task_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -517,12 +568,21 @@ class StorageManager:
         raw_json: str,
         email_id: Optional[int] = None,
         raw_text: str = "",
+        category: Optional[str] = None,
+        summary: Optional[str] = None,
+        action_items: Optional[Iterable[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Upserts one invoice and replaces its line items, in a single transaction.
 
         Keyed on content_sha256, so re-processing the same document updates its row instead
         of appending a duplicate. approval_status and reviewed_at are never overwritten:
         they record a human decision, not an extraction result.
+
+        category, summary and action_items come from email_ai.py's document-intelligence
+        pass (migration 009), run separately from the main extraction. All optional: that
+        pass can fail independently and a document must still be stored without it.
+        action_items entries are dicts shaped like email_ai.ActionItem
+        (task/owner/deadline_text/evidence_quote); unrecognised keys are ignored.
         """
         if validation_status not in VALID_VALIDATION_STATUSES:
             raise ValueError(f"validation_status must be one of {VALID_VALIDATION_STATUSES}, "
@@ -555,8 +615,8 @@ class StorageManager:
                     run_id, file_name, source_sha256, content_sha256, invoice_number,
                     vendor_name, invoice_date, total_cents, currency, validation_score,
                     validation_status, total_source, document_type, reconciliation,
-                    archive_path, raw_json, email_id, processed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    archive_path, raw_json, email_id, category, summary, processed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(content_sha256) DO UPDATE SET
                     run_id            = excluded.run_id,
                     file_name         = excluded.file_name,
@@ -580,6 +640,8 @@ class StorageManager:
                     -- COALESCE so a manual re-run never erases the email a document
                     -- originally arrived on.
                     email_id          = COALESCE(excluded.email_id, invoices.email_id),
+                    category          = excluded.category,
+                    summary           = excluded.summary,
                     processed_at      = excluded.processed_at
                 RETURNING invoice_id
                 """,
@@ -601,6 +663,8 @@ class StorageManager:
                     archive_path,
                     raw_json,
                     email_id,
+                    category,
+                    summary,
                 ),
             )
             invoice_id = int(cursor.fetchone()["invoice_id"])
@@ -621,6 +685,40 @@ class StorageManager:
                     for r in rows
                 ],
             )
+
+            # Same replace-in-place pattern as line_items. is_done is not reset here: a
+            # reprocess with an unchanged action list should not silently un-tick a box a
+            # person already checked. Simplest safe rule, given we cannot yet match action
+            # items across a re-run by anything better than position: only wipe and
+            # reinsert when the new list actually differs in size or text.
+            action_rows = [
+                {
+                    "task": str(item.get("task") or "").strip(),
+                    "owner": item.get("owner") or None,
+                    "deadline_text": item.get("deadline_text") or None,
+                    "evidence_quote": item.get("evidence_quote") or None,
+                }
+                for item in (action_items or [])
+                if str(item.get("task") or "").strip()
+            ]
+            existing_tasks = [
+                r["task"] for r in conn.execute(
+                    "SELECT task FROM action_items WHERE invoice_id = ? ORDER BY line_no",
+                    (invoice_id,)).fetchall()
+            ]
+            if action_rows and [r["task"] for r in action_rows] != existing_tasks:
+                conn.execute("DELETE FROM action_items WHERE invoice_id = ?", (invoice_id,))
+                conn.executemany(
+                    """
+                    INSERT INTO action_items (
+                        invoice_id, line_no, task, owner, deadline_text, evidence_quote
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (invoice_id, i, r["task"], r["owner"], r["deadline_text"], r["evidence_quote"])
+                        for i, r in enumerate(action_rows, start=1)
+                    ],
+                )
             conn.commit()
 
         return {
@@ -632,6 +730,8 @@ class StorageManager:
             "line_item_count": len(rows),
             "document_type": document_type,
             "reconciliation": reconciliation,
+            "category": category,
+            "action_item_count": len(action_rows),
         }
 
     # -- email intake --------------------------------------------------
@@ -642,6 +742,7 @@ class StorageManager:
         subject: Optional[str] = None,
         received_at: Optional[str] = None,
         attachment_count: int = 0,
+        body: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Records one fetched email. Idempotent on the RFC 5322 Message-ID.
 
@@ -649,6 +750,10 @@ class StorageManager:
         in `invoices` can say which email delivered the document. Because message_id is
         UNIQUE, calling this again for an email already fetched updates it instead of
         inserting, which is what gives intake its duplicate protection.
+
+        `body` is the plain-text body captured by email_listener.py (migration 008). It is
+        optional so a caller that only knows the envelope (sender/subject) can still record
+        the email.
 
         Returns the email_id and whether this email had been seen before.
         """
@@ -661,16 +766,20 @@ class StorageManager:
             ).fetchone()
             cursor = conn.execute(
                 """
-                INSERT INTO email_messages (message_id, sender, subject, received_at, attachment_count)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO email_messages
+                    (message_id, sender, subject, received_at, attachment_count, body)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(message_id) DO UPDATE SET
                     sender           = excluded.sender,
                     subject          = excluded.subject,
                     received_at      = excluded.received_at,
-                    attachment_count = excluded.attachment_count
+                    attachment_count = excluded.attachment_count,
+                    -- COALESCE so a caller that only has the envelope (no body re-read)
+                    -- never blanks out a body already captured.
+                    body             = COALESCE(excluded.body, email_messages.body)
                 RETURNING email_id
                 """,
-                (message_id, sender, subject, received_at, max(0, int(attachment_count))),
+                (message_id, sender, subject, received_at, max(0, int(attachment_count)), body),
             )
             email_id = int(cursor.fetchone()["email_id"])
             conn.commit()
@@ -684,6 +793,50 @@ class StorageManager:
                 "SELECT 1 FROM email_messages WHERE message_id = ?", (message_id,)
             ).fetchone()
         return row is not None
+
+    # -- email attachments ---------------------------------------------
+    def has_seen_attachment(self, email_id: int, content_sha256: str) -> bool:
+        """Attachment-level dedup, checked before anything is written to disk.
+
+        Scoped to one email on purpose: the same bytes attached to two different emails
+        (a vendor resending an invoice) are two legitimate, separately-provenanced copies.
+        """
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM email_attachments WHERE email_id = ? AND content_sha256 = ?",
+                (email_id, content_sha256),
+            ).fetchone()
+        return row is not None
+
+    def record_attachment(
+        self,
+        email_id: int,
+        filename: str,
+        content_sha256: str,
+        saved_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Records one saved attachment. Idempotent on (email_id, content_sha256).
+
+        Checks first rather than relying on the UNIQUE constraint to raise, so the caller
+        can tell "recorded" apart from "already there" the same way open_task() does.
+        """
+        with connect(self.db_path) as conn:
+            existing = conn.execute(
+                "SELECT attachment_id FROM email_attachments "
+                "WHERE email_id = ? AND content_sha256 = ?",
+                (email_id, content_sha256),
+            ).fetchone()
+            if existing:
+                return {"attachment_id": int(existing["attachment_id"]), "was_created": False}
+
+            cursor = conn.execute(
+                "INSERT INTO email_attachments (email_id, filename, content_sha256, saved_path) "
+                "VALUES (?, ?, ?, ?) RETURNING attachment_id",
+                (email_id, filename, content_sha256, saved_path),
+            )
+            attachment_id = int(cursor.fetchone()["attachment_id"])
+            conn.commit()
+        return {"attachment_id": attachment_id, "was_created": True}
 
     # -- tasks ---------------------------------------------------------
     def open_task(
@@ -749,6 +902,40 @@ class StorageManager:
             cursor = conn.execute(sql, params)
             conn.commit()
             return cursor.rowcount
+
+    def assign_task(self, task_id: int, assignee: Optional[str]) -> bool:
+        """Assigns, reassigns, or (passing None) clears who is responsible for a task.
+
+        Returns whether a row actually changed, so the dashboard can tell a bad task_id
+        apart from a genuine no-op. Deliberately does not require the task to still be
+        open: reassigning a resolved task's record for audit purposes is legitimate.
+        """
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE tasks SET assignee = ? WHERE task_id = ?", (assignee, task_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    # -- action items (email_ai.py's document-intelligence pass) -------
+    def action_items_for(self, invoice_id: int) -> List[sqlite3.Row]:
+        """The follow-up actions email_ai.py found in this document, in extraction order."""
+        with connect(self.db_path) as conn:
+            return conn.execute(
+                "SELECT action_item_id, line_no, task, owner, deadline_text, evidence_quote, "
+                "is_done FROM action_items WHERE invoice_id = ? ORDER BY line_no",
+                (invoice_id,),
+            ).fetchall()
+
+    def set_action_item_done(self, action_item_id: int, is_done: bool) -> bool:
+        """Lets a person check off an action item in the dashboard. Returns whether it changed."""
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE action_items SET is_done = ? WHERE action_item_id = ?",
+                (1 if is_done else 0, action_item_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     # -- the post-approval hand-off ------------------------------------
     # What a document needs once a person has accepted it. Depends on what the document IS,

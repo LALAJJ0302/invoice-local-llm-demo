@@ -593,6 +593,170 @@ class TestTasks:
 
 
 # =====================================================================
+# Task assignment
+# =====================================================================
+class TestTaskAssignment:
+    @pytest.fixture
+    def task_id(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        return store.open_task(invoice_id, "Review")["task_id"]
+
+    def test_assigns_a_task(self, store, task_id):
+        assert store.assign_task(task_id, "Luke") is True
+        with connect(store.db_path) as conn:
+            assert conn.execute(
+                "SELECT assignee FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()["assignee"] == "Luke"
+
+    def test_reassigning_overwrites_the_previous_assignee(self, store, task_id):
+        store.assign_task(task_id, "Luke")
+        store.assign_task(task_id, "Neo")
+        with connect(store.db_path) as conn:
+            assert conn.execute(
+                "SELECT assignee FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()["assignee"] == "Neo"
+
+    def test_clearing_the_assignee_with_none(self, store, task_id):
+        store.assign_task(task_id, "Luke")
+        store.assign_task(task_id, None)
+        with connect(store.db_path) as conn:
+            assert conn.execute(
+                "SELECT assignee FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()["assignee"] is None
+
+    def test_assigning_an_unknown_task_id_returns_false(self, store):
+        assert store.assign_task(999999, "Luke") is False
+
+
+# =====================================================================
+# Email bodies and attachment-level dedup
+# =====================================================================
+class TestEmailAttachments:
+    def test_record_email_stores_the_body(self, store):
+        store.record_email("<x@mail>", "a@b.com", body="Please see the attached invoice.")
+        with connect(store.db_path) as conn:
+            assert conn.execute("SELECT body FROM email_messages").fetchone()["body"] == \
+                "Please see the attached invoice."
+
+    def test_a_call_without_a_body_does_not_erase_one_already_captured(self, store):
+        """The envelope can be re-recorded (e.g. to update attachment_count) without the
+        caller re-reading and re-passing the body every time."""
+        store.record_email("<x@mail>", "a@b.com", body="Original body.")
+        store.record_email("<x@mail>", "a@b.com", attachment_count=2)
+        with connect(store.db_path) as conn:
+            assert conn.execute("SELECT body FROM email_messages").fetchone()["body"] == \
+                "Original body."
+
+    def test_has_seen_attachment_is_false_until_recorded(self, store):
+        email = store.record_email("<x@mail>", "a@b.com")
+        assert store.has_seen_attachment(email["email_id"], "a" * 64) is False
+        store.record_attachment(email["email_id"], "invoice.pdf", "a" * 64, "/tmp/invoice.pdf")
+        assert store.has_seen_attachment(email["email_id"], "a" * 64) is True
+
+    def test_recording_the_same_attachment_twice_does_not_duplicate(self, store):
+        email = store.record_email("<x@mail>", "a@b.com")
+        first = store.record_attachment(email["email_id"], "invoice.pdf", "a" * 64, "/tmp/i.pdf")
+        second = store.record_attachment(email["email_id"], "invoice.pdf", "a" * 64, "/tmp/i.pdf")
+        assert first["was_created"] is True
+        assert second["was_created"] is False
+        assert second["attachment_id"] == first["attachment_id"]
+        with connect(store.db_path) as conn:
+            assert conn.execute("SELECT COUNT(*) c FROM email_attachments").fetchone()["c"] == 1
+
+    def test_the_same_content_is_allowed_across_different_emails(self, store):
+        """A vendor resending an identical invoice is two legitimate, separately
+        provenanced copies, not a duplicate to reject."""
+        first_email = store.record_email("<a@mail>", "a@b.com")
+        second_email = store.record_email("<b@mail>", "a@b.com")
+        store.record_attachment(first_email["email_id"], "invoice.pdf", "a" * 64, "/tmp/i1.pdf")
+        result = store.record_attachment(second_email["email_id"], "invoice.pdf", "a" * 64, "/tmp/i2.pdf")
+        assert result["was_created"] is True
+
+    def test_deleting_an_email_cascades_to_its_attachments(self, store):
+        email = store.record_email("<x@mail>", "a@b.com")
+        store.record_attachment(email["email_id"], "invoice.pdf", "a" * 64, "/tmp/i.pdf")
+        with connect(store.db_path) as conn:
+            conn.execute("DELETE FROM email_messages WHERE email_id = ?", (email["email_id"],))
+            assert conn.execute(
+                "SELECT COUNT(*) c FROM email_attachments").fetchone()["c"] == 0
+
+
+# =====================================================================
+# category, summary and action items (email_ai.py's document pass)
+# =====================================================================
+class TestAIDocumentFields:
+    def test_category_and_summary_are_stored(self, store, run_id):
+        invoice_id = save(store, run_id, category="Software",
+                          summary="A cloud services invoice for August.")["invoice_id"]
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT category, summary FROM invoices WHERE invoice_id = ?",
+                (invoice_id,)).fetchone()
+        assert row["category"] == "Software"
+        assert row["summary"] == "A cloud services invoice for August."
+
+    def test_missing_ai_fields_default_to_null_not_a_failure(self, store, run_id):
+        """The document-intelligence pass can fail independently of the main extraction;
+        a document must still be stored without it."""
+        invoice_id = save(store, run_id)["invoice_id"]
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT category, summary FROM invoices WHERE invoice_id = ?",
+                (invoice_id,)).fetchone()
+        assert row["category"] is None and row["summary"] is None
+
+    def test_action_items_are_stored_in_order(self, store, run_id):
+        invoice_id = save(store, run_id, action_items=[
+            {"task": "Approve the invoice", "owner": None, "deadline_text": None,
+             "evidence_quote": "please approve"},
+            {"task": "Pay by due date", "owner": "Finance", "deadline_text": "by 2026-09-30",
+             "evidence_quote": "due 2026-09-30"},
+        ])["invoice_id"]
+        items = store.action_items_for(invoice_id)
+        assert [i["task"] for i in items] == ["Approve the invoice", "Pay by due date"]
+        assert items[1]["owner"] == "Finance"
+        assert items[1]["deadline_text"] == "by 2026-09-30"
+
+    def test_action_items_with_a_blank_task_are_dropped(self, store, run_id):
+        invoice_id = save(store, run_id, action_items=[
+            {"task": "  ", "owner": None, "deadline_text": None, "evidence_quote": None},
+            {"task": "Real action", "owner": None, "deadline_text": None, "evidence_quote": None},
+        ])["invoice_id"]
+        items = store.action_items_for(invoice_id)
+        assert [i["task"] for i in items] == ["Real action"]
+
+    def test_set_action_item_done_toggles_the_checkbox(self, store, run_id):
+        invoice_id = save(store, run_id, action_items=[
+            {"task": "Pay the invoice", "owner": None, "deadline_text": None, "evidence_quote": None},
+        ])["invoice_id"]
+        action_item_id = store.action_items_for(invoice_id)[0]["action_item_id"]
+        assert store.set_action_item_done(action_item_id, True) is True
+        assert store.action_items_for(invoice_id)[0]["is_done"] == 1
+
+    def test_reprocessing_with_an_unchanged_action_list_keeps_is_done(self, store, run_id):
+        """A person's checkbox must not be silently reset by a routine reprocess that
+        finds the exact same action items."""
+        action_items = [{"task": "Pay the invoice", "owner": None, "deadline_text": None,
+                         "evidence_quote": None}]
+        invoice_id = save(store, run_id, action_items=action_items)["invoice_id"]
+        action_item_id = store.action_items_for(invoice_id)[0]["action_item_id"]
+        store.set_action_item_done(action_item_id, True)
+
+        save(store, run_id, action_items=action_items)  # re-run, identical action items
+
+        items = store.action_items_for(invoice_id)
+        assert len(items) == 1 and items[0]["is_done"] == 1
+
+    def test_deleting_an_invoice_cascades_to_its_action_items(self, store, run_id):
+        invoice_id = save(store, run_id, action_items=[
+            {"task": "Pay the invoice", "owner": None, "deadline_text": None, "evidence_quote": None},
+        ])["invoice_id"]
+        with connect(store.db_path) as conn:
+            conn.execute("DELETE FROM invoices WHERE invoice_id = ?", (invoice_id,))
+            assert conn.execute("SELECT COUNT(*) c FROM action_items").fetchone()["c"] == 0
+
+
+# =====================================================================
 # The validation / approval split, by name
 # =====================================================================
 class TestValidationVersusApproval:

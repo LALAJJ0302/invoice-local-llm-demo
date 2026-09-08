@@ -39,6 +39,8 @@ m004 = load_migration("004_email_and_tasks.py")
 m005 = load_migration("005_rename_validation_status.py")
 m006 = load_migration("006_storage_completion.py")
 m007 = load_migration("007_post_approval.py")
+m008 = load_migration("008_email_body_and_attachments.py")
+m009 = load_migration("009_ai_document_fields.py")
 
 
 LEGACY_DDL = """
@@ -114,6 +116,8 @@ def migrated_db(legacy_db):
     assert m005.migrate(legacy_db) == 0
     assert m006.migrate(legacy_db) == 0
     assert m007.migrate(legacy_db) == 0
+    assert m008.migrate(legacy_db) == 0
+    assert m009.migrate(legacy_db) == 0
     return legacy_db
 
 
@@ -372,6 +376,119 @@ class TestStorageCompletionAndHandoff:
 
 
 # =====================================================================
+# Migration 008
+# =====================================================================
+class TestEmailBodyAndAttachments:
+    @pytest.fixture
+    def at_v7(self, legacy_db):
+        for m in (m001, m002, m003, m004, m005, m006, m007):
+            assert m.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_adds_body_and_the_attachments_table(self, at_v7):
+        m008.migrate(at_v7)
+        with connect(at_v7) as conn:
+            columns = [r["name"] for r in conn.execute("PRAGMA table_info(email_messages)")]
+            tables = {r["name"] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "body" in columns
+        assert "email_attachments" in tables
+
+    def test_existing_emails_get_a_null_body(self, at_v7):
+        with connect(at_v7) as conn:
+            conn.execute(
+                "INSERT INTO email_messages (message_id, sender) VALUES ('<x@mail>', 'a@b.com')")
+            conn.commit()
+        m008.migrate(at_v7)
+        with connect(at_v7) as conn:
+            assert conn.execute("SELECT body FROM email_messages").fetchone()["body"] is None
+
+    def test_attachment_dedup_is_scoped_to_one_email(self, at_v7):
+        m008.migrate(at_v7)
+        m009.migrate(at_v7)  # StorageManager requires the current SCHEMA_VERSION
+        store = StorageManager(at_v7)
+        email = store.record_email("<x@mail>", "a@b.com", attachment_count=1)
+        assert store.has_seen_attachment(email["email_id"], "a" * 64) is False
+        first = store.record_attachment(email["email_id"], "invoice.pdf", "a" * 64, "/tmp/invoice.pdf")
+        assert first["was_created"] is True
+        assert store.has_seen_attachment(email["email_id"], "a" * 64) is True
+        second = store.record_attachment(email["email_id"], "invoice.pdf", "a" * 64, "/tmp/invoice.pdf")
+        assert second["was_created"] is False
+        assert second["attachment_id"] == first["attachment_id"]
+
+    def test_is_additive_and_moves_no_money(self, at_v7):
+        m008.migrate(at_v7)
+        with connect(at_v7) as conn:
+            rows = conn.execute("SELECT file_name, total_cents FROM invoices").fetchall()
+        assert {r["file_name"]: r["total_cents"] for r in rows} == GROUND_TRUTH_CENTS
+
+    def test_is_idempotent(self, at_v7):
+        m008.migrate(at_v7)
+        assert m008.migrate(at_v7) == 0
+
+    def test_refuses_to_run_out_of_order(self, legacy_db):
+        assert m008.migrate(legacy_db) == 1
+
+
+# =====================================================================
+# Migration 009
+# =====================================================================
+class TestAIDocumentFields:
+    @pytest.fixture
+    def at_v8(self, legacy_db):
+        for m in (m001, m002, m003, m004, m005, m006, m007, m008):
+            assert m.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_adds_category_summary_and_action_items(self, at_v8):
+        m009.migrate(at_v8)
+        with connect(at_v8) as conn:
+            columns = [r["name"] for r in conn.execute("PRAGMA table_info(invoices)")]
+            tables = {r["name"] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert {"category", "summary"} <= set(columns)
+        assert "action_items" in tables
+
+    def test_existing_invoices_get_null_category_and_summary(self, at_v8):
+        m009.migrate(at_v8)
+        with connect(at_v8) as conn:
+            rows = conn.execute("SELECT category, summary FROM invoices").fetchall()
+        assert all(r["category"] is None and r["summary"] is None for r in rows)
+
+    def test_action_items_round_trip_through_save_invoice(self, at_v8):
+        m009.migrate(at_v8)
+        store = StorageManager(at_v8)
+        run_id = store.start_run("llama3.2", 0.8)
+        result = store.save_invoice(
+            run_id=run_id, file_name="new.pdf", source_sha256="f" * 64,
+            content_sha256="e" * 64,
+            extracted={"invoice_number": "INV-9", "vendor_name": "Test Co",
+                       "date": "2026-08-10", "total_amount": 42.5, "currency": "AUD", "items": []},
+            validation_score=0.9, validation_status="Validated",
+            archive_path="/tmp/new.pdf", raw_json="{}",
+            category="Software", summary="A small test invoice.",
+            action_items=[{"task": "Pay the invoice", "owner": None,
+                          "deadline_text": "by 2026-09-30", "evidence_quote": "Due 2026-09-30"}])
+        assert result["action_item_count"] == 1
+        items = store.action_items_for(result["invoice_id"])
+        assert len(items) == 1 and items[0]["task"] == "Pay the invoice"
+        assert items[0]["is_done"] == 0
+
+    def test_is_additive_and_moves_no_money(self, at_v8):
+        m009.migrate(at_v8)
+        with connect(at_v8) as conn:
+            rows = conn.execute("SELECT file_name, total_cents FROM invoices").fetchall()
+        assert {r["file_name"]: r["total_cents"] for r in rows} == GROUND_TRUTH_CENTS
+
+    def test_is_idempotent(self, at_v8):
+        m009.migrate(at_v8)
+        assert m009.migrate(at_v8) == 0
+
+    def test_refuses_to_run_out_of_order(self, legacy_db):
+        assert m009.migrate(legacy_db) == 1
+
+
+# =====================================================================
 # The whole chain
 # =====================================================================
 class TestChain:
@@ -384,7 +501,7 @@ class TestChain:
         with connect(migrated_db) as conn:
             versions = [r["version"] for r in
                         conn.execute("SELECT version FROM schema_version ORDER BY version")]
-        assert versions == [1, 2, 3, 4, 5, 6, 7]
+        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
     def test_migrated_matches_fresh(self, migrated_db, tmp_path):
         """A replayed migration chain and a fresh storage.DDL database must agree.
@@ -399,7 +516,8 @@ class TestChain:
             with connect(path) as conn:
                 tables = {}
                 for table in ("processing_runs", "invoices", "line_items",
-                              "email_messages", "tasks", "outbound_messages"):
+                              "email_messages", "email_attachments", "tasks",
+                              "outbound_messages", "action_items"):
                     tables[table] = [
                         (r["name"], r["type"], r["notnull"], r["dflt_value"])
                         for r in conn.execute(f"PRAGMA table_info({table})")
@@ -442,5 +560,5 @@ class TestChain:
     def test_rerunning_the_whole_sequence_is_a_clean_no_op(self, migrated_db):
         """A teammate following the quickstart runs every migration in order. Doing that
         twice must succeed, not report failure on the ones already applied."""
-        for module in (m001, m002, m003, m004, m005, m006, m007):
+        for module in (m001, m002, m003, m004, m005, m006, m007, m008, m009):
             assert module.migrate(migrated_db) == 0, f"{module.__name__} failed on re-run"
