@@ -1,0 +1,64 @@
+{
+  "samples": {
+    "sample_invoice_1_INV-2026-001.pdf": {
+      "date": {
+        "today": "non-empty",
+        "on_true": "verified",
+        "on_invented": "absent"
+      },
+      "currency": {
+        "today": "non-empty",
+        "on_true": "verified",
+        "on_invented": "absent"
+      },
+      "total": {
+        "today": "verified",
+        "proposed": "verified"
+      }
+    },
+    "sample_invoice_2_INV-2026-002.pdf": {
+      "date": {
+        "today": "non-empty",
+        "on_true": "verified",
+        "on_invented": "absent"
+      },
+      "currency": {
+        "today": "non-empty",
+        "on_true": "verified",
+        "on_invented": "absent"
+      },
+      "total": {
+        "today": "verified",
+        "proposed": "verified"
+      }
+    },
+    "sample_invoice_3_INV-2026-003.pdf": {
+      "date": {
+        "today": "non-empty",
+        "on_true": "verified",
+        "on_invented": "absent"
+      },
+      "currency": {
+        "today": "non-empty",
+        "on_true": "verified",
+        "on_invented": "absent"
+      },
+      "total": {
+        "today": "verified",
+        "proposed": "verified"
+      }
+    }
+  },
+  "subtotal_regression": {
+    "1650.00": {
+      "today": "verified",
+      "proposed": "verified",
+      "want": "verified"
+    },
+    "1500.00": {
+      "today": "verified",
+      "proposed": "absent",
+      "want": "absent"
+    }
+  }
+}
