@@ -15,11 +15,12 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 9
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
 VALID_TOTAL_SOURCES = ("model", "fallback", "manual")
+VALID_BODY_SOURCES = ("intake", "mock")
 VALID_TASK_TYPES = ("Review", "Approve", "Fix", "Payment", "File")
 VALID_RECONCILIATIONS = ("exact", "plausible", "short", "unknown")
 VALID_DOCUMENT_TYPES = ("Invoice", "Receipt", "Unknown")
@@ -73,7 +74,19 @@ CREATE TABLE email_messages (
     subject          TEXT,
     received_at      TEXT,
     fetched_at       TEXT    NOT NULL DEFAULT (datetime('now')),
-    attachment_count INTEGER NOT NULL DEFAULT 0 CHECK (attachment_count >= 0)
+    attachment_count INTEGER NOT NULL DEFAULT 0 CHECK (attachment_count >= 0),
+    -- The message body, for retrieval. Sender and subject answer "has this vendor
+    -- written before" and nothing else; the case that makes retrieval worth building
+    -- is finding the earlier message that explains a disputed line item.
+    body_text        TEXT,
+    -- Where the body came from. A retrieval result measured over generated text must
+    -- never be reported as though it came from real correspondence. Same reasoning as
+    -- total_source: provenance belongs in a column, not in someone's memory.
+    body_source      TEXT    CHECK (body_source IS NULL OR body_source IN ('intake','mock')),
+    -- Comma-separated attachment file names, so a document read from inbox/ can be traced
+    -- back to the message that delivered it. attachment_count alone cannot do that: it
+    -- says how many arrived, not which.
+    attachment_names TEXT
 );
 
 CREATE INDEX ix_email_sender ON email_messages(sender);
@@ -642,6 +655,9 @@ class StorageManager:
         subject: Optional[str] = None,
         received_at: Optional[str] = None,
         attachment_count: int = 0,
+        body_text: Optional[str] = None,
+        body_source: Optional[str] = None,
+        attachment_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Records one fetched email. Idempotent on the RFC 5322 Message-ID.
 
@@ -655,27 +671,71 @@ class StorageManager:
         if not message_id:
             raise ValueError("message_id is required: it is the key that prevents refetching")
 
+        # A body without a recorded origin is worse than no body: a retrieval result
+        # measured over generated text would be indistinguishable from one measured over
+        # real correspondence. Refuse rather than store an unattributable body.
+        if body_text is not None and body_source not in VALID_BODY_SOURCES:
+            raise ValueError(
+                f"body_source must be one of {VALID_BODY_SOURCES} when body_text is given, "
+                f"got {body_source!r}")
+
         with connect(self.db_path) as conn:
             existing = conn.execute(
                 "SELECT email_id FROM email_messages WHERE message_id = ?", (message_id,)
             ).fetchone()
             cursor = conn.execute(
                 """
-                INSERT INTO email_messages (message_id, sender, subject, received_at, attachment_count)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO email_messages (message_id, sender, subject, received_at,
+                                            attachment_count, body_text, body_source,
+                                            attachment_names)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(message_id) DO UPDATE SET
                     sender           = excluded.sender,
                     subject          = excluded.subject,
                     received_at      = excluded.received_at,
-                    attachment_count = excluded.attachment_count
+                    attachment_count = excluded.attachment_count,
+                    -- Keep an existing body when the caller supplies none, so a re-fetch
+                    -- that reads only headers does not erase what was already captured.
+                    body_text        = COALESCE(excluded.body_text, email_messages.body_text),
+                    body_source      = COALESCE(excluded.body_source, email_messages.body_source),
+                    attachment_names = COALESCE(excluded.attachment_names,
+                                                email_messages.attachment_names)
                 RETURNING email_id
                 """,
-                (message_id, sender, subject, received_at, max(0, int(attachment_count))),
+                (message_id, sender, subject, received_at, max(0, int(attachment_count)),
+                 body_text, body_source,
+                 ",".join(attachment_names) if attachment_names else None),
             )
             email_id = int(cursor.fetchone()["email_id"])
             conn.commit()
 
         return {"email_id": email_id, "already_seen": existing is not None}
+
+    def email_for_attachment(self, file_name: str) -> Optional[Dict[str, Any]]:
+        """Finds which recorded email delivered a given attachment, by file name.
+
+        The piece the design left open: intake saves an attachment to inbox/ and the
+        pipeline later reads it, with nothing carrying the link between them. A sidecar
+        file per attachment and a staging table were both considered. This is the third
+        option and the cheapest: the file name is already unique in inbox/, and the
+        mailbox already records which attachment each message carried.
+
+        It is a lookup, not a guarantee. Two emails carrying attachments of the same name
+        cannot be told apart this way, so the newest match wins and the caller is free to
+        treat a miss as a miss. When intake writes the link directly this becomes
+        redundant, which is the intended outcome.
+        """
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                """SELECT email_id, sender, subject FROM email_messages
+                   WHERE attachment_names IS NOT NULL
+                     AND (',' || attachment_names || ',') LIKE ('%,' || ? || ',%')
+                   ORDER BY received_at DESC LIMIT 1""",
+                (file_name,)).fetchone()
+        if not row:
+            return None
+        return {"email_id": int(row["email_id"]), "sender": row["sender"],
+                "subject": row["subject"]}
 
     def has_seen_email(self, message_id: str) -> bool:
         """Lets intake skip an email it already downloaded, without re-reading attachments."""

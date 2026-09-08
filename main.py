@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from pypdf import PdfReader
 import ollama
 
+import retrieval
 import storage
 from storage import StorageManager
 
@@ -155,6 +156,8 @@ class DocumentExtractor:
             if not parsed_data.vendor_name or parsed_data.vendor_name.strip() in ["", "None", "null"]:
                 parsed_data.vendor_name = self._infer_vendor_fallback(raw_text, file_name)
 
+            parsed_data.vendor_name = self._clean_vendor_label(parsed_data.vendor_name)
+
             # Deterministic regex fallback for the remaining structured fields
             parsed_data = self._infer_missing_fields_fallback(parsed_data, raw_text)
 
@@ -162,6 +165,26 @@ class DocumentExtractor:
         except Exception as error:
             print(f"  [Error] LLM Extraction failed: {error}")
             return None
+
+    # Field captions the model sometimes copies along with the value it was asked for.
+    VENDOR_LABELS = ("vendor:", "supplier:", "seller:", "from:", "billed from:", "bill to:")
+
+    def _clean_vendor_label(self, value: Optional[str]) -> Optional[str]:
+        """Strips a leading field caption from an extracted vendor name.
+
+        On 2026-09-03 the model returned 'Vendor: Apex Cloud Solutions Pty Ltd' for
+        invoice 1: the whole line, caption included. This is a repair to our output, not
+        an extraction, so it is named to match the convention evaluation/run_eval.py uses
+        to switch repairs off. With repairs disabled the harness still sees the caption,
+        which is the point: fixing this quietly would delete the evidence that it happens.
+        """
+        if not value:
+            return value
+        text = str(value).strip()
+        for label in self.VENDOR_LABELS:
+            if text.lower().startswith(label):
+                return text[len(label):].strip() or None
+        return text
 
     def _infer_missing_fields_fallback(self, data: ExtractedInvoice, raw_text: str) -> ExtractedInvoice:
         """Deterministic regex fallback that backfills fields the LLM missed.
@@ -220,6 +243,16 @@ class ConfidenceValidator:
     # start accepting line-item amounts as though they were the total.
     LABEL_WINDOW = 2
 
+    # A vendor value starting with one of these is the caption, not the company. The model
+    # returned 'Vendor: Apex Cloud Solutions Pty Ltd' on 2026-09-03 and scored full marks,
+    # because the substring check is satisfied more easily by copying more of the document.
+    # Unrecognised labels are not penalised, so this check can only improve on not having it.
+    VENDOR_LABELS = ("vendor:", "supplier:", "seller:", "from:", "billed from:", "bill to:")
+
+    @classmethod
+    def _looks_like_a_label(cls, value: Optional[str]) -> bool:
+        return bool(value) and str(value).strip().lower().startswith(cls.VENDOR_LABELS)
+
     def __init__(self, threshold: float = 0.80):
         self.threshold = threshold
 
@@ -270,34 +303,63 @@ class ConfidenceValidator:
 
     # -- scoring -------------------------------------------------------
     def explain(self, data: ExtractedInvoice, raw_text: str) -> dict:
-        """The per-check detail behind the score, so a task can carry a real reason."""
+        """The per-check detail behind the score, so a task can carry a real reason.
+
+        A score of 1.00 means the extraction is complete: no field is empty, every value
+        that can be checked against the document agrees with it, and the amount was found
+        beside a grand-total label. Anything missing reduces the score. A document scoring
+        0.85 with 'items' empty is telling you precisely what it failed to read.
+        """
         lower_text = raw_text.lower()
         amount_state = self.verify_amount(data.total_amount, raw_text)
 
+        rows = storage.normalise_items([i.model_dump() for i in data.items])
+        reconciliation = storage.reconcile(storage.to_cents(data.total_amount), rows)
+
+        # Completeness: is anything empty? 0.40 of the score, 0.06 per header field and
+        # 0.10 for line items, which are worth more because they are a whole table.
+        complete = {
+            "invoice_number": bool(data.invoice_number and data.invoice_number != "None"),
+            "vendor": bool(data.vendor_name and data.vendor_name != "Unknown Vendor"),
+            "date": bool(data.date and str(data.date) != "None"),
+            "currency": bool(data.currency and data.currency != "Unknown"),
+            "total": bool(data.total_amount and data.total_amount > 0),
+        }
+        has_items = bool(data.items)
+
+        # Agreement with the document: is any of it invented? 0.60 of the score.
         checks = {
-            "invoice_number_present": bool(data.invoice_number and data.invoice_number != "None"),
-            "vendor_present": bool(data.vendor_name and data.vendor_name != "Unknown Vendor"),
-            "total_present": bool(data.total_amount and data.total_amount > 0),
             "invoice_number_in_text": bool(
                 data.invoice_number and data.invoice_number.lower() in lower_text),
             "vendor_in_text": bool(data.vendor_name and data.vendor_name.lower() in lower_text),
+            "vendor_is_not_a_label": not self._looks_like_a_label(data.vendor_name),
         }
+        checks.update({f"{k}_present": v for k, v in complete.items()})
+        checks["items_present"] = has_items
 
-        # Completeness 0.40, agreement with the document 0.60.
         score = (
-            0.15 * checks["invoice_number_present"]
-            + 0.10 * checks["vendor_present"]
-            + 0.15 * checks["total_present"]
-            + 0.20 * checks["invoice_number_in_text"]
-            + 0.15 * checks["vendor_in_text"]
+            0.06 * sum(complete.values())
+            + 0.10 * has_items
+            + 0.10 * checks["invoice_number_in_text"]
+            + 0.08 * checks["vendor_in_text"]
+            + 0.07 * checks["vendor_is_not_a_label"]
             + {"verified": 0.25, "present": 0.125, "absent": 0.0}[amount_state]
+            + {"exact": 0.10, "plausible": 0.10, "unknown": 0.05, "short": 0.0}[reconciliation]
         )
         score = round(min(score, 1.0), 2)
 
-        # A hard rule, not a weighting. A weighted score that happens to land below the
+        # Hard rules, not weightings. A weighted score that happens to land below the
         # threshold is fragile: change one weight and the guarantee disappears silently.
-        # The policy is that money we could not confirm is never auto-approved.
-        passes = score >= self.threshold and amount_state == "verified"
+        # Money we could not confirm is never auto-approved; nor is a vendor that is
+        # actually a field label; nor line items that exceed the total they belong to.
+        passes = (
+            score >= self.threshold
+            and amount_state == "verified"
+            and reconciliation != "short"
+            and checks["vendor_is_not_a_label"]
+        )
+
+        empty = [k for k, v in complete.items() if not v] + ([] if has_items else ["items"])
 
         if amount_state == "absent":
             reason = (f"The total {data.total_amount} does not appear in the document."
@@ -305,8 +367,17 @@ class ConfidenceValidator:
         elif amount_state == "present":
             reason = (f"The total {data.total_amount} appears in the document but not beside a "
                       "grand-total label, so it may be a line item rather than the amount due.")
+        elif not checks["vendor_is_not_a_label"]:
+            reason = (f"The vendor {data.vendor_name!r} begins with a field label, so the "
+                      "extraction captured the caption rather than the value.")
+        elif reconciliation == "short":
+            reason = ("The line items add up to more than the stated total, which neither tax "
+                      "nor shipping explains.")
         elif not passes:
             reason = f"Validation score {score:.2f} is below the {self.threshold:.2f} threshold."
+        elif empty:
+            reason = ("Passed the validation gate, with "
+                      f"{', '.join(empty)} not extracted. Awaiting business approval.")
         else:
             reason = "Passed the validation gate. Awaiting business approval."
 
@@ -314,6 +385,8 @@ class ConfidenceValidator:
             "score": score,
             "status": "Validated" if passes else "NeedsReview",
             "amount_state": amount_state,
+            "reconciliation": reconciliation,
+            "empty": empty,
             "checks": checks,
             "reason": reason,
         }
@@ -433,6 +506,27 @@ class WorkflowOrchestrator:
                 print(f"  └─ [Fail] AI extraction failed.")
                 continue
 
+            # 2b. Trace the document back to the email that delivered it, then pull that
+            # sender's prior correspondence as context. A miss is normal rather than an
+            # error: a file dropped straight into inbox/ never had an email.
+            delivered_by = self.storage.email_for_attachment(file_name)
+            email_id = delivered_by["email_id"] if delivered_by else None
+            context = ""
+            if delivered_by:
+                print(f"  └─ [Step 2b: Link] Delivered by email_id={email_id} "
+                      f"from {delivered_by['sender']}")
+                hits = retrieval.retrieve(sender=delivered_by["sender"],
+                                          strategy="sender", limit=3,
+                                          db_path=self.storage.db_path)
+                # Exclude the email that carried this very document: it is not history.
+                hits = [h for h in hits if h["email_id"] != email_id]
+                if hits:
+                    context = retrieval.as_context(hits, max_chars=1200)
+                    print(f"  └─ [Step 2c: Retrieval] {len(hits)} prior emails, "
+                          f"{len(context)} chars of context")
+            else:
+                print("  └─ [Step 2b: Link] No email matched this file")
+
             # 3. Validation Gate
             verdict = self.validator.explain(data, raw_text)
             confidence, status = verdict["score"], verdict["status"]
@@ -474,6 +568,7 @@ class WorkflowOrchestrator:
                 archive_path=record.archive_path,
                 raw_json=data.model_dump_json(),
                 raw_text=raw_text,
+                email_id=email_id,
             )
             processed_count += 1
 
