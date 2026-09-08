@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from pypdf import PdfReader
 import ollama
 
+import email_ai
 import storage
 from storage import StorageManager
 
@@ -324,6 +325,48 @@ class ConfidenceValidator:
         return detail["score"], detail["status"]
 
 # =====================================================================
+# 3b. Document Intelligence (category / summary / action items)
+# =====================================================================
+class DocumentIntelligenceRunner:
+    """Runs email_ai.py's document analysis over one already-extracted document.
+
+    A second, independent Ollama pass (email_ai.analyse_email), not part of
+    ExtractedInvoice/DocumentExtractor above. Kept separate rather than folded into that
+    schema so this pass can fail without affecting the invoice fields it has nothing to do
+    with -- see ai-document-fields-spec.md ("all optional: that pass can fail independently
+    and a document must still be stored without it").
+
+    email_ai.py's schema is built for an email (subject/sender/body/attachments). main.py
+    processes files from inbox/, which may or may not have arrived by email, so the
+    document's own text is passed as if it were a single attachment; subject is the file
+    name, since that is the only "envelope" information guaranteed to exist.
+    """
+
+    def analyse(self, file_name: str, raw_text: str) -> Optional[email_ai.EmailAnalysis]:
+        if not raw_text.strip():
+            return None
+        try:
+            message = email_ai.EmailMessageInput(
+                subject=file_name,
+                body="",
+                attachments=[email_ai.ParsedAttachment(filename=file_name, content=raw_text)],
+            )
+            return email_ai.analyse_email(message)
+        except Exception as error:
+            # Broad on purpose, matching DocumentExtractor.extract_invoice_data: a
+            # connection error, a validation error and an Ollama response error are all
+            # "this pass did not produce an answer", and the caller treats them alike.
+            print(f"  [Warn] Document intelligence (category/summary/action items) failed: {error}")
+            return None
+
+    @staticmethod
+    def as_action_item_rows(analysis: Optional[email_ai.EmailAnalysis]) -> List[dict]:
+        """Converts email_ai.ActionItem objects to the plain dicts storage.py expects."""
+        if not analysis:
+            return []
+        return [item.model_dump() for item in analysis.action_items]
+
+# =====================================================================
 # 4. Storage Layer
 # =====================================================================
 # The normalised schema, the content-hash upsert and the money helpers live in storage.py.
@@ -386,6 +429,7 @@ class WorkflowOrchestrator:
 
         self.extractor = DocumentExtractor(model_name="llama3.2")
         self.validator = ConfidenceValidator(threshold=self.threshold)
+        self.intelligence = DocumentIntelligenceRunner()
         self.storage = StorageManager(db_path="workflow_platform.db")
         self.dispatcher = DownstreamDispatcher(self.storage)
 
@@ -441,6 +485,15 @@ class WorkflowOrchestrator:
             if verdict["amount_state"] != "verified":
                 print(f"     {verdict['reason']}")
 
+            # 3b. Document Intelligence: category, summary, action items.
+            # Independent of steps 2-3 above; a failure here does not stop the document
+            # from being stored, it is just stored without these three fields.
+            print("  └─ [Step 3b: Document Intelligence] Categorising with Ollama...")
+            analysis = self.intelligence.analyse(file_name, raw_text)
+            if analysis:
+                print(f"     Category: {analysis.category} | "
+                      f"{len(analysis.action_items)} action item(s)")
+
             # 4. Storage, then archive.
             # The database write commits first. If the move then fails, the file simply stays
             # in inbox/ and the next run upserts onto the same row, rather than the old
@@ -474,6 +527,9 @@ class WorkflowOrchestrator:
                 archive_path=record.archive_path,
                 raw_json=data.model_dump_json(),
                 raw_text=raw_text,
+                category=analysis.category if analysis else None,
+                summary=analysis.summary if analysis else None,
+                action_items=self.intelligence.as_action_item_rows(analysis),
             )
             processed_count += 1
 
