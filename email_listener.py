@@ -1,10 +1,32 @@
 import email
 import imaplib
 import os
+import re
 from email.header import decode_header
+from html import unescape
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+import storage
+
+# Attachments the downstream pipeline can actually read. "Parsing" an attachment starts
+# with deciding whether it is a document at all: mailers routinely attach inline signature
+# images, calendar invites (.ics) and tracking pixels with Content-Disposition: attachment,
+# and saving those into inbox/ only gives main.py files it will skip anyway (or, worse,
+# silently misclassify). A short allow-list is safer than trying to enumerate junk types.
+DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".doc", ".csv", ".xlsx", ".xls", ".txt"}
+DOCUMENT_CONTENT_TYPES = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/csv",
+    "text/plain",
+}
+
+_TAG_PATTERN = re.compile(r"<[^>]+>")
 
 
 def decode_text(value):
@@ -45,11 +67,75 @@ def connect_to_gmail():
     return mail
 
 
-def download_attachments(mailbox="INBOX", mark_as_read=True):
+def is_document_attachment(filename, content_type):
+    """Decides whether a saved attachment is worth keeping.
+
+    Extension first (cheap, and what main.py itself dispatches on), content-type as a
+    fallback for the attachments a mailer names without a useful suffix.
+    """
+    extension = Path(filename).suffix.lower()
+    if extension in DOCUMENT_EXTENSIONS:
+        return True
+    return (content_type or "").lower() in DOCUMENT_CONTENT_TYPES
+
+
+def _decode_part_payload(part):
+    """Decodes one MIME part's payload to text, using its own declared charset."""
+    payload = part.get_payload(decode=True)
+    if not payload:
+        return ""
+    charset = part.get_content_charset() or "utf-8"
+    try:
+        return payload.decode(charset, errors="ignore")
+    except (LookupError, ValueError):
+        return payload.decode("utf-8", errors="ignore")
+
+
+def _html_to_text(html):
+    """A deliberately small HTML -> text fallback.
+
+    Strips tags, unescapes entities, collapses whitespace. This body text is only ever
+    displayed (see database-spec.md's proposed email_messages.body column and app.py's
+    Original Source panel); it is not parsed for structured fields, so it does not need to
+    be more careful than that.
+    """
+    text = _TAG_PATTERN.sub(" ", html)
+    text = unescape(text)
+    return re.sub(r"[ \t]+", " ", text).strip()
+
+
+def extract_body(message):
+    """Prefers the text/plain part; falls back to text/html stripped of markup.
+
+    Returns "" for a message with neither part (rare, but real), rather than raising.
+    """
+    plain, html = "", ""
+    for part in message.walk():
+        if "attachment" in str(part.get("Content-Disposition", "")).lower():
+            continue
+        content_type = part.get_content_type()
+        if content_type == "text/plain" and not plain:
+            plain = _decode_part_payload(part)
+        elif content_type == "text/html" and not html:
+            html = _decode_part_payload(part)
+
+    if plain.strip():
+        return plain.strip()
+    if html.strip():
+        return _html_to_text(html)
+    return ""
+
+
+def download_attachments(mailbox="INBOX", mark_as_read=True, db_path=storage.DEFAULT_DB_PATH):
     load_dotenv()
 
     attachment_dir = Path(os.getenv("ATTACHMENT_DIR", "./inbox"))
     attachment_dir.mkdir(parents=True, exist_ok=True)
+
+    # Every fetched email is recorded here, keyed on its Message-ID. That is what makes
+    # re-running this script safe: an email already seen is skipped before any attachment
+    # is touched, instead of being re-downloaded with a "_1" suffix every time.
+    store = storage.StorageManager(db_path)
 
     mail = connect_to_gmail()
     mail.select(mailbox)
@@ -68,9 +154,12 @@ def download_attachments(mailbox="INBOX", mark_as_read=True):
         mail.logout()
         return
 
-    print(f"Found {len(email_ids)} matching unread email(s).")
+    print(f"Found {len(email_ids)} matching email(s).")
 
     downloaded_count = 0
+    skipped_seen_emails = 0
+    skipped_seen_attachments = 0
+    skipped_non_document = 0
 
     for email_id in email_ids:
         status, msg_data = mail.fetch(email_id, "(RFC822)")
@@ -82,31 +171,74 @@ def download_attachments(mailbox="INBOX", mark_as_read=True):
         raw_email = msg_data[0][1]
         message = email.message_from_bytes(raw_email)
 
+        # The RFC 5322 Message-ID is globally unique by definition, so it is the natural
+        # key for "have we already fetched this email". A handful of malformed messages
+        # omit it; fall back to a per-mailbox id so those are not silently merged together.
+        message_id = message.get("Message-ID") or f"<no-message-id-{email_id.decode()}@local>"
         subject = decode_text(message.get("Subject"))
         sender = decode_text(message.get("From"))
+        received_at = message.get("Date")
+
+        attachment_parts = [
+            part for part in message.walk()
+            if "attachment" in str(part.get("Content-Disposition", "")).lower()
+            and part.get_filename()
+        ]
 
         print("\n----------------------------------------")
         print(f"From: {sender}")
         print(f"Subject: {subject}")
 
-        has_attachment = False
+        body_text = extract_body(message)
+        print(f"Body: {len(body_text)} character(s) captured")
 
-        for part in message.walk():
-            content_disposition = part.get("Content-Disposition", "")
+        # Records the email (idempotent upsert on message_id) before touching any
+        # attachment, and tells us whether this exact email was already fetched.
+        email_record = store.record_email(
+            message_id=message_id,
+            sender=sender,
+            subject=subject,
+            received_at=received_at,
+            body=body_text,
+            attachment_count=len(attachment_parts),
+        )
 
-            if "attachment" not in content_disposition.lower():
+        if email_record["already_seen"]:
+            print("Already fetched (seen by Message-ID). Skipping its attachments.")
+            skipped_seen_emails += 1
+            if mark_as_read:
+                mail.store(email_id, "+FLAGS", "\\Seen")
+            continue
+
+        if not attachment_parts:
+            print("No attachment found in this email.")
+
+        saved_this_email = 0
+
+        for part in attachment_parts:
+            filename = safe_filename(part.get_filename())
+            content_type = part.get_content_type()
+
+            if not is_document_attachment(filename, content_type):
+                print(f"  [Skip] {filename}: not a parseable document type ({content_type}).")
+                skipped_non_document += 1
                 continue
 
-            filename = part.get_filename()
-
-            if not filename:
+            payload = part.get_payload(decode=True)
+            if not payload:
                 continue
 
-            filename = safe_filename(filename)
-            has_attachment = True
+            content_sha256 = storage.sha256_bytes(payload)
+
+            # Attachment-level dedup: the same email can legitimately carry the same bytes
+            # twice (e.g. inline + attached copies of one PDF in a multipart/mixed
+            # message). Checked before writing anything to disk.
+            if store.has_seen_attachment(email_record["email_id"], content_sha256):
+                print(f"  [Skip] {filename}: identical attachment already recorded for this email.")
+                skipped_seen_attachments += 1
+                continue
 
             file_path = attachment_dir / filename
-
             counter = 1
             while file_path.exists():
                 stem = file_path.stem
@@ -114,17 +246,18 @@ def download_attachments(mailbox="INBOX", mark_as_read=True):
                 file_path = attachment_dir / f"{stem}_{counter}{suffix}"
                 counter += 1
 
-            payload = part.get_payload(decode=True)
+            with open(file_path, "wb") as file:
+                file.write(payload)
 
-            if payload:
-                with open(file_path, "wb") as file:
-                    file.write(payload)
+            store.record_attachment(
+                email_record["email_id"], filename, content_sha256, str(file_path))
 
-                downloaded_count += 1
-                print(f"Downloaded attachment: {file_path}")
+            downloaded_count += 1
+            saved_this_email += 1
+            print(f"Downloaded attachment: {file_path}")
 
-        if not has_attachment:
-            print("No attachment found in this email.")
+        if attachment_parts and saved_this_email == 0:
+            print("No new attachments saved from this email.")
 
         if mark_as_read:
             mail.store(email_id, "+FLAGS", "\\Seen")
@@ -133,6 +266,12 @@ def download_attachments(mailbox="INBOX", mark_as_read=True):
 
     print("\n========================================")
     print(f"Downloaded {downloaded_count} attachment(s) to: {attachment_dir}")
+    if skipped_seen_emails:
+        print(f"Skipped {skipped_seen_emails} already-fetched email(s).")
+    if skipped_seen_attachments:
+        print(f"Skipped {skipped_seen_attachments} duplicate attachment(s).")
+    if skipped_non_document:
+        print(f"Skipped {skipped_non_document} non-document attachment(s).")
     print("Done.")
 
 
