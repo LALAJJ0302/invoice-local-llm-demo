@@ -39,6 +39,8 @@ m004 = load_migration("004_email_and_tasks.py")
 m005 = load_migration("005_rename_validation_status.py")
 m006 = load_migration("006_storage_completion.py")
 m007 = load_migration("007_post_approval.py")
+m008 = load_migration("008_email_body.py")
+m009 = load_migration("009_attachment_names.py")
 
 
 LEGACY_DDL = """
@@ -114,6 +116,8 @@ def migrated_db(legacy_db):
     assert m005.migrate(legacy_db) == 0
     assert m006.migrate(legacy_db) == 0
     assert m007.migrate(legacy_db) == 0
+    assert m008.migrate(legacy_db) == 0
+    assert m009.migrate(legacy_db) == 0
     return legacy_db
 
 
@@ -384,7 +388,7 @@ class TestChain:
         with connect(migrated_db) as conn:
             versions = [r["version"] for r in
                         conn.execute("SELECT version FROM schema_version ORDER BY version")]
-        assert versions == [1, 2, 3, 4, 5, 6, 7]
+        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
     def test_migrated_matches_fresh(self, migrated_db, tmp_path):
         """A replayed migration chain and a fresh storage.DDL database must agree.
@@ -444,3 +448,90 @@ class TestChain:
         twice must succeed, not report failure on the ones already applied."""
         for module in (m001, m002, m003, m004, m005, m006, m007):
             assert module.migrate(migrated_db) == 0, f"{module.__name__} failed on re-run"
+
+
+# =====================================================================
+# Migration 008
+# =====================================================================
+class TestEmailBodyMigration:
+    def test_008_adds_both_columns(self, migrated_db):
+        with connect(migrated_db) as conn:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(email_messages)")]
+        assert "body_text" in cols
+        assert "body_source" in cols
+
+    def test_008_moves_no_rows(self, migrated_db):
+        """Additive. An email recorded before the migration survives it unchanged."""
+        store = StorageManager(migrated_db)
+        store.record_email(message_id="<pre@x>", sender="a@x", subject="Before")
+        with connect(migrated_db) as conn:
+            before = conn.execute("SELECT COUNT(*) c FROM email_messages").fetchone()["c"]
+        assert m008.migrate(migrated_db) == 0          # already applied, no-op
+        with connect(migrated_db) as conn:
+            after = conn.execute("SELECT COUNT(*) c FROM email_messages").fetchone()["c"]
+            row = conn.execute(
+                "SELECT subject, body_text FROM email_messages "
+                "WHERE message_id = '<pre@x>'").fetchone()
+        assert after == before
+        assert row["subject"] == "Before"
+        assert row["body_text"] is None
+
+    def test_008_is_idempotent(self, migrated_db):
+        assert m008.migrate(migrated_db) == 0
+        assert m008.migrate(migrated_db) == 0
+
+    def test_008_refuses_an_invalid_body_source(self, migrated_db):
+        """The CHECK is enforced by SQLite, not only by the Python guard."""
+        with connect(migrated_db) as conn:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO email_messages (message_id, sender, body_text, body_source) "
+                    "VALUES ('<bad@x>', 'a@x', 'text', 'invented')")
+
+
+# =====================================================================
+# Migration 009
+# =====================================================================
+class TestAttachmentNames:
+    def test_009_adds_the_column(self, migrated_db):
+        with connect(migrated_db) as conn:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(email_messages)")]
+        assert "attachment_names" in cols
+
+    def test_009_is_idempotent(self, migrated_db):
+        assert m009.migrate(migrated_db) == 0
+        assert m009.migrate(migrated_db) == 0
+
+    def test_a_document_can_be_traced_to_its_email(self, migrated_db):
+        """The link that closed the gap: inbox/<file> back to the message that sent it."""
+        store = StorageManager(migrated_db)
+        result = store.record_email(
+            message_id="<x@v>", sender="billing@v.io", received_at="2026-09-01 09:00:00",
+            attachment_names=["INV-900.pdf", "statement.pdf"])
+        found = store.email_for_attachment("INV-900.pdf")
+        assert found["email_id"] == result["email_id"]
+        assert found["sender"] == "billing@v.io"
+
+    def test_an_unmatched_file_returns_none(self, migrated_db):
+        """A file dropped straight into inbox/ never had an email. Not an error."""
+        store = StorageManager(migrated_db)
+        store.record_email(message_id="<y@v>", sender="a@v.io",
+                           attachment_names=["other.pdf"])
+        assert store.email_for_attachment("INV-999.pdf") is None
+
+    def test_a_partial_name_does_not_match(self, migrated_db):
+        """'INV-9.pdf' must not match 'INV-90.pdf'. The delimiters exist for this."""
+        store = StorageManager(migrated_db)
+        store.record_email(message_id="<z@v>", sender="a@v.io",
+                           attachment_names=["INV-90.pdf"])
+        assert store.email_for_attachment("INV-9.pdf") is None
+
+    def test_the_newest_match_wins(self, migrated_db):
+        """Two emails attaching the same name cannot be told apart. Documented, not fixed."""
+        store = StorageManager(migrated_db)
+        store.record_email(message_id="<old@v>", sender="old@v.io",
+                           received_at="2026-01-01 09:00:00", attachment_names=["dup.pdf"])
+        newer = store.record_email(message_id="<new@v>", sender="new@v.io",
+                                   received_at="2026-08-01 09:00:00",
+                                   attachment_names=["dup.pdf"])
+        assert store.email_for_attachment("dup.pdf")["email_id"] == newer["email_id"]

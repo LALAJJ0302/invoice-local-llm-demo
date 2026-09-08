@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from pypdf import PdfReader
 import ollama
 
+import retrieval
 import storage
 from storage import StorageManager
 
@@ -505,6 +506,27 @@ class WorkflowOrchestrator:
                 print(f"  └─ [Fail] AI extraction failed.")
                 continue
 
+            # 2b. Trace the document back to the email that delivered it, then pull that
+            # sender's prior correspondence as context. A miss is normal rather than an
+            # error: a file dropped straight into inbox/ never had an email.
+            delivered_by = self.storage.email_for_attachment(file_name)
+            email_id = delivered_by["email_id"] if delivered_by else None
+            context = ""
+            if delivered_by:
+                print(f"  └─ [Step 2b: Link] Delivered by email_id={email_id} "
+                      f"from {delivered_by['sender']}")
+                hits = retrieval.retrieve(sender=delivered_by["sender"],
+                                          strategy="sender", limit=3,
+                                          db_path=self.storage.db_path)
+                # Exclude the email that carried this very document: it is not history.
+                hits = [h for h in hits if h["email_id"] != email_id]
+                if hits:
+                    context = retrieval.as_context(hits, max_chars=1200)
+                    print(f"  └─ [Step 2c: Retrieval] {len(hits)} prior emails, "
+                          f"{len(context)} chars of context")
+            else:
+                print("  └─ [Step 2b: Link] No email matched this file")
+
             # 3. Validation Gate
             verdict = self.validator.explain(data, raw_text)
             confidence, status = verdict["score"], verdict["status"]
@@ -546,6 +568,7 @@ class WorkflowOrchestrator:
                 archive_path=record.archive_path,
                 raw_json=data.model_dump_json(),
                 raw_text=raw_text,
+                email_id=email_id,
             )
             processed_count += 1
 
