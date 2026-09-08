@@ -1,0 +1,110 @@
+{
+  "repeats": 3,
+  "rows": [
+    {
+      "model": "llama3.2:latest",
+      "valid": 3,
+      "runs": 3,
+      "errors": [],
+      "required_filled": [
+        5,
+        5,
+        5
+      ],
+      "optional_filled": [
+        5,
+        5,
+        5
+      ],
+      "seconds": [
+        3.8788528442382812,
+        1.2115683555603027,
+        1.2047569751739502
+      ]
+    },
+    {
+      "model": "gemma3:4b",
+      "valid": 3,
+      "runs": 3,
+      "errors": [],
+      "required_filled": [
+        5,
+        5,
+        5
+      ],
+      "optional_filled": [
+        5,
+        5,
+        5
+      ],
+      "seconds": [
+        7.372529983520508,
+        2.388434886932373,
+        2.366102933883667
+      ]
+    },
+    {
+      "model": "qwen2.5:7b",
+      "valid": 3,
+      "runs": 3,
+      "errors": [],
+      "required_filled": [
+        5,
+        5,
+        5
+      ],
+      "optional_filled": [
+        5,
+        5,
+        5
+      ],
+      "seconds": [
+        8.305678844451904,
+        3.693408966064453,
+        3.377819061279297
+      ]
+    },
+    {
+      "model": "llama3.1:8b",
+      "valid": 3,
+      "runs": 3,
+      "errors": [],
+      "required_filled": [
+        5,
+        5,
+        5
+      ],
+      "optional_filled": [
+        5,
+        5,
+        5
+      ],
+      "seconds": [
+        8.787935972213745,
+        2.646146059036255,
+        2.649935007095337
+      ]
+    },
+    {
+      "model": "phi4:14b",
+      "valid": 3,
+      "runs": 3,
+      "errors": [],
+      "required_filled": [
+        5,
+        5,
+        5
+      ],
+      "optional_filled": [
+        5,
+        5,
+        5
+      ],
+      "seconds": [
+        15.438850164413452,
+        5.737108945846558,
+        6.3354339599609375
+      ]
+    }
+  ]
+}

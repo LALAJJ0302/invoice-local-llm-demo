@@ -165,3 +165,134 @@ heavily and gives nothing for an unverifiable amount. The lower number is the mo
 The automation pass rate did not move: 0/3 before, 0/3 after. Extraction is still 3/15. Any
 before-and-after comparison in the report should use the pass rate, which is stable, not the raw
 score.
+
+---
+
+# Amendment, 2026-09-03: 1.00 must mean a complete extraction
+
+## The defect
+
+On the merged `main`, invoice 1 stored a vendor of `'Vendor: Apex Cloud Solutions Pty Ltd'`
+and **zero line items**, against a document containing three. The gate scored it **1.00,
+Validated**, and opened an approval task.
+
+Every component fired:
+
+```
+invoice_number_present   0.15
+vendor_present           0.10
+total_present            0.15
+invoice_number_in_text   0.20
+vendor_in_text           0.15   <-- the problem
+amount verified          0.25
+                         ----
+                         1.00
+```
+
+`vendor_in_text` is `vendor_name.lower() in raw_text.lower()`. The model returned the caption
+along with the value, so the extracted string matched the document **more easily than the
+correct answer would have.**
+
+That is a perverse incentive. The check gets easier to satisfy the more of the document you
+copy: a vendor field containing the entire invoice would score full marks. **A lazier
+extraction scored higher than a careful one**, which inverts what a gate is for.
+
+Line items were a second, independent gap. `data.items` was never read, and
+`storage.reconcile()` was already computing the cross-check and being ignored.
+
+## The rule this amendment adopts
+
+> **1.00 means the extraction is complete. Nothing is empty. Anything missing reduces the
+> score.**
+
+This is stronger than the previous design, which scored only the fields it happened to check.
+`date` and `currency` were not scored at all: an extraction could return neither and still
+reach 1.00.
+
+## Design
+
+### Completeness, 0.40 of the score
+
+0.06 for each of `invoice_number`, `vendor_name`, `date`, `currency`, `total_amount`, and
+**0.10 for line items**, which are worth more because they are a whole table rather than one
+value. The `empty` key in `explain()` names exactly which of them were missing, so a task and
+a dashboard row can say what failed rather than only that something did.
+
+### Agreement with the document, 0.60
+
+| Check | Weight |
+|---|---|
+| `invoice_number_in_text` | 0.10 |
+| `vendor_in_text` | 0.08 |
+| **`vendor_is_not_a_label`** | **0.07** |
+| amount `verified` / `present` / `absent` | 0.25 / 0.125 / 0 |
+| reconciliation `exact` or `plausible` / `unknown` / `short` | 0.10 / 0.05 / 0 |
+
+**`plausible` scores full marks, deliberately.** A total above the line-item sum is the normal
+state of any invoice carrying GST or freight. Penalising it would penalise every real
+Australian invoice. Only `short` is an anomaly on its own.
+
+### Two new hard rules
+
+Joining the existing "the amount must be `verified`":
+
+- **The vendor must not be a field caption.** Unrecognised captions are not penalised, so this
+  check can only improve on not having it.
+- **Reconciliation must not be `short`.** Line items exceeding the total they belong to is not
+  something tax or shipping explains.
+
+## The extraction repair, and why it stays visible
+
+`DocumentExtractor._clean_vendor_label` strips a leading caption at the source. It is named to
+match the convention `evaluation/run_eval.py` uses to switch repairs off, so the harness
+neutralises it automatically along with the two fallbacks.
+
+This matters more than the fix. Repairing the value silently would take the harness to 15/15
+while the model carried on returning captions, **deleting the evidence that it happens**. That
+is the same failure as the 93.3% reported on the morning of 2026-09-03. Both numbers now stay
+true at once:
+
+```
+run_eval.py                  10/15   the model, with every repair disabled
+run_eval.py --with-fallback  15/15   shipped behaviour
+```
+
+## Result, measured 2026-09-03
+
+| Document | Before | After | Empty | Reconciliation |
+|---|---|---|---|---|
+| invoice 1 | 1.00 Validated | **0.85 Validated** | `items` | unknown |
+| invoice 2 | 1.00 Validated | 1.00 Validated | none | exact |
+| invoice 3 | 1.00 Validated | 1.00 Validated | none | exact |
+
+Extraction is unchanged at 15/15 shipped and 10/15 model-only. The gate change moved no
+extraction number, which is the check that it did what it claimed and nothing else.
+
+Test suite: **194 to 216.** Two existing tests were rewritten rather than renumbered.
+`test_the_hard_rule_blocks_even_above_the_threshold` had asserted that a line-item amount
+scores 0.88 and is refused anyway; under the new weights that case scores 0.73, so the test no
+longer demonstrated its own point. It now uses a **complete** extraction with a captioned
+vendor, which scores 0.93 and is still refused. The point survives; the example changed.
+
+## What this still does not catch
+
+**Invoice 1 passes at 0.85 with no line items.** The score records the gap and the reason
+names it, but the document is auto-approved.
+
+Catching it properly means detecting that a document *looks* itemised, which needs a heuristic
+reading the text for a Qty or Unit Price table. That is precisely the fitted-to-three-generated
+files risk in `database-spec.md` §8.1: it would work on ReportLab output, and nobody can say
+whether it works on a real invoice. **Deferred until there are real documents to fit against.**
+
+## Consequence: the score scale changed again
+
+`validation_score` is **not comparable across 2026-09-03**, the second such boundary after
+2026-08-28. Three eras now exist:
+
+| Era | Invoice 1 | Why |
+|---|---|---|
+| before 2026-08-28 | 1.00 | no amount verification at all |
+| 2026-08-28 to 09-03 | 0.25, later 1.00 | amount verified; extraction improved under it |
+| from 2026-09-03 | 0.85 | completeness scored; missing line items cost 0.10 |
+
+Any before-and-after comparison in the report must state which era each number comes from.

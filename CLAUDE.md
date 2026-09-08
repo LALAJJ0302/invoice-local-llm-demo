@@ -36,7 +36,7 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python query_db.py                   # inspect records
 ./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
 ./.venv/bin/python evaluation/run_eval.py        # per-field accuracy vs ground truth
-./.venv/bin/python -m pytest tests/ -q           # 194 storage, migration and gate tests
+./.venv/bin/python -m pytest tests/ -q           # 216 storage, migration and gate tests
 ./.venv/bin/python evaluation/schema_comparison.py  # Optional 3/15 vs required 15/15
 ./.venv/bin/python evaluation/sentinel_comparison.py # what required fields cost
 ./report/build-pdf.sh report/presentation.md     # markdown -> PDF for reading offline
@@ -59,31 +59,54 @@ Three people, one codebase. Stay in your lane or say so first.
 | Area | Files | Owner |
 |---|---|---|
 | Intake (Phase 1) | `email_listener.py` | Luke |
-| Extraction (Phases 2-3) | `DocumentExtractor` in `main.py` | JJ |
-| Validation gate (Phase 5) | `ConfidenceValidator` in `main.py` | **Neo** |
-| Storage & archive (Phase 4) | `storage.py`, `migrations/`, `query_db.py`, `reprocess.py` | **Neo** |
-| Dashboard & approval (Phase 5) | `app.py` | **Neo** |
-| Schemas | `ExtractedInvoice` etc. in `main.py` | shared contract, change by agreement |
+| Task assignment | tasks and routing | Luke |
+| Extraction (Phases 2-3) | `DocumentExtractor` in `main.py` | **Neo + JJ** |
+| Validation gate (Phase 5) | `ConfidenceValidator` in `main.py` | **Neo + JJ** |
+| Storage & archive (Phase 4) | `storage.py`, `migrations/`, `query_db.py`, `reprocess.py` | **Neo + JJ** |
+| Dashboard & approval (Phase 5) | `app.py` | **Neo + JJ** |
+| Evaluation | `evaluation/` | **Neo + JJ** |
+| RAG / real-document extraction | not yet created | **Neo + JJ** |
+| Schemas | `ExtractedInvoice` etc. in `main.py` | **Neo + JJ**, tell Luke before changing |
+
+**Changed 2026-09-03.** Neo and JJ merged their lanes and now work as one on extraction,
+validation, storage and the dashboard. Luke keeps a separate lane: intake and task assignment.
+The PR-for-someone-else's-file rule now applies only across the Neo+JJ / Luke boundary.
 
 `main.py` is now 283 lines holding three classes: the storage layer moved out to `storage.py` in the
 Phase 4 redesign. Splitting the rest along its own section banners into `extraction.py` /
 `validation.py` / `pipeline.py` is proposed but not agreed.
 
-## Current state (2026-08-26)
+## Current state (2026-09-03)
 
-**The pipeline runs but does not work.** Measured on the project's own mock invoices:
+**The pipeline runs and now extracts correctly, for reasons worth separating.** Measured on the
+project's own mock invoices:
 
 ```
-vendor_name 3/3 | invoice_number 0/3 | date 0/3 | total_amount 0/3 | currency 0/3
-OVERALL 3/15 (20%)   Gate: 0/3 Validated, 0% automation pass rate
+./.venv/bin/python evaluation/run_eval.py                  10/15 (66.7%)   the model alone
+./.venv/bin/python evaluation/run_eval.py --with-fallback  15/15 (100%)    shipped behaviour
+Gate: 3/3 Validated, one of them at 0.85 because it returned no line items
 ```
 
-**Root cause is the schema, not model accuracy.** Every field in `ExtractedInvoice` is `Optional`
-with a default, so Pydantic emits an empty `required` list and Ollama's constrained decoder legally
-omits fields; the defaults then backfill `None`, `0.0`, `"Unknown"`. The same model and prompt with
-required fields returns 5/5. A controlled 2x2 isolates the schema as the causal variable.
+**Both numbers are true and the report needs both.** The gap between them is our own code
+repairing the model's output: a regex fallback for the header fields and a caption stripper for
+the vendor. `run_eval.py` discovers every repair by naming convention and switches them all off
+by default, so the model can always be measured alone.
 
-Do not attribute these failures to the model or attempt to fix them with prompt engineering.
+Four states have been measured, all reproducible. See `evaluation/evaluation-method.md`:
+
+| State | Overall | What it is |
+|---|---|---|
+| 2026-08-26 baseline | 3/15 | Previous prompt, `Optional` schema, no field fallback |
+| Model alone, 2026-09-03 | 10/15 | Current prompt, every repair off |
+| Shipped, 2026-09-03 | 15/15 | Current prompt plus the repairs |
+| Required fields | 15/15 | `schema_comparison.py`. Measured, **still not shipped** |
+
+The prompt accounts for the first gap, our repairs for the second, the schema for the fourth.
+Reporting only the final number would attribute all three to one cause.
+
+**The schema is still `Optional` with defaults** in `ExtractedInvoice`. The 15/15 comes from
+repairs layered on top, not from fixing the root cause. `schema_comparison.py` isolates the
+schema as a cause with one variable changed. That decision is still open.
 
 ### Other confirmed defects
 
@@ -116,20 +139,20 @@ Do not attribute these failures to the model or attempt to fix them with prompt 
 
 ## Work in progress
 
-`neo/database-redesign` is **pushed to `origin`**, 194 tests passing, schema version 7.
-`origin` is Neo's fork; `upstream` is JJ's repo.
+**PR #1 was merged into `upstream/main` on 2026-09-03.** `local main`, `origin/main` and
+`upstream/main` are all at `00775e1` plus whatever has landed since. `origin` is Neo's fork;
+`upstream` is JJ's repo.
 
-**PR #1 is open against `upstream/main` and is deliberately not merged.**
-https://github.com/LALAJJ0302/invoice-local-llm-demo/pull/1 — check the PR for the live commit
-count and merge state; both change with every push, so they are not repeated here.
+The five decisions that kept the PR open are now on `main`. Migration 005 and the `status` /
+`approval_status` split are live rather than provisional, and reverting any of them costs a
+migration rather than a branch delete.
 
-It is open so the changes are reviewable line by line and so anything landing later rebases onto it,
-not the other way round. It is not merged because five of the changes are decisions the group has
-not ratified, and on a branch each stays reversible with one migration. `upstream/main` has not
-moved since JJ's first commit on 2026-08-25, so the merge is fast-forward. **That will stop being
-true the moment JJ pushes**, and both branches touch `app.py`.
+**Current direction, agreed 2026-09-03:** Luke takes task assignment. Neo and JJ work together
+on RAG, feeding real invoice PDFs rather than the three generated samples.
 
-`evaluation-and-gate-fixes` is the older local branch this one grew from. Still local.
+**Before real documents arrive, `evaluation/ground_truth.json` covers only the three synthetic
+files.** Adding real invoices without extending it means running experiments with no way to
+tell whether they helped.
 
 - `evaluation/` measures per-field accuracy against independently transcribed ground truth. Reads
   nothing from `inbox/` or `archive/` and edits no existing file. See `evaluation/evaluation-method.md`,
@@ -158,7 +181,7 @@ Deferred until the group gets there: Trigger/Approval, the Jira task, and splitt
 - **Spec before code.** Write the spec, get Neo's explicit approval, then implement. This is a
   standing rule, not a formality.
 - **Do not push or open PRs without asking.** `origin` is Neo's fork; `upstream` is JJ's repo.
-- Changes to JJ's or Luke's files go via pull request with evidence, not direct commits.
+- Changes to Luke's files go via pull request with evidence, not direct commits.
 - Prefer measuring over asserting. Every claim in this file was verified by running something.
 
 ## Useful skills
