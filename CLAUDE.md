@@ -45,6 +45,12 @@ ollama serve &                                   # must be running before main.p
 
 Use `./.venv/bin/python`, not bare `python3`. Dependencies are pinned in `requirements.txt`.
 
+**Docker alternative:** `docker compose up -d ollama`, `docker compose run --rm pipeline`,
+`docker compose up app` runs the same pipeline without a local Python/Ollama install. See
+`deployment-spec.md` and the README's "Option C". Requires `cp .env.example .env` first.
+Not a production deployment story — `requirements-spec.md` still rules that out — just a
+packaged way to run the same local stack.
+
 `main.py` **moves** files out of `inbox/` into `archive/`. Since the Phase 4 redesign it **upserts**
 on a content hash, so regenerating the mocks and re-running updates the same three rows instead of
 accumulating duplicates. It writes to SQLite first and archives only after the commit.
