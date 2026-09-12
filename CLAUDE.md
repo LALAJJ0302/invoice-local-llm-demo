@@ -36,9 +36,10 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python query_db.py                   # inspect records
 ./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
 ./.venv/bin/python evaluation/run_eval.py        # per-field accuracy vs ground truth
-./.venv/bin/python -m pytest tests/ -q           # 216 storage, migration and gate tests
+./.venv/bin/python -m pytest tests/ -q           # storage, migration, gate, retrieval and taxonomy tests
 ./.venv/bin/python evaluation/schema_comparison.py  # Optional 3/15 vs required 15/15
 ./.venv/bin/python evaluation/sentinel_comparison.py # what required fields cost
+./.venv/bin/python evaluation/error_taxonomy.py --detail # classify every error already on disk
 ./report/build-pdf.sh report/presentation.md     # markdown -> PDF for reading offline
 ./.venv/bin/python reprocess.py --list           # what is stored, and is its file still there
 ```
