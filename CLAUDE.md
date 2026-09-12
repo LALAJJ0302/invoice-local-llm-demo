@@ -77,10 +77,11 @@ The PR-for-someone-else's-file rule now applies only across the Neo+JJ / Luke bo
 Phase 4 redesign. Splitting the rest along its own section banners into `extraction.py` /
 `validation.py` / `pipeline.py` is proposed but not agreed, and the case for it grows with the file.
 
-**A third contributor exists in the history.** `zethio44@gmail.com` has two commits, both on
-2026-09-03 and both already on `main`. `6ff1dbb` added the 92-line regex fallback to
-`DocumentExtractor`, which is the code that turns 10/15 into 15/15. That is Neo+JJ's lane by the
-table above. Worth confirming who this account belongs to before the next lane conversation.
+**Luke commits as `zethio44`.** Recorded in `report/meeting-2026-09-08.md`, and worth repeating
+here because `git log` shows a name that appears nowhere in the ownership table. Two commits, both
+2026-09-03, both already on `main`. `6ff1dbb` added the 92-line regex fallback to
+`DocumentExtractor` and rewrote the extraction prompt, which together turn 3/15 into 15/15. Both
+are Neo+JJ's lane by the table above, and they were pushed straight to `upstream/main`.
 
 ## Current state (2026-09-12)
 
@@ -199,6 +200,16 @@ on RAG, feeding real invoice PDFs rather than the three generated samples.
 | `retrieval_eval.py` | Sender vs keyword vs hybrid? | Keyword is 1.00 on threads, **0.00 on vendors** |
 | `gate_verification_preview.py` | What would the gate amendment change? | `date`/`currency` move to `verified`, invented values to `absent` |
 | `error_taxonomy.py` | Are the errors equally dangerous? | `invented: 3` is really 1 invention + 2 mislocations |
+| `sentinel_comparison.py` | Does nullable-required satisfy both rules? | Fewest errors of any arm (4), but **still invents** |
+
+**The one invention no schema can fix.** Every required-family arm returns `2000.00` as the
+total of a statement that states no total, because the document shows `1,200.00` and `800.00`
+and the model adds them. It is arithmetic, not hallucination, and the sum is wrong in kind
+anyway since a payment received should be subtracted. A fabricated string can be caught by
+asking whether it appears on the page; a computed value defeats that test by construction. This
+belongs to the gate, and the gate does not catch it either: `reconcile` awards `plausible` when
+the total exceeds the line-item sum, and here it equals the sum of two numbers that are not
+addends.
 
 **The taxonomy's unplanned result is the most useful one for the report.** It prices the schema
 trade rather than scoring it. Optional arms fail 100% by omitting, so nothing false is stored.

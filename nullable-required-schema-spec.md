@@ -1,7 +1,7 @@
 # Spec: Measure the nullable-required schema
 
-**Status: awaiting Neo's approval. Nothing implemented.**
-Written 2026-09-12. Ollama is running, so this is runnable the moment it is approved.
+**Status: approved and implemented 2026-09-12. Result at the bottom.**
+Written 2026-09-12.
 
 ## Why this exists
 
@@ -96,3 +96,89 @@ worse than both existing options and the recommendation becomes plain `required`
 **Changing `ExtractedInvoice` in `main.py`.** This spec measures a candidate. Shipping it is a
 separate decision, because it changes what the pipeline stores and interacts with the validation
 gate's completeness weighting. Measure first, then decide.
+
+---
+
+# Result, measured 2026-09-12
+
+`llama3.2`, temperature 0, same five documents. 285 tests pass.
+
+| Schema | Extracted correctly | Absent admitted | Absent invented | Classified errors |
+|---|---|---|---|---|
+| `optional` | 1 of 13 | 9 of 9 | 0 | 12 |
+| `required` | 12 of 13 | 6 of 9 | 3 | 10 |
+| `sentinel` | 12 of 13 | 6 of 9 | 3 | 10 |
+| **`nullable-required`** | **12 of 13** | **7 of 9** | **2** | **4** |
+
+Fifth 2x2 cell: `IMPROVED prompt x Nullable-required schema` scores **15/15** on the three
+complete documents, matching every other improved-prompt cell.
+
+## Predictions against measurement
+
+| Metric | Predicted | Measured | |
+|---|---|---|---|
+| Extracted correctly | 12 of 13 | 12 of 13 | correct |
+| 2x2 cell | 15/15 | 15/15 | correct |
+| Absent admitted | 9 of 9 | 7 of 9 | **wrong** |
+| Absent invented | 0 | **2** | **wrong** |
+
+**The central prediction failed.** The proposal was that a legal null removes the pressure to
+invent. It reduces it and does not remove it. The spec named this outcome in advance as the
+one that "kills the proposal" only in combination with accuracy below 12/13; accuracy held, so
+the proposal survives on different grounds than the ones it was argued from.
+
+## Where the gain actually came from
+
+The taxonomy, run over the regenerated results:
+
+```
+required           6 placeholder,  2 mislocated,  1 invented,  1 malformed   = 10
+nullable-required  1 placeholder,  1 mislocated,  1 invented,  1 malformed   =  4
+```
+
+**Nullability converted placeholders into nulls. It did not prevent invention.** Five of six
+strings such as `"None"` and `"Not specified"` became real JSON nulls. That is a real gain,
+because a null is machine-detectable and the string `"None"` is a value that passes any
+non-emptiness check, including the one the validation gate currently applies to `date` and
+`currency`. It is not the gain that was claimed.
+
+## The surviving invention, which no schema can fix
+
+Every required-family arm returns `2000.00` as the total of a statement that states no total:
+
+```
+Opening balance      1,200.00
+Payments received      800.00
+```
+
+1,200.00 + 800.00 = 2,000.00. **The model is doing arithmetic, not hallucinating.** And the
+arithmetic is wrong in kind, since a payment received should be subtracted: the defensible
+answer is 400.00 and the correct answer is that no total exists.
+
+This matters beyond this spec. The `mislocated` class is defined by asking whether a value
+appears in the document, and that test is what makes a mislocation recoverable. **A computed
+value defeats that test by construction.** It is absent from the page, so it classifies as
+`invented`, but unlike a hallucinated string it is arithmetically consistent with the page,
+which is exactly what makes it convincing. No schema change addresses this, because the model
+is obeying the schema precisely.
+
+It belongs to the validation gate, and the gate does not currently catch it either: the
+`reconcile` step awards `plausible` when the total exceeds the line-item sum by any amount, and
+here the total **equals** the sum of two numbers that are not addends. See
+`validation-gate-spec.md` and the five gaps recorded against auto-approval.
+
+## Recommendation
+
+**Adopt `nullable-required`**, on the measured grounds: it matches the best extraction accuracy
+of any arm, produces the fewest classified errors of any arm (4 against 10 and 12), and turns
+five undetectable placeholder strings into detectable nulls.
+
+**Do not adopt it as satisfying the group's rule 3.** Rule 3 says a value must never be
+invented. On this evidence no schema delivers that, and continuing to state rule 3 as
+achievable would put a claim in the report that the project's own measurements contradict.
+
+## Still out of scope, unchanged
+
+Changing `ExtractedInvoice` in `main.py`. This measured a candidate. Shipping it changes what
+the pipeline stores and interacts with the gate's completeness weighting, which is a separate
+decision for the group.

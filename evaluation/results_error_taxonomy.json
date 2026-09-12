@@ -25,12 +25,12 @@
   ],
   "totals_across_arms_double_counted": {
     "omitted": 44,
-    "placeholder": 24,
-    "malformed": 3,
+    "placeholder": 25,
+    "malformed": 4,
     "caption": 0,
     "truncated": 0,
-    "mislocated": 4,
-    "invented": 2
+    "mislocated": 5,
+    "invented": 3
   },
   "arms": [
     {
@@ -518,6 +518,21 @@
       "errors": []
     },
     {
+      "source": "results_prompt_schema_2x2.json",
+      "arm": "IMPROVED prompt + Nullable-required schema",
+      "counts": {
+        "omitted": 0,
+        "placeholder": 0,
+        "malformed": 0,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 0,
+      "errors": []
+    },
+    {
       "source": "results_sentinel_comparison.json",
       "arm": "sentinel: optional schema",
       "counts": {
@@ -810,6 +825,54 @@
           "actual": "None",
           "class": "placeholder",
           "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sparse_note",
+          "field": "currency",
+          "expected": null,
+          "actual": "dollars",
+          "class": "mislocated",
+          "reason": "'dollars' is in the document, but not as this field"
+        }
+      ]
+    },
+    {
+      "source": "results_sentinel_comparison.json",
+      "arm": "sentinel: nullable-required schema",
+      "counts": {
+        "omitted": 0,
+        "placeholder": 1,
+        "malformed": 1,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 1,
+        "invented": 1
+      },
+      "total": 4,
+      "errors": [
+        {
+          "document": "no_vendor",
+          "field": "date",
+          "expected": "2026-03-12",
+          "actual": "12 March 2026",
+          "class": "malformed",
+          "reason": "'12 March 2026' normalises to '2026-03-12', the expected value"
+        },
+        {
+          "document": "no_vendor",
+          "field": "vendor_name",
+          "expected": null,
+          "actual": "None",
+          "class": "placeholder",
+          "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "no_total",
+          "field": "total_amount",
+          "expected": null,
+          "actual": 2000.0,
+          "class": "invented",
+          "reason": "2000.0 appears nowhere in the document"
         },
         {
           "document": "sparse_note",

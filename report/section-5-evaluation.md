@@ -194,6 +194,76 @@ therefore rejected. Recording a rejected hypothesis matters as much as recording
 accepted one, since it is the part that shows the alternatives were tested rather than
 assumed away.
 
+### 5.5.1 A fourth schema, and a prediction that was wrong
+
+The two requirements in tension are "every field must be emitted" and "no value may be
+invented". Both preceding arms treat these as a trade. A fourth variant dissolves it in
+principle: declare each field `Optional[T]` with **no default**. Pydantic places a field with
+no default into `required` even when its type admits null, so the emitted JSON Schema reads
+`"required": [...all five...]` with each property typed `anyOf[{string},{null}]`. The
+constrained decoder must therefore emit every key, and is never left without a legal way to
+say "absent".
+
+Measured on 2026-09-12, same model, same documents, same temperature:
+
+| Schema | Extracted correctly | Absent admitted | Absent invented | Total errors |
+|---|---|---|---|---|
+| Optional with defaults | 1 of 13 | 9 of 9 | 0 | 12 |
+| Required | 12 of 13 | 6 of 9 | 3 | 10 |
+| Sentinel | 12 of 13 | 6 of 9 | 3 | 10 |
+| **Nullable-required** | **12 of 13** | **7 of 9** | **2** | **4** |
+
+It also reaches 15/15 on the three complete documents, so nothing was given up on the
+ordinary case.
+
+**The prediction recorded before the run was that it would invent zero, and that prediction
+was wrong.** Two inventions survive. Stating this matters more than the favourable columns
+either side of it: the hypothesis was that a legal null removes the pressure to invent, and
+on this evidence a legal null only *reduces* it.
+
+Classifying every error rather than counting it explains where the improvement actually came
+from, and it is not where the proposal claimed. The classifier is `evaluation/error_taxonomy.py`,
+specified in `error-taxonomy-spec.md`; the three classes used below are **placeholder**, a string
+such as `"None"` that means "no value" but occupies the field, **mislocated**, a value that is
+printed on the document but is not this field, and **invented**, a value that appears nowhere on
+the document at all:
+
+```
+Required           6 placeholder,  2 mislocated,  1 invented,  1 malformed   = 10
+Nullable-required  1 placeholder,  1 mislocated,  1 invented,  1 malformed   =  4
+```
+
+**The nullable field removed placeholders, not inventions.** Five of the six strings such as
+`"None"` and `"Not specified"` became real JSON nulls, which is a genuine gain because a null
+is machine-detectable and the string `"None"` is not. But the one true invention is untouched,
+and one of the two mislocations remains.
+
+That surviving invention is worth quoting in full, because it is the clearest single result
+in this evaluation. On a statement of account containing no total, every required-family
+schema returns `2000.00`. The document reads:
+
+```
+Opening balance      1,200.00
+Payments received      800.00
+```
+
+**1,200.00 + 800.00 = 2,000.00.** The model is not hallucinating a number, it is performing
+arithmetic on the two numbers it can see. Worse, the arithmetic is wrong in kind: a payment
+received should be subtracted, not added, so the defensible answer would have been 400.00 and
+the correct answer is that no total exists. A fabricated value drawn from nowhere might be
+caught by checking whether it appears in the document, which is what the `mislocated` class
+does. **A computed value defeats that check by construction**, and no schema can fix it,
+because the model is obeying the schema exactly.
+
+This is the strongest available argument that schema design and the validation gate solve
+different problems. §5.5 asked what the fix costs; the answer is that the cost can be reduced
+by more than half but not eliminated, and the remainder is not a schema defect at all.
+
+**Recommendation.** Adopt nullable-required, on the evidence that it matches the best
+extraction accuracy measured, produces the fewest errors of any arm, and converts five
+undetectable placeholder strings into detectable nulls. Do not adopt it on the grounds that
+it satisfies the "never invent" requirement, because it does not.
+
 ## 5.6 Model comparison
 
 Six models were shortlisted against two constraints: they must fit in the usable memory of
