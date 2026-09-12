@@ -1,0 +1,67 @@
+# 8. Conclusion
+
+This project set out to process supplier invoices from email to a reviewable record without
+manual re-keying, and to do so on infrastructure the team controlled. It was assessed against
+four objectives stated in §1.2, and the honest result differs by objective.
+
+**Objective 1, ingest and process without re-keying: met, within a narrow definition.** Invoices
+arrive by IMAP, are extracted, validated, stored in a normalised database and presented for
+approval, with the file archived only after the database commit. The definition is narrow because
+it holds only for PDFs carrying a text layer. A scanned invoice is skipped, and scanned invoices
+are common.
+
+**Objective 2, extract the fields an accounts-payable process needs: met on the project's own
+documents, and unproven beyond them.** Extraction reaches 15 of 15 field-values. That figure is
+measured against three documents the team generated, and the distance between that and a claim
+about invoices in general is the largest single limitation of this report.
+
+**Objective 3, produce evidence rather than assertions: met, and it is the objective this project
+actually delivered on.** It is also the objective that produced the most uncomfortable results.
+The evidence corrected the team's own published explanation of its central finding, when the
+two-by-two in §5.4.2 showed the prompt to be as sufficient a cause as the schema. It then
+contradicted a prediction recorded in advance, when the nullable-required schema in §5.5.1 failed
+to eliminate invented values. Both corrections are in the report because the alternative was to
+report a cleaner result than the work supported.
+
+**Objective 4, keep a person in the approval path: met in the code, and at risk in the group's
+plans.** No document is approved without a human action. The group has since agreed that a
+validation score of 1.00 should skip that action, and §7.2 sets out why that should not proceed
+in its current form: every check the score performs is internal to the document, so a duplicate,
+an unknown vendor and a well-formatted fraud all score 1.00.
+
+## What the project establishes
+
+The result worth carrying forward is not the accuracy figure. It is that the same headline
+accuracy can be produced by systems that behave very differently when they fail.
+
+Four schema variants were measured against documents with fields deliberately absent. Three of
+them extract equally well. One fails by leaving fields empty, so nothing false is ever stored.
+Another fails by inventing a value, which is stored with exactly the confidence of a correct one.
+An evaluation that reported only accuracy would rank these as equivalent.
+
+The clearest single case is the one in §7.2, where a statement of account containing no total
+produced `2000.00` from every required-family schema, because the model added the two numbers
+printed on the page. That value cannot be caught by checking whether it appears in the document,
+since it does not, nor by checking whether it is plausible, since it is arithmetically derived
+from the document. It is not a defect in the model, which obeyed its instructions exactly. It is
+a demonstration that **the question a document-extraction system must be evaluated on is what it
+does when it cannot read something**, and that this question is separate from accuracy and is not
+answered by it.
+
+## What was learned about building with AI
+
+The project was built with an AI assistant, and the failure mode that recurred most often was the
+same one the pipeline exhibits: a gap filled with something that looked like an answer. The model
+filled an unreadable field with a default. The assistant filled an unverified claim with a
+confident sentence. The team's own documentation carried an unmeasured explanation for two weeks
+with no mark to indicate it had never been tested.
+
+What caught these was not uniform. Tests caught the errors that lived in code. Recording a
+prediction before running a measurement caught the one in §5.5.1. The two that no test could
+have caught were caught by a person asking how a claim was known, at a point when the code was
+working correctly and only the explanation was wrong.
+
+That asymmetry is the project's most transferable conclusion. Verification of output is well
+served by automation. Verification of reasoning is not, and a project that automates the first
+while assuming the second has been handled will produce confident, well-tested, incorrect
+explanations of its own results.
