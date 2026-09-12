@@ -110,6 +110,18 @@ vendor on every sample, so `_infer_vendor_fallback` never fired.
 
 Raw results are saved in `results_before.json` and `results_before_with_fallback.json`.
 
+**These two files differ in exactly one byte-range: the `fallbacks` label reads `disabled` in one
+and `enabled` in the other. Every row is identical.** Confirmed 2026-09-12 by diffing them. That
+looks like a mislabelling and is not one, for a reason worth recording: on 2026-08-26 the only
+repair that existed was `_infer_vendor_fallback`, and it never fired because the model returned a
+vendor on all three samples. **The regex fallback for the header fields did not exist yet.** It
+arrived on 2026-09-03 in commit `6ff1dbb`, a week after these files were frozen. So there was
+genuinely nothing for the `--with-fallback` run to do.
+
+Both files were committed on 2026-08-26 in `c3b4d26` and have never been regenerated, because
+`--save` is opt-in. They are frozen snapshots. Do not read them as a measurement of what the
+repairs are worth today: for that, see the 10/15 against 15/15 pair in the table below.
+
 ### This baseline is historical, not current
 
 `main.py` changed on 2026-09-03: the extraction prompt was rewritten and a regex fallback added.

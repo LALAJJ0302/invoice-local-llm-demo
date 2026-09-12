@@ -73,11 +73,16 @@ Three people, one codebase. Stay in your lane or say so first.
 validation, storage and the dashboard. Luke keeps a separate lane: intake and task assignment.
 The PR-for-someone-else's-file rule now applies only across the Neo+JJ / Luke boundary.
 
-`main.py` is now 283 lines holding three classes: the storage layer moved out to `storage.py` in the
+`main.py` is now 606 lines holding three classes: the storage layer moved out to `storage.py` in the
 Phase 4 redesign. Splitting the rest along its own section banners into `extraction.py` /
-`validation.py` / `pipeline.py` is proposed but not agreed.
+`validation.py` / `pipeline.py` is proposed but not agreed, and the case for it grows with the file.
 
-## Current state (2026-09-03)
+**A third contributor exists in the history.** `zethio44@gmail.com` has two commits, both on
+2026-09-03 and both already on `main`. `6ff1dbb` added the 92-line regex fallback to
+`DocumentExtractor`, which is the code that turns 10/15 into 15/15. That is Neo+JJ's lane by the
+table above. Worth confirming who this account belongs to before the next lane conversation.
+
+## Current state (2026-09-12)
 
 **The pipeline runs and now extracts correctly, for reasons worth separating.** Measured on the
 project's own mock invoices:
@@ -102,8 +107,28 @@ Four states have been measured, all reproducible. See `evaluation/evaluation-met
 | Shipped, 2026-09-03 | 15/15 | Current prompt plus the repairs |
 | Required fields | 15/15 | `schema_comparison.py`. Measured, **still not shipped** |
 
-The prompt accounts for the first gap, our repairs for the second, the schema for the fourth.
-Reporting only the final number would attribute all three to one cause.
+~~The prompt accounts for the first gap, our repairs for the second, the schema for the fourth.~~
+**Superseded 2026-09-08 by `evaluation/prompt_schema_2x2.py`.** Attributing the gap to the prompt
+was a single comparison reported with more confidence than its design supported. The full two-by-two
+on `llama3.2:latest`:
+
+```
+ORIGINAL prompt + Optional schema     6/15
+ORIGINAL prompt + Required schema    15/15
+IMPROVED prompt + Optional schema    15/15
+IMPROVED prompt + Required schema    15/15
+```
+
+**Either fix alone reaches the ceiling. They are not additive.** Frame this as a more careful
+measurement producing a better result, not as a correction of something false.
+
+The 6/15 here and the 3/15 in the table above both reproduce, and the difference is entirely
+`currency`. Traced and resolved in `report/section-5-evaluation.md` §5.4.3: `schema_comparison.py`
+imports the real `ExtractedInvoice`, which carries a sixth field, `items`, a nested list. The
+two-by-two defined its own five-field schema without it. Adding that nested list costs three
+scalar field-values, and the field lost is the last scalar before `items` in declaration order.
+**3/15 is the shipped figure and the one the report quotes**; 6/15 is a controlled variant that
+exists only to isolate that effect.
 
 **The schema is still `Optional` with defaults** in `ExtractedInvoice`. The 15/15 comes from
 repairs layered on top, not from fixing the root cause. `schema_comparison.py` isolates the
@@ -140,16 +165,45 @@ schema as a cause with one variable changed. That decision is still open.
 
 ## Work in progress
 
-**PR #1 was merged into `upstream/main` on 2026-09-03.** `local main`, `origin/main` and
-`upstream/main` are all at `00775e1` plus whatever has landed since. `origin` is Neo's fork;
-`upstream` is JJ's repo.
+**Where the branches are, 2026-09-12.** `origin` is Neo's fork; `upstream` is JJ's repo.
 
-The five decisions that kept the PR open are now on `main`. Migration 005 and the `status` /
-`approval_status` split are live rather than provisional, and reverting any of them costs a
-migration rather than a branch delete.
+```
+main == upstream/main == 6ff0ddc      unmoved since 2026-09-08 (PR #2)
+origin/main                            9 behind upstream, deliberately left alone
+neo/gate-verification (current)        3 commits, NOT pushed, 271 tests green
+upstream/jj/email-ai                   email_ai.py, 521 lines, NOT in main
+```
+
+PR #1 (2026-09-03) and PR #2 (2026-09-08) are both merged. The five decisions that kept PR #1 open
+are on `main`; migration 005 and the `status` / `approval_status` split are live rather than
+provisional, and reverting any of them costs a migration rather than a branch delete.
+
+**JJ's `email_ai.py` is still not in `main`.** Its branch last moved on 2026-09-08 and that commit
+only merged `main` into itself, so it added nothing. It runs locally on `neo/email-ai-integration`
+at 13.4s for 3 calls. Its thread summary returned the subject line instead of a summary, which is
+the first labelled failure case the group has for summarisation.
+
+**Luke has authored no commit under that name.** `email_listener.py`, his assigned lane, was
+written by JJ in the initial prototype. Contributor counts across all branches: Neo 40, JJ 5,
+`zethio44` 2.
 
 **Current direction, agreed 2026-09-03:** Luke takes task assignment. Neo and JJ work together
 on RAG, feeding real invoice PDFs rather than the three generated samples.
+
+### Measured since 2026-09-03, none of it shipped
+
+| Script | Question it settles | Result |
+|---|---|---|
+| `prompt_schema_2x2.py` | Is it the prompt or the schema? | Either alone reaches 15/15, not additive |
+| `model_compatibility.py` | Can other local models do constrained JSON? | 5 measured, all 5 can |
+| `retrieval_eval.py` | Sender vs keyword vs hybrid? | Keyword is 1.00 on threads, **0.00 on vendors** |
+| `gate_verification_preview.py` | What would the gate amendment change? | `date`/`currency` move to `verified`, invented values to `absent` |
+| `error_taxonomy.py` | Are the errors equally dangerous? | `invented: 3` is really 1 invention + 2 mislocations |
+
+**The taxonomy's unplanned result is the most useful one for the report.** It prices the schema
+trade rather than scoring it. Optional arms fail 100% by omitting, so nothing false is stored.
+Required arms omit nothing but produce 6 placeholders, 2 mislocations and 1 invention. Similar
+accuracy, different safety. That is the argument for `Optional[str]` with no default.
 
 **Before real documents arrive, `evaluation/ground_truth.json` covers only the three synthetic
 files.** Adding real invoices without extending it means running experiments with no way to
