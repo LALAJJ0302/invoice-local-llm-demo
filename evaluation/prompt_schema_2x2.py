@@ -62,6 +62,21 @@ class RequiredInvoice(BaseModel):
     currency: str = Field(description="Detected currency code (e.g. AUD, USD, EUR, TWD) or 'Unknown'")
 
 
+class NullableRequiredInvoice(BaseModel):
+    """Optional[...] with NO default: Pydantic lists every field in `required`, and null is
+    a legal value for each. Same descriptions again, so nullability is the only variable.
+
+    This is the fifth cell, not part of the two-by-two. It exists to confirm the variant
+    proposed in `nullable-required-schema-spec.md` still reaches the ceiling on complete
+    documents, having been measured on absent fields in `sentinel_comparison.py`.
+    """
+    invoice_number: Optional[str] = Field(description="Invoice, Tax Invoice, or Receipt number")
+    vendor_name: Optional[str] = Field(description="Vendor, Supplier, Seller, or Billed-From company name")
+    date: Optional[str] = Field(description="Invoice issue date, bill date, or transaction date in YYYY-MM-DD format if possible")
+    total_amount: Optional[float] = Field(description="Grand total amount, net payable, or balance due as a numeric float")
+    currency: Optional[str] = Field(description="Detected currency code (e.g. AUD, USD, EUR, TWD) or 'Unknown'")
+
+
 # NOT a copy. Imported from schema_comparison.py, which took it verbatim from main.py on
 # 2026-08-28 while the original prompt was still in the tree. Luke rewrote main.py's prompt
 # on 2026-09-03, so the original can no longer be copied from main.py at all.
@@ -146,12 +161,14 @@ def main():
         ("ORIGINAL prompt", "Required schema", ORIGINAL, RequiredInvoice),
         ("IMPROVED prompt", "Optional schema", IMPROVED, OptionalInvoice),
         ("IMPROVED prompt", "Required schema", IMPROVED, RequiredInvoice),
+        # Fifth cell, outside the grid. See nullable-required-schema-spec.md.
+        ("IMPROVED prompt", "Nullable-required schema", IMPROVED, NullableRequiredInvoice),
     ]
 
     print(f"\n=== Prompt x Schema, {args.model}, temperature 0 ===")
-    print("Model, documents and ground truth identical across all four cells.\n")
-    print(f"{'prompt':<18}{'schema':<18}{'overall':>10}   per-field")
-    print("-" * 78)
+    print("Model, documents and ground truth identical across every cell.\n")
+    print(f"{'prompt':<18}{'schema':<26}{'overall':>10}   per-field")
+    print("-" * 86)
 
     results = []
     for prompt_label, schema_label, template, schema_cls in cells:
@@ -159,7 +176,7 @@ def main():
         cell.update({"prompt": prompt_label, "schema": schema_label})
         results.append(cell)
         per = " ".join(f"{f[:4]}:{cell['per_field'][f]}" for f in FIELDS)
-        print(f"{prompt_label:<18}{schema_label:<18}"
+        print(f"{prompt_label:<18}{schema_label:<26}"
               f"{cell['correct']:>3}/{cell['total']:<6}   {per}")
 
     with open(args.save, "w") as handle:
@@ -167,6 +184,8 @@ def main():
     print(f"\nSaved to {args.save}")
 
     grid = {(c["prompt"], c["schema"]): c["correct"] for c in results}
+    # The fifth cell is deliberately excluded from the grid reading below: it varies a third
+    # factor and would turn a clean two-by-two into an unbalanced design.
     orig_opt = grid[("ORIGINAL prompt", "Optional schema")]
     orig_req = grid[("ORIGINAL prompt", "Required schema")]
     impr_opt = grid[("IMPROVED prompt", "Optional schema")]

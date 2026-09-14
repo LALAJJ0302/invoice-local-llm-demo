@@ -296,3 +296,249 @@ whether it works on a real invoice. **Deferred until there are real documents to
 | from 2026-09-03 | 0.85 | completeness scored; missing line items cost 0.10 |
 
 Any before-and-after comparison in the report must state which era each number comes from.
+
+---
+
+# Amendment, 2026-09-08: verify the date and the currency, and stop accepting the subtotal
+
+## Why this amendment exists
+
+The group decided on 2026-09-08 that a validation score of 1.00 skips the human approve click,
+and that anything below 1.00 requires a person. The agreed wording was that 1.00 should mean
+"nothing missing, and the extraction matched the original invoice or sender".
+
+That changes what the number has to carry. The previous amendment made 1.00 mean *complete and
+internally consistent*, which was the right bar for routing a document to a reviewer. It is not
+the right bar for releasing money without one. Three of the five header fields are still either
+unverified or verifiable by accident.
+
+This amendment does not implement auto-approval. It makes the score mean what the group said it
+means, so the decision can be implemented later without the number lying.
+
+## Defect 1: a subtotal is accepted as the grand total
+
+`TOTAL_LABELS` contains the bare string `"total"`, and the match is `label in line.lower()`.
+`"total"` is a substring of `"subtotal"`, so a subtotal line is counted as a grand-total label.
+
+The comment on the constant says the opposite:
+
+> Deliberately narrower than the summary-row labels in storage.py: "subtotal" is excluded,
+> because a subtotal sits before tax and must not be accepted as the payable amount.
+
+It is not excluded. Measured:
+
+```
+'Subtotal: 1500.00'   -> counted as a total label? True  via ['total']
+```
+
+On a document reading Subtotal 1500.00 / GST 150.00 / Grand Total 1650.00, both amounts return
+`verified`. An extraction that takes the pre-tax subtotal scores 1.00 and, under the new rule,
+would be paid without a human seeing it, short by exactly the tax.
+
+**This is latent, not live.** None of the three mock invoices has a Subtotal line, so no test in
+the suite catches it. It fires on the first invoice with GST broken out, which is close to every
+Australian invoice, and real documents are the next thing this pipeline is given.
+
+## Defect 2: the date and the currency are never compared to the document
+
+`complete` checks both for non-emptiness. `checks` contains `invoice_number_in_text` and
+`vendor_in_text` and nothing for either of these. So at 1.00:
+
+- `date` can be any non-empty value. A hallucinated `2026-01-01` scores exactly what the correct
+  date scores.
+- `currency` can be any value other than the sentinel `"Unknown"`.
+
+A field that is present and wrong is indistinguishable from a field that is present and right.
+That is the same shape as the vendor-caption defect the previous amendment fixed: nothing
+compared the value to the document, only that something was there.
+
+Every sample carries both labels in a fixed position, so the check the amount already uses
+transfers directly:
+
+```
+  5 | Date of Issue: 2026-08-10
+  7 | Currency: USD
+```
+
+## Defect 3: noted, not fixed here
+
+Line 11 of all three samples is a bare `Total`, the column header of the items table. It is
+counted as a label line, so with `LABEL_WINDOW = 2` a bare quantity two lines below it can be
+read as a verified amount. Narrowing this needs a notion of where the table ends, which is a
+larger change than this amendment, and it is recorded here so it is not rediscovered as new.
+
+## Design
+
+### 1. Label matching gains word boundaries and an explicit subtotal exclusion
+
+Labels match on word boundaries rather than as free substrings, and any line naming a subtotal
+is excluded outright regardless of what else it contains. Both are needed: the boundary alone
+handles `Subtotal` and `Sub-total`, and the exclusion is what handles `Sub Total` written with
+a space, where `total` is a genuine standalone word.
+
+Measured against the boundary rule alone:
+
+```
+'Subtotal: 1500.00'    -> False      correct
+'Sub-total 1500.00'    -> False      correct
+'Sub Total 1500.00'    -> True       wrong, hence the exclusion
+'Grand Total: 2650.00' -> True
+'Total: 1650.00'       -> True
+'Balance Due 900.00'   -> True
+```
+
+**Correction, found by measuring before shipping.** Excluding subtotal lines from the label
+list is not sufficient, and the first version of this spec said it was. On the ordinary
+Subtotal / GST / Grand Total block the subtotal *amount* sits two lines above the grand-total
+*label*, which is inside `LABEL_WINDOW`, so it was still returned as `verified`, borrowed from
+a label belonging to a different figure:
+
+```
+6 | Subtotal:      1500.00     <- amount here
+7 | GST 10%:        150.00
+8 | Grand Total:   1650.00     <- label here, distance 2
+```
+
+The rule therefore has two halves. A line naming a subtotal is not a label, **and** an amount
+found on a line naming a subtotal is rejected outright whatever sits near it. With both, 1500.00
+returns `absent` and 1650.00 returns `verified`.
+
+This is the reason the preview script exists rather than a patch going straight into `main.py`.
+The wrong fix passed inspection and failed measurement.
+
+### 2. The date is verified the way the amount is
+
+`verify_date` returns `verified` / `present` / `absent` on the same rule as `verify_amount`:
+`verified` means the extracted date appears within `LABEL_WINDOW` lines of a date label,
+`present` means it appears somewhere in the document but not beside one, `absent` means it does
+not appear at all. `absent` is the case that matters, because it is invention.
+
+Date labels are narrower than the amount's, and deliberately exclude anything meaning a due
+date or a payment date, because those are different values that would both satisfy a loose match.
+
+### 3. The currency is verified the same way
+
+Same three outcomes. A currency code is short enough that a bare substring search would match
+almost anything, which is exactly the weakness already noted in the invoice-number check, so
+label proximity is the only form of this check worth having.
+
+### 4. Weights
+
+The two new checks need room, and the total must still be exactly 1.00 so that a perfect score
+remains reachable. **The final numbers are not fixed by this spec.** They depend on what the new
+checks actually score against the samples, which `evaluation/gate_verification_preview.py`
+measures without touching the gate. Picking weights before that measurement would be choosing
+numbers to produce a result rather than to describe one.
+
+The constraint the weights must satisfy: no reweighting may raise the score of an extraction
+that the current gate scores lower. This amendment can only be stricter.
+
+### 5. Hard rules
+
+Whether `date_state` and `currency_state` join the hard-rule list alongside `amount_state` is
+**deliberately left open until measured.** Adding them could take the samples from 3/3 Validated
+to 0/3, which would be a correct outcome if the dates genuinely cannot be verified and a bad one
+if the label list is merely too narrow. The measurement decides which, and the spec should not
+guess.
+
+## What this still does not fix
+
+Everything in this section survives the amendment, and the group should read it before treating
+1.00 as licence to pay.
+
+- **Line item contents are never compared to the document.** `has_items` asks only whether the
+  list is non-empty. `reconcile` compares the sum, and awards `plausible` the same weight as
+  `exact`, where `plausible` means the total exceeds the sum by any amount at all. One invented
+  ten-dollar row on a two-thousand-dollar invoice scores full marks.
+- **The vendor check cannot tell the vendor from the customer.** Both names are in the document,
+  so extracting the "Bill To" party passes.
+- **Every check here is document-internal.** A duplicate of an invoice already paid, an invoice
+  from a vendor never ordered from, and a well-formatted fraud all score 1.00, because each is a
+  document that agrees with itself. The score measures reading accuracy, not payment authority.
+  Nothing in this file can close that gap; only a check against data outside the document can,
+  which is what the sender match and the duplicate check are for.
+- **n = 3, synthetic, one layout.** All three samples put the date on line 5 and the currency on
+  line 7 with identical labels. A check tuned on them proves it can read this generator's output
+  and nothing more. Real invoices are the test.
+
+## How to know it worked
+
+```bash
+./.venv/bin/python evaluation/gate_verification_preview.py   # what the new checks would score
+./.venv/bin/python -m pytest tests/ -q                       # nothing existing regressed
+./.venv/bin/python evaluation/run_eval.py                    # extraction accuracy unchanged
+```
+
+The preview script is additive and reads only. It must be able to report the new states without
+`main.py` changing at all, so the numbers in the decision are measured before the decision is
+made.
+
+## Consequence: the score scale changes a third time
+
+`validation_score` will not be comparable across 2026-09-08, for the same reason it is not
+comparable across 2026-08-28 or 2026-09-03. Three eras become four. Any figure quoted in the
+report has to carry the date it was measured on.
+
+## Result, measured 2026-09-08
+
+```bash
+./.venv/bin/python evaluation/gate_verification_preview.py --save results_gate_verification.json
+```
+
+Every check is run twice, once on the transcribed ground truth and once on a deliberately
+invented value, because a check that accepts the truth and also accepts an invention has
+measured nothing.
+
+```
+sample                             field     today      true      invented  verdict
+sample_invoice_1_INV-2026-001.pdf  date      non-empty  verified  absent    pass
+sample_invoice_1_INV-2026-001.pdf  currency  non-empty  verified  absent    pass
+sample_invoice_2_INV-2026-002.pdf  date      non-empty  verified  absent    pass
+sample_invoice_2_INV-2026-002.pdf  currency  non-empty  verified  absent    pass
+sample_invoice_3_INV-2026-003.pdf  date      non-empty  verified  absent    pass
+sample_invoice_3_INV-2026-003.pdf  currency  non-empty  verified  absent    pass
+
+accepts the true value:   date 3/3   currency 3/3
+rejects the invented one: date 3/3   currency 3/3
+```
+
+The `today` column is the finding. The gate reports `non-empty` for the correct date and would
+report `non-empty` for `2026-01-01` as well. It cannot tell them apart, and at 1.00 that
+difference is the difference between a read invoice and an invented one.
+
+Subtotal regression, on a document reading Subtotal 1500.00 / GST 150.00 / Grand Total 1650.00:
+
+```
+amount       today        proposed
+1650.00      verified     verified     correct, this is the payable amount
+1500.00      verified     absent       fixed, this is the pre-tax subtotal
+```
+
+No regression on the real samples. All three totals that verify today still verify:
+
+```
+sample_invoice_1_INV-2026-001.pdf  1500.00  verified -> verified
+sample_invoice_2_INV-2026-002.pdf  2650.00  verified -> verified
+sample_invoice_3_INV-2026-003.pdf  2350.00  verified -> verified
+regressions: 0
+```
+
+**What these numbers do and do not support.** They show the checks are implementable and that
+they separate a true value from an invented one on this generator's layout. They do not show the
+checks work on real invoices, because n = 3 and all three put the date on line 5 and the currency
+on line 7 with identical labels. A check tuned on them proves it can read this generator's output.
+The date comparison is also deliberately loose: it compares digit groups as a set, so it cannot
+tell 08-10 from 10-08. That is recorded rather than hidden, and it is the first thing to test when
+real documents arrive.
+
+## Open, pending approval
+
+The weights and the hard rules are still not set, and the measurement above does not settle them
+on its own. Both are decisions rather than findings:
+
+- whether `date_state` and `currency_state` join `amount_state` in the hard-rule list, which
+  would make an unverifiable date block auto-approval outright
+- how the 1.00 is redistributed to make room for two new checks, under the constraint that no
+  extraction may score higher than it does today
+
+Nothing in `main.py` has been changed. The preview script is additive and reads only.
