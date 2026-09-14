@@ -245,6 +245,46 @@ def build_analysis_text(message: EmailMessageInput) -> str:
     return "\n\n".join(sections)
 
 
+def normalise_evidence_text(value: str) -> str:
+    """Collapse whitespace while preserving the source wording and letter case."""
+    return " ".join(value.split())
+
+
+def validate_action_evidence(
+    messages: list[EmailMessageInput],
+    action_items: list[ActionItem],
+) -> None:
+    """Require every action's evidence quote to occur in a body or attachment."""
+    sources = []
+
+    for message in messages:
+        sources.append(message.body)
+        sources.extend(
+            attachment.content
+            for attachment in message.attachments
+        )
+
+    normalised_sources = [
+        normalise_evidence_text(source)
+        for source in sources
+        if source.strip()
+    ]
+
+    for position, item in enumerate(action_items, start=1):
+        quote = normalise_evidence_text(item.evidence_quote)
+
+        if not quote:
+            raise ValueError(
+                f"action item {position} has an empty evidence_quote"
+            )
+
+        if not any(quote in source for source in normalised_sources):
+            raise ValueError(
+                f"action item {position} evidence_quote does not appear "
+                "in an email body or attachment"
+            )
+
+
 def build_thread_text(thread: EmailThreadInput) -> str:
     sections = []
 
@@ -358,6 +398,11 @@ def analyse_email(message: EmailMessageInput) -> EmailAnalysis:
         action_response.message.content
     )
 
+    validate_action_evidence(
+        [message],
+        action_result.action_items,
+    )
+
     # Combine the validated stage results.
     final_result = EmailAnalysis(
         category=overview_result.category,
@@ -404,7 +449,14 @@ Rules:
         options={"temperature": 0},
     )
 
-    return ThreadSummary.model_validate_json(response.message.content)
+    result = ThreadSummary.model_validate_json(response.message.content)
+
+    validate_action_evidence(
+        thread.messages,
+        result.outstanding_actions,
+    )
+
+    return result
 
 
 def create_email_analysis_record(
