@@ -1,0 +1,888 @@
+{
+  "classes": [
+    "omitted",
+    "placeholder",
+    "malformed",
+    "caption",
+    "truncated",
+    "mislocated",
+    "invented"
+  ],
+  "skipped_files": {
+    "results_model_compatibility.json": "counts only, no per-field values",
+    "results_retrieval.json": "measures ranking, not extraction",
+    "results_gate_verification.json": "measures the gate's verdicts, not extracted values"
+  },
+  "duplicate_arms": [
+    {
+      "arm": "2026-08-26 baseline, repairs on",
+      "same_as": "2026-08-26 baseline, repairs off"
+    },
+    {
+      "arm": "sentinel: sentinel schema",
+      "same_as": "sentinel: required schema"
+    }
+  ],
+  "totals_across_arms_double_counted": {
+    "omitted": 44,
+    "placeholder": 25,
+    "malformed": 4,
+    "caption": 0,
+    "truncated": 0,
+    "mislocated": 5,
+    "invented": 3
+  },
+  "arms": [
+    {
+      "source": "results_before.json",
+      "arm": "2026-08-26 baseline, repairs off",
+      "counts": {
+        "omitted": 6,
+        "placeholder": 6,
+        "malformed": 0,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 12,
+      "errors": [
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-001",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "date",
+          "expected": "2026-08-10",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "total_amount",
+          "expected": 1500.0,
+          "actual": 0.0,
+          "class": "placeholder",
+          "reason": "0.0 means 'no value' but occupies the field"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "currency",
+          "expected": "USD",
+          "actual": "Unknown",
+          "class": "placeholder",
+          "reason": "'Unknown' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-002",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "date",
+          "expected": "2026-08-15",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "total_amount",
+          "expected": 2650.0,
+          "actual": 0.0,
+          "class": "placeholder",
+          "reason": "0.0 means 'no value' but occupies the field"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "currency",
+          "expected": "AUD",
+          "actual": "Unknown",
+          "class": "placeholder",
+          "reason": "'Unknown' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-003",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "date",
+          "expected": "2026-08-20",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "total_amount",
+          "expected": 2350.0,
+          "actual": 0.0,
+          "class": "placeholder",
+          "reason": "0.0 means 'no value' but occupies the field"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "currency",
+          "expected": "USD",
+          "actual": "Unknown",
+          "class": "placeholder",
+          "reason": "'Unknown' means 'no value' but occupies the field"
+        }
+      ]
+    },
+    {
+      "source": "results_before_with_fallback.json",
+      "arm": "2026-08-26 baseline, repairs on",
+      "counts": {
+        "omitted": 6,
+        "placeholder": 6,
+        "malformed": 0,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 12,
+      "errors": [
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-001",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "date",
+          "expected": "2026-08-10",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "total_amount",
+          "expected": 1500.0,
+          "actual": 0.0,
+          "class": "placeholder",
+          "reason": "0.0 means 'no value' but occupies the field"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "currency",
+          "expected": "USD",
+          "actual": "Unknown",
+          "class": "placeholder",
+          "reason": "'Unknown' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-002",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "date",
+          "expected": "2026-08-15",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "total_amount",
+          "expected": 2650.0,
+          "actual": 0.0,
+          "class": "placeholder",
+          "reason": "0.0 means 'no value' but occupies the field"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "currency",
+          "expected": "AUD",
+          "actual": "Unknown",
+          "class": "placeholder",
+          "reason": "'Unknown' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-003",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "date",
+          "expected": "2026-08-20",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "total_amount",
+          "expected": 2350.0,
+          "actual": 0.0,
+          "class": "placeholder",
+          "reason": "0.0 means 'no value' but occupies the field"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "currency",
+          "expected": "USD",
+          "actual": "Unknown",
+          "class": "placeholder",
+          "reason": "'Unknown' means 'no value' but occupies the field"
+        }
+      ]
+    },
+    {
+      "source": "results_schema_comparison.json",
+      "arm": "Optional with defaults (what ships today)",
+      "counts": {
+        "omitted": 12,
+        "placeholder": 0,
+        "malformed": 0,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 12,
+      "errors": [
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-001",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "date",
+          "expected": "2026-08-10",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "total_amount",
+          "expected": 1500.0,
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "currency",
+          "expected": "USD",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-002",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "date",
+          "expected": "2026-08-15",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "total_amount",
+          "expected": 2650.0,
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "currency",
+          "expected": "AUD",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-003",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "date",
+          "expected": "2026-08-20",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "total_amount",
+          "expected": 2350.0,
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "currency",
+          "expected": "USD",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        }
+      ]
+    },
+    {
+      "source": "results_schema_comparison.json",
+      "arm": "Required fields (the proposed change)",
+      "counts": {
+        "omitted": 0,
+        "placeholder": 0,
+        "malformed": 0,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 0,
+      "errors": []
+    },
+    {
+      "source": "results_prompt_schema_2x2.json",
+      "arm": "ORIGINAL prompt + Optional schema",
+      "counts": {
+        "omitted": 9,
+        "placeholder": 0,
+        "malformed": 0,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 9,
+      "errors": [
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-001",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "date",
+          "expected": "2026-08-10",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_1_INV-2026-001.pdf",
+          "field": "total_amount",
+          "expected": 1500.0,
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-002",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "date",
+          "expected": "2026-08-15",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_2_INV-2026-002.pdf",
+          "field": "total_amount",
+          "expected": 2650.0,
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "invoice_number",
+          "expected": "INV-2026-003",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "date",
+          "expected": "2026-08-20",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "sample_invoice_3_INV-2026-003.pdf",
+          "field": "total_amount",
+          "expected": 2350.0,
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        }
+      ]
+    },
+    {
+      "source": "results_prompt_schema_2x2.json",
+      "arm": "ORIGINAL prompt + Required schema",
+      "counts": {
+        "omitted": 0,
+        "placeholder": 0,
+        "malformed": 0,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 0,
+      "errors": []
+    },
+    {
+      "source": "results_prompt_schema_2x2.json",
+      "arm": "IMPROVED prompt + Optional schema",
+      "counts": {
+        "omitted": 0,
+        "placeholder": 0,
+        "malformed": 0,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 0,
+      "errors": []
+    },
+    {
+      "source": "results_prompt_schema_2x2.json",
+      "arm": "IMPROVED prompt + Required schema",
+      "counts": {
+        "omitted": 0,
+        "placeholder": 0,
+        "malformed": 0,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 0,
+      "errors": []
+    },
+    {
+      "source": "results_prompt_schema_2x2.json",
+      "arm": "IMPROVED prompt + Nullable-required schema",
+      "counts": {
+        "omitted": 0,
+        "placeholder": 0,
+        "malformed": 0,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 0,
+      "errors": []
+    },
+    {
+      "source": "results_sentinel_comparison.json",
+      "arm": "sentinel: optional schema",
+      "counts": {
+        "omitted": 11,
+        "placeholder": 0,
+        "malformed": 1,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 0,
+        "invented": 0
+      },
+      "total": 12,
+      "errors": [
+        {
+          "document": "full_invoice",
+          "field": "invoice_number",
+          "expected": "INV-2026-001",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "full_invoice",
+          "field": "vendor_name",
+          "expected": "Apex Cloud Solutions Pty Ltd",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "full_invoice",
+          "field": "date",
+          "expected": "2026-08-10",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "full_invoice",
+          "field": "total_amount",
+          "expected": 1500.0,
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "full_invoice",
+          "field": "currency",
+          "expected": "USD",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "cafe_receipt",
+          "field": "vendor_name",
+          "expected": "Corner Cafe",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "cafe_receipt",
+          "field": "total_amount",
+          "expected": 9.5,
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "no_vendor",
+          "field": "date",
+          "expected": "2026-03-12",
+          "actual": "12 March 2026",
+          "class": "malformed",
+          "reason": "'12 March 2026' normalises to '2026-03-12', the expected value"
+        },
+        {
+          "document": "no_vendor",
+          "field": "total_amount",
+          "expected": 2000.0,
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "no_vendor",
+          "field": "currency",
+          "expected": "AUD",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "no_total",
+          "field": "vendor_name",
+          "expected": "Northwind Supplies",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        },
+        {
+          "document": "no_total",
+          "field": "date",
+          "expected": "2026-04-01",
+          "actual": null,
+          "class": "omitted",
+          "reason": "value is null"
+        }
+      ]
+    },
+    {
+      "source": "results_sentinel_comparison.json",
+      "arm": "sentinel: required schema",
+      "counts": {
+        "omitted": 0,
+        "placeholder": 6,
+        "malformed": 1,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 2,
+        "invented": 1
+      },
+      "total": 10,
+      "errors": [
+        {
+          "document": "cafe_receipt",
+          "field": "invoice_number",
+          "expected": null,
+          "actual": "Table 4",
+          "class": "mislocated",
+          "reason": "'Table 4' is in the document, but not as this field"
+        },
+        {
+          "document": "cafe_receipt",
+          "field": "date",
+          "expected": null,
+          "actual": "Not specified",
+          "class": "placeholder",
+          "reason": "'Not specified' means 'no value' but occupies the field"
+        },
+        {
+          "document": "cafe_receipt",
+          "field": "currency",
+          "expected": null,
+          "actual": "Not specified",
+          "class": "placeholder",
+          "reason": "'Not specified' means 'no value' but occupies the field"
+        },
+        {
+          "document": "no_vendor",
+          "field": "date",
+          "expected": "2026-03-12",
+          "actual": "12 March 2026",
+          "class": "malformed",
+          "reason": "'12 March 2026' normalises to '2026-03-12', the expected value"
+        },
+        {
+          "document": "no_vendor",
+          "field": "vendor_name",
+          "expected": null,
+          "actual": "None",
+          "class": "placeholder",
+          "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "no_total",
+          "field": "total_amount",
+          "expected": null,
+          "actual": 2000.0,
+          "class": "invented",
+          "reason": "2000.0 appears nowhere in the document"
+        },
+        {
+          "document": "sparse_note",
+          "field": "invoice_number",
+          "expected": null,
+          "actual": "None",
+          "class": "placeholder",
+          "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sparse_note",
+          "field": "vendor_name",
+          "expected": null,
+          "actual": "None",
+          "class": "placeholder",
+          "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sparse_note",
+          "field": "date",
+          "expected": null,
+          "actual": "None",
+          "class": "placeholder",
+          "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sparse_note",
+          "field": "currency",
+          "expected": null,
+          "actual": "dollars",
+          "class": "mislocated",
+          "reason": "'dollars' is in the document, but not as this field"
+        }
+      ]
+    },
+    {
+      "source": "results_sentinel_comparison.json",
+      "arm": "sentinel: sentinel schema",
+      "counts": {
+        "omitted": 0,
+        "placeholder": 6,
+        "malformed": 1,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 2,
+        "invented": 1
+      },
+      "total": 10,
+      "errors": [
+        {
+          "document": "cafe_receipt",
+          "field": "invoice_number",
+          "expected": null,
+          "actual": "Table 4",
+          "class": "mislocated",
+          "reason": "'Table 4' is in the document, but not as this field"
+        },
+        {
+          "document": "cafe_receipt",
+          "field": "date",
+          "expected": null,
+          "actual": "Not specified",
+          "class": "placeholder",
+          "reason": "'Not specified' means 'no value' but occupies the field"
+        },
+        {
+          "document": "cafe_receipt",
+          "field": "currency",
+          "expected": null,
+          "actual": "Not specified",
+          "class": "placeholder",
+          "reason": "'Not specified' means 'no value' but occupies the field"
+        },
+        {
+          "document": "no_vendor",
+          "field": "date",
+          "expected": "2026-03-12",
+          "actual": "12 March 2026",
+          "class": "malformed",
+          "reason": "'12 March 2026' normalises to '2026-03-12', the expected value"
+        },
+        {
+          "document": "no_vendor",
+          "field": "vendor_name",
+          "expected": null,
+          "actual": "None",
+          "class": "placeholder",
+          "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "no_total",
+          "field": "total_amount",
+          "expected": null,
+          "actual": 2000.0,
+          "class": "invented",
+          "reason": "2000.0 appears nowhere in the document"
+        },
+        {
+          "document": "sparse_note",
+          "field": "invoice_number",
+          "expected": null,
+          "actual": "None",
+          "class": "placeholder",
+          "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sparse_note",
+          "field": "vendor_name",
+          "expected": null,
+          "actual": "None",
+          "class": "placeholder",
+          "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sparse_note",
+          "field": "date",
+          "expected": null,
+          "actual": "None",
+          "class": "placeholder",
+          "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "sparse_note",
+          "field": "currency",
+          "expected": null,
+          "actual": "dollars",
+          "class": "mislocated",
+          "reason": "'dollars' is in the document, but not as this field"
+        }
+      ]
+    },
+    {
+      "source": "results_sentinel_comparison.json",
+      "arm": "sentinel: nullable-required schema",
+      "counts": {
+        "omitted": 0,
+        "placeholder": 1,
+        "malformed": 1,
+        "caption": 0,
+        "truncated": 0,
+        "mislocated": 1,
+        "invented": 1
+      },
+      "total": 4,
+      "errors": [
+        {
+          "document": "no_vendor",
+          "field": "date",
+          "expected": "2026-03-12",
+          "actual": "12 March 2026",
+          "class": "malformed",
+          "reason": "'12 March 2026' normalises to '2026-03-12', the expected value"
+        },
+        {
+          "document": "no_vendor",
+          "field": "vendor_name",
+          "expected": null,
+          "actual": "None",
+          "class": "placeholder",
+          "reason": "'None' means 'no value' but occupies the field"
+        },
+        {
+          "document": "no_total",
+          "field": "total_amount",
+          "expected": null,
+          "actual": 2000.0,
+          "class": "invented",
+          "reason": "2000.0 appears nowhere in the document"
+        },
+        {
+          "document": "sparse_note",
+          "field": "currency",
+          "expected": null,
+          "actual": "dollars",
+          "class": "mislocated",
+          "reason": "'dollars' is in the document, but not as this field"
+        }
+      ]
+    }
+  ]
+}
