@@ -40,6 +40,7 @@ from dateutil import parser as date_parser  # noqa: E402
 from pypdf import PdfReader  # noqa: E402
 
 import sentinel_comparison  # noqa: E402
+from samples_fixture import ensure_samples  # noqa: E402
 from main import ConfidenceValidator  # noqa: E402
 
 # Ordered. The first rule that fires wins, so every error lands in exactly one class.
@@ -211,9 +212,29 @@ def _results(name):
 
 
 def _sample_text(file_name):
-    path = os.path.join(SAMPLES_DIR, file_name)
+    """Extracted text of one sample, generating the samples first if they are missing.
+
+    This used to return None when the PDF was absent. That is a latent silent-failure path
+    rather than an active bug, and the distinction was checked rather than assumed on
+    2026-09-16.
+
+    The invented / mislocated split rests entirely on `appears_in`, and `appears_in` returns
+    False for a None document, so a missing PDF could in principle turn a mislocation into an
+    invention with no error shown. Measured, it does not: every error in the arms that reach
+    this function is classified `omitted`, and that rule returns before `appears_in` is
+    consulted. Running the old code against a samples directory holding only the first PDF
+    reproduces mislocated 5 / invented 3 exactly.
+
+    It is hardened anyway, because the rule that protects it is incidental. One arm that
+    reported a non-null wrong value would start miscounting, and the failure would be a wrong
+    number rather than an error.
+    """
+    path = os.path.join(ensure_samples(), file_name)
     if not os.path.exists(path):
-        return None
+        raise FileNotFoundError(
+            f"{file_name} is missing from {SAMPLES_DIR} and could not be generated. "
+            "Classification cannot continue: without the document text every mislocated "
+            "value would be miscounted as invented.")
     return "\n".join((page.extract_text() or "") for page in PdfReader(path).pages)
 
 

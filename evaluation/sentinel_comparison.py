@@ -44,6 +44,7 @@ import ollama  # noqa: E402
 from pypdf import PdfReader  # noqa: E402
 
 from main import ExtractedInvoice, InvoiceItem  # noqa: E402
+from samples_fixture import sample_path  # noqa: E402
 
 FIELDS = ["invoice_number", "vendor_name", "date", "total_amount", "currency"]
 
@@ -99,10 +100,10 @@ def is_admission(value) -> bool:
 
 # Test documents. The first is real; the rest are written to be missing specific fields.
 def load_documents():
+    # sample_path() generates the samples if they are absent. They are gitignored, so on a
+    # fresh clone they do not exist and this function used to raise FileNotFoundError.
     real = "\n".join(
-        (p.extract_text() or "")
-        for p in PdfReader(os.path.join(REPO_ROOT, "evaluation", "samples",
-                                        "sample_invoice_1_INV-2026-001.pdf")).pages)
+        (p.extract_text() or "") for p in PdfReader(sample_path()).pages)
     return {
         "full_invoice": {
             "text": real,

@@ -32,7 +32,7 @@ sys.path.insert(0, REPO_ROOT)
 
 from pypdf import PdfReader  # noqa: E402
 
-import generate_mock_invoices  # noqa: E402
+from samples_fixture import ensure_samples  # noqa: E402
 from main import ConfidenceValidator, DocumentExtractor  # noqa: E402
 
 FIELDS = ["vendor_name", "invoice_number", "date", "total_amount", "currency"]
@@ -102,11 +102,6 @@ def disable_fallbacks(extractor):
     return names
 
 
-def ensure_samples():
-    existing = [f for f in os.listdir(SAMPLES_DIR)] if os.path.isdir(SAMPLES_DIR) else []
-    if not any(f.endswith(".pdf") for f in existing):
-        print(f"[setup] Generating sample invoices into {SAMPLES_DIR}")
-        generate_mock_invoices.generate_all_mock_invoices(target_dir=SAMPLES_DIR)
 
 
 def main():
@@ -124,7 +119,7 @@ def main():
     args = parser.parse_args()
 
     truth = json.load(open(os.path.join(EVAL_DIR, "ground_truth.json")))["samples"]
-    ensure_samples()
+    ensure_samples(quiet=False)
 
     extractor = DocumentExtractor(model_name=args.model)
     disabled = [] if args.with_fallback else disable_fallbacks(extractor)
