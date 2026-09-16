@@ -10,21 +10,23 @@ date: "16 September 2026"
 **This is version 3. Every section now has a draft.** What remains is verification, not
 composition, and it is marked in place rather than left implicit.
 
-**Section 2 carries six `Verify before submission` markers.** It was written from a literature
-search rather than from full readings of the papers, so every claim that depends on a paper's
-contents rather than its existence is flagged where it sits. Those markers must be resolved or
-the claims removed before this is submitted.
-
-**The reference list is deliberately incomplete.** Only one entry has a verified author list.
-Author names are not filled in from memory, because a fabricated citation in a report about
+**Section 2 is written against 19 verified sources.** Every author list, title and identifier
+was checked on 16 September 2026 against the arXiv abstract page, ACL Anthology record or
+publisher record. Nothing is cited from memory, because a fabricated citation in a report about
 fabricated field values would be the worst available irony.
 
-**Section 1.1 still has no source** for its industry-context figure.
+**One claim was weakened by the review rather than supported by it.** An earlier draft of §2.6
+claimed the locally-valid-but-semantically-wrong failure mode as this project's own finding.
+Reddy et al. (2026) describe it in general terms, so §2.6 now claims something narrower.
+
+**Section 1.1 still has no source** for its industry-context figure, and the GDPR figure that
+appeared in an earlier draft of §2 has been removed rather than cited from a secondary source.
+Page numbers and DOIs need a final check on the four entries that carry them.
 
 | Section | Status | Evidence available |
 |---|---|---|
 | 1. Introduction | Drafted | Objectives from `requirements-spec.md`; industry context **still needs a citation** |
-| **2. Literature and Environmental Review** | **Drafted, 6 markers** | Anchor paper plus 4 benchmarks and 7 further works; **claims need checking against the papers** |
+| **2. Literature and Environmental Review** | **Written** | 19 sources, all verified against their records on 2026-09-16 |
 | **3. Problem Analysis** | **Written** | Seven documented constraints with dates; six defects found by measurement |
 | **4. Design and Development** | **Written** | Ten design decisions, each with its alternative and its evidence |
 | **5. Evaluation and Testing** | **Written** | Controlled experiments, a negative result, three defects found by testing |
