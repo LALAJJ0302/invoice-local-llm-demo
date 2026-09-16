@@ -39,6 +39,7 @@ import ollama  # noqa: E402
 from pypdf import PdfReader  # noqa: E402
 
 from main import ExtractedInvoice, InvoiceItem  # noqa: E402
+from samples_fixture import ensure_samples  # noqa: E402
 
 FIELDS = ["invoice_number", "vendor_name", "date", "total_amount", "currency"]
 
@@ -109,7 +110,9 @@ def run_variant(label, schema, ground_truth, model):
     rows = []
 
     for file_name, truth in sorted(ground_truth.items()):
-        path = os.path.join(SAMPLES_DIR, file_name)
+        # ensure_samples() generates the gitignored PDFs if they are absent. Without it this
+        # loop skipped every document on a fresh clone and reported 0/15 as though measured.
+        path = os.path.join(ensure_samples(), file_name)
         if not os.path.exists(path):
             print(f"    [skip] missing sample {file_name}")
             continue
