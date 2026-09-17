@@ -38,7 +38,7 @@ SAMPLES_DIR = os.path.join(EVAL_DIR, "samples")
 sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, EVAL_DIR)
 
-import generate_mock_invoices  # noqa: E402
+from samples_fixture import ensure_samples  # noqa: E402
 from run_eval_shim import matches  # noqa: E402  (thin re-export, see bottom of file)
 
 FIELDS = ["invoice_number", "vendor_name", "date", "total_amount", "currency"]
@@ -108,10 +108,6 @@ def read_text(path):
     return "\n".join((p.extract_text() or "") for p in PdfReader(path).pages).strip()
 
 
-def ensure_samples():
-    existing = os.listdir(SAMPLES_DIR) if os.path.isdir(SAMPLES_DIR) else []
-    if not any(f.endswith(".pdf") for f in existing):
-        generate_mock_invoices.generate_all_mock_invoices(target_dir=SAMPLES_DIR)
 
 
 def run_cell(prompt_template, schema_cls, truth, model):

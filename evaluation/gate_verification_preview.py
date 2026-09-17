@@ -28,6 +28,7 @@ sys.path.insert(0, REPO_ROOT)
 from pypdf import PdfReader  # noqa: E402
 
 from main import ConfidenceValidator  # noqa: E402
+from samples_fixture import ensure_samples  # noqa: E402
 
 LABEL_WINDOW = ConfidenceValidator.LABEL_WINDOW
 
@@ -181,7 +182,7 @@ def main():
 
     tally = {"date": [0, 0], "currency": [0, 0]}
     for name in sorted(truth):
-        path = os.path.join(SAMPLES_DIR, name)
+        path = os.path.join(ensure_samples(), name)
         if not os.path.exists(path):
             continue
         raw = "".join(p.extract_text() for p in PdfReader(path).pages)
@@ -249,7 +250,7 @@ def main():
     print("-" * 78)
     regressions = 0
     for name in sorted(truth):
-        path = os.path.join(SAMPLES_DIR, name)
+        path = os.path.join(ensure_samples(), name)
         if not os.path.exists(path):
             continue
         raw = "".join(p_.extract_text() for p_ in PdfReader(path).pages)
