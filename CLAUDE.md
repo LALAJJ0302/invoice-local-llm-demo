@@ -37,6 +37,7 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python migrations/010_run_kind_and_threads.py
 ./.venv/bin/python migrations/011_email_analysis.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
+./.venv/bin/python email_pipeline.py --threads   # analyse the stored mailbox -> SQLite
 ./.venv/bin/python query_db.py                   # inspect records
 ./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
 ./.venv/bin/python evaluation/run_eval.py        # per-field accuracy vs ground truth
@@ -73,6 +74,8 @@ Three people, one codebase. Stay in your lane or say so first.
 | Evaluation | `evaluation/` | **Neo + JJ** |
 | RAG / real-document extraction | not yet created | **Neo + JJ** |
 | Schemas | `ExtractedInvoice` etc. in `main.py` | **Neo + JJ**, tell Luke before changing |
+| Email AI | `email_ai.py` | JJ, on `main` since PR #5 |
+| Email pipeline | `email_pipeline.py` | **Neo + JJ**. The only file importing both `email_ai` and `storage` |
 
 **Changed 2026-09-03.** Neo and JJ merged their lanes and now work as one on extraction,
 validation, storage and the dashboard. Luke keeps a separate lane: intake and task assignment.

@@ -392,6 +392,26 @@ def connect(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+def backup_path(db_path: str) -> str:
+    """A free name for a migration's .bak copy.
+
+    Every migration used to build this itself as `<db>.bak-%Y%m%d-%H%M%S`. The quickstart runs
+    them back to back, so two land in the same second and the second copy silently replaces the
+    first, leaving no way back to the state before the pair. Found on 2026-09-17 by running 010
+    and 011 in sequence and reading the two printed paths, which were identical.
+
+    Appending a counter is the whole fix. It lives here rather than in eleven files so that the
+    next migration inherits it instead of repeating the bug.
+    """
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    candidate = f"{db_path}.bak-{stamp}"
+    suffix = 2
+    while os.path.exists(candidate):
+        candidate = f"{db_path}.bak-{stamp}-{suffix}"
+        suffix += 1
+    return candidate
+
+
 def table_exists(conn: sqlite3.Connection, name: str) -> bool:
     row = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)

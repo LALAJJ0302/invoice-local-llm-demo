@@ -22,6 +22,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import storage  # noqa: E402
+from storage import backup_path as make_backup_path  # noqa: E402
 from storage import (  # noqa: E402
     VALID_VALIDATION_STATUSES,
     coerce_currency,
@@ -157,8 +158,7 @@ def migrate(db_path, dry_run=False):
 
     # 1. Back up the file before touching it.
     if not dry_run:
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_path = f"{db_path}.bak-{stamp}"
+        backup_path = make_backup_path(db_path)
         shutil.copy2(db_path, backup_path)
         print(f"[*] Backed up to {backup_path}")
 

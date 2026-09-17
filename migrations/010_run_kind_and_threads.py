@@ -40,6 +40,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from storage import backup_path as make_backup_path  # noqa: E402
 from storage import connect, table_exists  # noqa: E402
 
 FROM_VERSION = 9
@@ -108,8 +109,7 @@ def migrate(db_path, dry_run=False):
     # Not simply the timestamp every earlier migration uses. The quickstart runs these two
     # back to back, both land in the same second, and the second copy then overwrites the
     # first, leaving only the state after 010 and no way back to the state before it.
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = f"{db_path}.bak-{stamp}"
+    backup_path = make_backup_path(db_path)
     suffix = 2
     while os.path.exists(backup_path):
         backup_path = f"{db_path}.bak-{stamp}-{suffix}"
