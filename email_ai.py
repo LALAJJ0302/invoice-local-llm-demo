@@ -6,6 +6,15 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
 MODEL_NAME = "llama3.2:latest"
+MAX_EVIDENCE_ATTEMPTS = 3
+
+
+class EvidenceValidationError(ValueError):
+    """Evidence validation failed for a countable, reportable reason."""
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
 
 
 class ActionItem(BaseModel):
@@ -152,21 +161,79 @@ class ThreadSummary(BaseModel):
     )
 
 
+class EmailAnalysisOutcome(BaseModel):
+    analysis: EmailAnalysis = Field(
+        description="The final email analysis, including results kept for review."
+    )
+
+    validation_status: Literal["Validated", "NeedsReview"] = Field(
+        description="Whether the evidence validation passed."
+    )
+
+    validation_reason: str | None = Field(
+        default=None,
+        description="A machine-readable reason when validation needs review."
+    )
+
+    attempt_count: int = Field(
+        ge=1,
+        le=MAX_EVIDENCE_ATTEMPTS,
+        description="Number of model attempts used.",
+    )
+
+
+class ThreadAnalysisOutcome(BaseModel):
+    analysis: ThreadSummary = Field(
+        description="The final thread analysis, including results kept for review."
+    )
+
+    validation_status: Literal["Validated", "NeedsReview"] = Field(
+        description="Whether the evidence validation passed."
+    )
+
+    validation_reason: str | None = Field(
+        default=None,
+        description="A machine-readable reason when validation needs review."
+    )
+
+    attempt_count: int = Field(
+        ge=1,
+        le=MAX_EVIDENCE_ATTEMPTS,
+        description="Number of model attempts used.",
+    )
+
+
 class EmailAnalysisRecord(BaseModel):
     message_id: str = Field(
         description="The source email message identifier."
     )
 
-    model_name: str = Field(
-        description="The model used to produce the analysis."
+    run_id: int = Field(
+        gt=0,
+        description="The processing run that produced the analysis.",
     )
 
     processed_at: datetime = Field(
         description="When the analysis was completed in UTC."
     )
 
+    validation_status: Literal["Validated", "NeedsReview"] = Field(
+        description="Whether the analysis passed evidence validation."
+    )
+
+    validation_reason: str | None = Field(
+        default=None,
+        description="A machine-readable reason when validation needs review."
+    )
+
+    attempt_count: int = Field(
+        ge=1,
+        le=MAX_EVIDENCE_ATTEMPTS,
+        description="Number of model attempts used.",
+    )
+
     analysis: EmailAnalysis = Field(
-        description="The validated single-email analysis."
+        description="The single-email analysis, including results kept for review."
     )
 
 
@@ -180,16 +247,32 @@ class ThreadAnalysisRecord(BaseModel):
         description="The newest message included in the analysis."
     )
 
-    model_name: str = Field(
-        description="The model used to produce the analysis."
+    run_id: int = Field(
+        gt=0,
+        description="The processing run that produced the analysis.",
     )
 
     processed_at: datetime = Field(
         description="When the analysis was completed in UTC."
     )
 
+    validation_status: Literal["Validated", "NeedsReview"] = Field(
+        description="Whether the analysis passed evidence validation."
+    )
+
+    validation_reason: str | None = Field(
+        default=None,
+        description="A machine-readable reason when validation needs review."
+    )
+
+    attempt_count: int = Field(
+        ge=1,
+        le=MAX_EVIDENCE_ATTEMPTS,
+        description="Number of model attempts used.",
+    )
+
     analysis: ThreadSummary = Field(
-        description="The validated thread analysis."
+        description="The thread analysis, including results kept for review."
     )
 
 
@@ -274,14 +357,18 @@ def validate_action_evidence(
         quote = normalise_evidence_text(item.evidence_quote)
 
         if not quote:
-            raise ValueError(
-                f"action item {position} has an empty evidence_quote"
+            raise EvidenceValidationError(
+                "empty_evidence_quote",
+                f"action item {position} has an empty evidence_quote",
             )
 
         if not any(quote in source for source in normalised_sources):
-            raise ValueError(
-                f"action item {position} evidence_quote does not appear "
-                "in an email body or attachment"
+            raise EvidenceValidationError(
+                "evidence_quote_not_found",
+                (
+                    f"action item {position} evidence_quote does not appear "
+                    "in an email body or attachment"
+                ),
             )
 
 
@@ -303,7 +390,7 @@ def build_thread_text(thread: EmailThreadInput) -> str:
     return "\n\n---\n\n".join(sections)
 
 
-def analyse_email(message: EmailMessageInput) -> EmailAnalysis:
+def analyse_email(message: EmailMessageInput) -> EmailAnalysisOutcome:
     analysis_text = build_analysis_text(message)
 
     # Run Stage 1: classify and summarise the email.
@@ -382,39 +469,73 @@ def analyse_email(message: EmailMessageInput) -> EmailAnalysis:
     Apply the same action-splitting method to the user's email.
     """
 
-    # Run Stage 2: extract actions, owners, and deadlines.
-    action_response = chat(
-        model=MODEL_NAME,
-        messages=[
-            {"role": "system", "content": action_instructions},
-            {"role": "user", "content": analysis_text},
-        ],
-        format=ActionExtraction.model_json_schema(),
-        options={"temperature": 0},
-    )
+    action_messages = [
+        {"role": "system", "content": action_instructions},
+        {"role": "user", "content": analysis_text},
+    ]
 
-    # Validate the Stage 2 response.
-    action_result = ActionExtraction.model_validate_json(
-        action_response.message.content
-    )
+    for attempt in range(1, MAX_EVIDENCE_ATTEMPTS + 1):
+        action_response = chat(
+            model=MODEL_NAME,
+            messages=action_messages,
+            format=ActionExtraction.model_json_schema(),
+            options={"temperature": 0},
+        )
 
-    validate_action_evidence(
-        [message],
-        action_result.action_items,
-    )
+        action_result = ActionExtraction.model_validate_json(
+            action_response.message.content
+        )
 
-    # Combine the validated stage results.
-    final_result = EmailAnalysis(
-        category=overview_result.category,
-        summary=overview_result.summary,
-        action_items=action_result.action_items,
-    )
+        final_analysis = EmailAnalysis(
+            category=overview_result.category,
+            summary=overview_result.summary,
+            action_items=action_result.action_items,
+        )
 
-    # Return the complete email analysis.
-    return final_result
+        try:
+            validate_action_evidence(
+                [message],
+                action_result.action_items,
+            )
+        except EvidenceValidationError as error:
+            if attempt == MAX_EVIDENCE_ATTEMPTS:
+                return EmailAnalysisOutcome(
+                    analysis=final_analysis,
+                    validation_status="NeedsReview",
+                    validation_reason=error.reason,
+                    attempt_count=attempt,
+                )
+
+            action_messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": action_response.message.content,
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "The previous JSON failed evidence validation "
+                            f"because of {error.reason}. Correct the JSON. "
+                            "Every evidence_quote must be copied exactly "
+                            "from the supplied email body or attachment."
+                        ),
+                    },
+                ]
+            )
+            continue
+
+        return EmailAnalysisOutcome(
+            analysis=final_analysis,
+            validation_status="Validated",
+            validation_reason=None,
+            attempt_count=attempt,
+        )
+
+    raise RuntimeError("Evidence retry loop ended unexpectedly.")
 
 
-def summarise_thread(thread: EmailThreadInput) -> ThreadSummary:
+def summarise_thread(thread: EmailThreadInput) -> ThreadAnalysisOutcome:
     thread_text = build_thread_text(thread)
     instructions = """
 Analyse the email thread in chronological order, from oldest to newest.
@@ -439,29 +560,69 @@ Rules:
 12. Base every result only on the supplied thread.
 """
 
-    response = chat(
-        model=MODEL_NAME,
-        messages=[
-            {"role": "system", "content": instructions},
-            {"role": "user", "content": thread_text},
-        ],
-        format=ThreadSummary.model_json_schema(),
-        options={"temperature": 0},
-    )
+    thread_messages = [
+        {"role": "system", "content": instructions},
+        {"role": "user", "content": thread_text},
+    ]
 
-    result = ThreadSummary.model_validate_json(response.message.content)
+    for attempt in range(1, MAX_EVIDENCE_ATTEMPTS + 1):
+        response = chat(
+            model=MODEL_NAME,
+            messages=thread_messages,
+            format=ThreadSummary.model_json_schema(),
+            options={"temperature": 0},
+        )
 
-    validate_action_evidence(
-        thread.messages,
-        result.outstanding_actions,
-    )
+        result = ThreadSummary.model_validate_json(response.message.content)
 
-    return result
+        try:
+            validate_action_evidence(
+                thread.messages,
+                result.outstanding_actions,
+            )
+        except EvidenceValidationError as error:
+            if attempt == MAX_EVIDENCE_ATTEMPTS:
+                return ThreadAnalysisOutcome(
+                    analysis=result,
+                    validation_status="NeedsReview",
+                    validation_reason=error.reason,
+                    attempt_count=attempt,
+                )
+
+            thread_messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": response.message.content,
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "The previous JSON failed evidence validation "
+                            f"because of {error.reason}. Correct the JSON. "
+                            "Every evidence_quote must be copied exactly "
+                            "from one of the supplied messages or attachments."
+                        ),
+                    },
+                ]
+            )
+            continue
+
+        return ThreadAnalysisOutcome(
+            analysis=result,
+            validation_status="Validated",
+            validation_reason=None,
+            attempt_count=attempt,
+        )
+
+    raise RuntimeError("Evidence retry loop ended unexpectedly.")
 
 
 def create_email_analysis_record(
     message: EmailMessageInput,
-    analysis: EmailAnalysis,
+    outcome: EmailAnalysisOutcome,
+    *,
+    run_id: int,
 ) -> EmailAnalysisRecord:
     if not message.message_id:
         raise ValueError(
@@ -470,15 +631,20 @@ def create_email_analysis_record(
 
     return EmailAnalysisRecord(
         message_id=message.message_id,
-        model_name=MODEL_NAME,
+        run_id=run_id,
         processed_at=datetime.now(timezone.utc),
-        analysis=analysis,
+        validation_status=outcome.validation_status,
+        validation_reason=outcome.validation_reason,
+        attempt_count=outcome.attempt_count,
+        analysis=outcome.analysis,
     )
 
 
 def create_thread_analysis_record(
     thread: EmailThreadInput,
-    analysis: ThreadSummary,
+    outcome: ThreadAnalysisOutcome,
+    *,
+    run_id: int,
 ) -> ThreadAnalysisRecord:
     if not thread.thread_id:
         raise ValueError(
@@ -490,9 +656,12 @@ def create_thread_analysis_record(
     return ThreadAnalysisRecord(
         thread_id=thread.thread_id,
         latest_message_id=latest_message_id,
-        model_name=MODEL_NAME,
+        run_id=run_id,
         processed_at=datetime.now(timezone.utc),
-        analysis=analysis,
+        validation_status=outcome.validation_status,
+        validation_reason=outcome.validation_reason,
+        attempt_count=outcome.attempt_count,
+        analysis=outcome.analysis,
     )
 
 
@@ -549,15 +718,17 @@ sample_thread = EmailThreadInput(
 
 if __name__ == "__main__":
     try:
-        email_result = analyse_email(sample_message)
-        thread_result = summarise_thread(sample_thread)
+        email_outcome = analyse_email(sample_message)
+        thread_outcome = summarise_thread(sample_thread)
         email_record = create_email_analysis_record(
             sample_message,
-            email_result,
+            email_outcome,
+            run_id=1,
         )
         thread_record = create_thread_analysis_record(
             sample_thread,
-            thread_result,
+            thread_outcome,
+            run_id=1,
         )
     except ConnectionError:
         print("Analysis failed: cannot connect to Ollama.")

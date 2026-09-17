@@ -2,8 +2,6 @@ import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import pytest
-
 import email_ai
 from email_ai import ActionItem, EmailMessageInput, ParsedAttachment
 
@@ -88,7 +86,12 @@ def test_analyse_email_without_calling_real_ollama(monkeypatch):
         body="Please update the mobile layout by Friday.",
     )
 
-    result = email_ai.analyse_email(message)
+    outcome = email_ai.analyse_email(message)
+    result = outcome.analysis
+
+    assert outcome.validation_status == "Validated"
+    assert outcome.validation_reason is None
+    assert outcome.attempt_count == 1
 
     assert result.category == "Project update"
     assert result.summary == (
@@ -101,7 +104,7 @@ def test_analyse_email_without_calling_real_ollama(monkeypatch):
     assert mock_chat.call_count == 2
 
 
-def test_analyse_email_rejects_invented_evidence_quote(monkeypatch):
+def test_analyse_email_keeps_result_after_three_evidence_failures(monkeypatch):
     overview_response = fake_ollama_response(
         {
             "category": "Project update",
@@ -125,7 +128,12 @@ def test_analyse_email_rejects_invented_evidence_quote(monkeypatch):
     )
 
     mock_chat = Mock(
-        side_effect=[overview_response, action_response]
+        side_effect=[
+            overview_response,
+            action_response,
+            action_response,
+            action_response,
+        ]
     )
     monkeypatch.setattr(email_ai, "chat", mock_chat)
 
@@ -136,8 +144,76 @@ def test_analyse_email_rejects_invented_evidence_quote(monkeypatch):
         body="Please send the design report by Monday.",
     )
 
-    with pytest.raises(ValueError, match="evidence_quote"):
-        email_ai.analyse_email(message)
+    outcome = email_ai.analyse_email(message)
+
+    assert outcome.validation_status == "NeedsReview"
+    assert outcome.validation_reason == "evidence_quote_not_found"
+    assert outcome.attempt_count == 3
+    assert outcome.analysis.action_items[0].task == "send the financial report"
+    assert mock_chat.call_count == 4
+
+
+def test_analyse_email_recovers_on_second_evidence_attempt(monkeypatch):
+    overview_response = fake_ollama_response(
+        {
+            "category": "Project update",
+            "summary": "The email requests a design report.",
+        }
+    )
+
+    invalid_action_response = fake_ollama_response(
+        {
+            "action_items": [
+                {
+                    "task": "send the financial report",
+                    "owner": None,
+                    "deadline_text": "by Friday",
+                    "evidence_quote": (
+                        "Please send the financial report by Friday."
+                    ),
+                }
+            ]
+        }
+    )
+
+    corrected_action_response = fake_ollama_response(
+        {
+            "action_items": [
+                {
+                    "task": "send the design report",
+                    "owner": None,
+                    "deadline_text": "by Monday",
+                    "evidence_quote": (
+                        "Please send the design report by Monday."
+                    ),
+                }
+            ]
+        }
+    )
+
+    mock_chat = Mock(
+        side_effect=[
+            overview_response,
+            invalid_action_response,
+            corrected_action_response,
+        ]
+    )
+    monkeypatch.setattr(email_ai, "chat", mock_chat)
+
+    message = EmailMessageInput(
+        message_id="message-retry-001",
+        subject="Weekly update",
+        sender="Alex",
+        body="Please send the design report by Monday.",
+    )
+
+    outcome = email_ai.analyse_email(message)
+
+    assert outcome.validation_status == "Validated"
+    assert outcome.validation_reason is None
+    assert outcome.attempt_count == 2
+    assert outcome.analysis.action_items[0].task == "send the design report"
+    assert mock_chat.call_count == 3
 
 
 def test_attachment_evidence_allows_different_line_wrapping():
@@ -170,7 +246,7 @@ def test_attachment_evidence_allows_different_line_wrapping():
     email_ai.validate_action_evidence([message], [action])
 
 
-def test_thread_summary_rejects_evidence_not_found_in_any_message(monkeypatch):
+def test_thread_summary_keeps_result_after_three_evidence_failures(monkeypatch):
     thread_response = fake_ollama_response(
         {
             "summary": "The team discussed the homepage design.",
@@ -203,7 +279,125 @@ def test_thread_summary_rejects_evidence_not_found_in_any_message(monkeypatch):
         ],
     )
 
-    with pytest.raises(ValueError, match="evidence_quote"):
-        email_ai.summarise_thread(thread)
+    outcome = email_ai.summarise_thread(thread)
 
-    assert mock_chat.call_count == 1
+    assert outcome.validation_status == "NeedsReview"
+    assert outcome.validation_reason == "evidence_quote_not_found"
+    assert outcome.attempt_count == 3
+    assert outcome.analysis.outstanding_actions[0].task == (
+        "approve the production deployment"
+    )
+    assert mock_chat.call_count == 3
+
+
+def test_thread_summary_recovers_on_second_evidence_attempt(monkeypatch):
+    invalid_response = fake_ollama_response(
+        {
+            "summary": "The team discussed the homepage design.",
+            "latest_decisions": [],
+            "outstanding_actions": [
+                {
+                    "task": "approve deployment",
+                    "owner": "Jamie",
+                    "deadline_text": None,
+                    "evidence_quote": "Jamie approved the deployment.",
+                }
+            ],
+        }
+    )
+    corrected_response = fake_ollama_response(
+        {
+            "summary": "The team discussed the homepage design.",
+            "latest_decisions": [],
+            "outstanding_actions": [
+                {
+                    "task": "review the homepage design",
+                    "owner": "Jamie",
+                    "deadline_text": None,
+                    "evidence_quote": (
+                        "Jamie, please review the homepage design."
+                    ),
+                }
+            ],
+        }
+    )
+    mock_chat = Mock(side_effect=[invalid_response, corrected_response])
+    monkeypatch.setattr(email_ai, "chat", mock_chat)
+
+    thread = email_ai.EmailThreadInput(
+        thread_id="thread-retry-001",
+        messages=[
+            EmailMessageInput(
+                message_id="message-retry-002",
+                subject="Homepage design",
+                sender="Alex",
+                body="Jamie, please review the homepage design.",
+            )
+        ],
+    )
+
+    outcome = email_ai.summarise_thread(thread)
+
+    assert outcome.validation_status == "Validated"
+    assert outcome.validation_reason is None
+    assert outcome.attempt_count == 2
+    assert outcome.analysis.outstanding_actions[0].task == (
+        "review the homepage design"
+    )
+    assert mock_chat.call_count == 2
+
+
+def test_analysis_records_use_run_id_and_keep_validation_metadata():
+    message = EmailMessageInput(
+        message_id="message-record-001",
+        subject="Status update",
+        sender="Alex",
+        body="No action is required.",
+    )
+    email_outcome = email_ai.EmailAnalysisOutcome(
+        analysis=email_ai.EmailAnalysis(
+            category="Project update",
+            summary="No action is required.",
+            action_items=[],
+        ),
+        validation_status="Validated",
+        validation_reason=None,
+        attempt_count=1,
+    )
+
+    email_record = email_ai.create_email_analysis_record(
+        message,
+        email_outcome,
+        run_id=42,
+    )
+
+    thread = email_ai.EmailThreadInput(
+        thread_id="thread-record-001",
+        messages=[message],
+    )
+    thread_outcome = email_ai.ThreadAnalysisOutcome(
+        analysis=email_ai.ThreadSummary(
+            summary="No action is required.",
+            latest_decisions=[],
+            outstanding_actions=[],
+        ),
+        validation_status="Validated",
+        validation_reason=None,
+        attempt_count=1,
+    )
+
+    thread_record = email_ai.create_thread_analysis_record(
+        thread,
+        thread_outcome,
+        run_id=42,
+    )
+
+    assert email_record.run_id == 42
+    assert email_record.validation_status == "Validated"
+    assert email_record.attempt_count == 1
+    assert not hasattr(email_record, "model_name")
+
+    assert thread_record.run_id == 42
+    assert thread_record.validation_status == "Validated"
+    assert thread_record.attempt_count == 1
+    assert not hasattr(thread_record, "model_name")
