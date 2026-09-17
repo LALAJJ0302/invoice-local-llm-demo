@@ -517,6 +517,24 @@ _DEADLINE_LEAD_INS = (
 _ORDINAL = re.compile(r"\b(\d{1,2})(st|nd|rd|th)\b", re.IGNORECASE)
 
 
+# A model asked for a nullable string sometimes answers with the *word* rather than JSON null.
+# Seen on 2026-09-17 against llama3.2 on a real message: deadline_text came back as "null",
+# which stored four characters of text where the document said nothing.
+#
+# This is exactly the set email_ai.normalise_owner already maps to None, repeated rather than
+# extended so the two cannot disagree about what "absent" means. His validator covers `owner`
+# only, so without this every count of "action items carrying a deadline" is wrong: 'null' is
+# not NULL and SQL cannot tell the difference.
+ABSENT_STRINGS = frozenset({"", "null", "none", "unknown"})
+
+
+def absent_string(value: Any) -> Optional[Any]:
+    """Returns None where a string is the model's way of saying "nothing here"."""
+    if isinstance(value, str) and value.strip().lower() in ABSENT_STRINGS:
+        return None
+    return value
+
+
 def coerce_deadline_date(text: Any) -> Optional[str]:
     """Normalises an action item's deadline wording to YYYY-MM-DD, or returns None.
 
@@ -1127,11 +1145,11 @@ class StorageManager:
         """Turns ActionItem dicts into action_items rows, normalising the deadline."""
         rows: List[Dict[str, Any]] = []
         for item_no, item in enumerate(items or [], start=1):
-            deadline_text = item.get("deadline_text")
+            deadline_text = absent_string(item.get("deadline_text"))
             rows.append({
                 "item_no": item_no,
                 "task": item.get("task") or "",
-                "owner": item.get("owner"),
+                "owner": absent_string(item.get("owner")),
                 "deadline_text": deadline_text,
                 "deadline_date": coerce_deadline_date(deadline_text),
                 "evidence_quote": item.get("evidence_quote") or "",

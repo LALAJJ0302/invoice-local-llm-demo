@@ -626,6 +626,15 @@ applied to the last two components whatever the shape of the string. Found on 20
 error taxonomy work. `coerce_deadline_date` delegates to `coerce_date`, which matches explicit
 formats and never guesses, and a test fails if an already-ISO value is ever re-parsed.
 
+**A model asked for a nullable string sometimes answers with the word.** On 2026-09-17
+`llama3.2` returned `deadline_text` as the four-character string `"null"` on a real message
+from the mock mailbox. `email_ai.normalise_owner` already maps that to None, but only for
+`owner`, so it reached storage intact. `'null'` is not NULL, so every count of "action items
+carrying a deadline" would have been wrong, including the one below. `storage.absent_string`
+now maps exactly the four values his validator maps, repeated rather than extended so the two
+cannot disagree, and a test fails if he widens his set without this following. **Found by
+running the real model, not by reading the code.**
+
 **What stays NULL is worth reporting.** The share of action items where `deadline_text IS NOT NULL
 AND deadline_date IS NULL` says how often the model found a deadline no system can act on.
 `save_email_analysis` returns that count rather than leaving it to be worked out later. That is a

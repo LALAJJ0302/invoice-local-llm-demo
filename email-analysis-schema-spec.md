@@ -481,6 +481,16 @@ also asserts that the six categories in his `Literal` and the six in the CHECK c
 same set. The class skips where `ollama` is not installed, which is the reason storage itself must
 never import that module.
 
+**A defect the real model found, after the spec was written.** Asked for a nullable string,
+`llama3.2` answered `deadline_text` with the four-character string `"null"` on a real message
+from the mock mailbox. `normalise_owner` in `email_ai.py` already maps that to None, but it is
+attached to `owner` alone, so it reached storage as text. `'null'` is not NULL, so the
+`undated_count` §5 calls a number worth reporting would have been wrong every time it happened.
+`storage.absent_string` now maps exactly the four values his validator maps, and a test fails if
+he widens his set without storage following. **The clean fix is one line on his side**: add
+`deadline_text` to the `field_validator` that already covers `owner`. Storage keeps its copy
+regardless, because a record can reach it from somewhere other than his models.
+
 **What still has to happen on JJ's side:** call `start_email_run()` once per run, then
 `save_email_analysis(record.model_dump(mode="json"))` per email and
 `save_thread_analysis(record.model_dump(mode="json"), thread_source=...)` per thread. Nothing

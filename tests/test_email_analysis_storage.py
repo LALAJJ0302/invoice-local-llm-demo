@@ -390,6 +390,70 @@ class TestDeadlineNormalisation:
         assert (result["dated_count"], result["undated_count"]) == (1, 1)
 
 
+class TestTheModelSayingNullInWords:
+    """Found by running it, not by reading it, on 2026-09-17.
+
+    Asked for a nullable string, llama3.2 answered with the four-character string "null" for
+    `deadline_text` on a real message from the mock mailbox. `email_ai.normalise_owner`
+    already maps that to None, but only for `owner`, so it reached storage intact.
+
+    It matters because 'null' is not NULL. Every count of "how many action items carry a
+    deadline" would have been wrong, including the undated_count this module returns for the
+    report.
+    """
+
+    @pytest.mark.parametrize("sentinel", ["null", "NULL", "None", " none ", "unknown", ""])
+    def test_a_sentinel_deadline_is_stored_as_null(self, store, mailbox, sentinel):
+        store.save_email_analysis(email_record(mailbox, actions=[{
+            "task": "Find the invoice", "owner": None,
+            "deadline_text": sentinel, "evidence_quote": "Please find the invoice.",
+        }]))
+        item = store.email_analysis_for("<a@mail>")["action_items"][0]
+        assert item["deadline_text"] is None
+        assert item["deadline_date"] is None
+
+    def test_a_sentinel_owner_is_stored_as_null(self, store, mailbox):
+        """His validator already does this. Storage repeats it rather than trusting that a
+        record always arrives through his models."""
+        store.save_email_analysis(email_record(mailbox, actions=[{
+            "task": "Find the invoice", "owner": "unknown",
+            "deadline_text": None, "evidence_quote": "Please find the invoice.",
+        }]))
+        assert store.email_analysis_for("<a@mail>")["action_items"][0]["owner"] is None
+
+    def test_a_sentinel_does_not_count_as_an_undated_deadline(self, store, mailbox):
+        """The bug that would have reached the report."""
+        result = store.save_email_analysis(email_record(mailbox, actions=[{
+            "task": "Find the invoice", "owner": None,
+            "deadline_text": "null", "evidence_quote": "q",
+        }]))
+        assert result["undated_count"] == 0
+
+    def test_real_wording_is_untouched(self, store, mailbox):
+        """The normaliser must not eat a deadline that says something."""
+        store.save_email_analysis(email_record(mailbox, actions=[{
+            "task": "Find the invoice", "owner": "Neo",
+            "deadline_text": "none of the usual dates apply, see below",
+            "evidence_quote": "q",
+        }]))
+        item = store.email_analysis_for("<a@mail>")["action_items"][0]
+        assert item["deadline_text"] == "none of the usual dates apply, see below"
+        assert item["owner"] == "Neo"
+
+    def test_the_set_matches_his_validator(self, store):
+        """If he widens normalise_owner and storage does not follow, the two disagree about
+        what absent means and only one of them is written to the database."""
+        pytest.importorskip("ollama")
+        import inspect
+
+        import email_ai
+        from storage import ABSENT_STRINGS
+
+        source = inspect.getsource(email_ai.ActionItem.normalise_owner)
+        for value in ABSENT_STRINGS:
+            assert f'"{value}"' in source, f"storage maps {value!r} to None and email_ai does not"
+
+
 # =====================================================================
 # The contract with JJ's module
 # =====================================================================
