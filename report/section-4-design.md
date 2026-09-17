@@ -5,17 +5,30 @@
 ```
 Gmail (IMAP)
    -> email_listener.py            attachments to inbox/, message metadata recorded
-   -> pypdf                        text layer extracted
-   -> retrieval.py                 prior correspondence from the same sender, as context
-   -> Ollama (llama3.2)            extraction under a JSON schema, constrained decoding
-   -> ConfidenceValidator          rule-based gate, scores and routes
-   -> SQLite                       five related tables, constraints enforced by the database
+   |
+   |-- the attachment ------------------------------------------------------------
+   |   -> pypdf                    text layer extracted
+   |   -> retrieval.py             prior correspondence from the same sender, as context
+   |   -> Ollama (llama3.2)        extraction under a JSON schema, constrained decoding
+   |   -> ConfidenceValidator      rule-based gate, scores and routes
+   |
+   |-- the message itself ---------------------------------------------------------
+   |   -> email_pipeline.py        groups messages into threads by subject
+   |   -> email_ai.py              category, summary, action items, each with its quote
+   |   -> evidence validation      three attempts, then kept for review, never discarded
+   |
+   -> SQLite                       ten related tables, constraints enforced by the database
    -> archive/                     the file moves only after the write commits
    -> Streamlit                    review, approval
    -> tasks / outbound_messages    follow-on work and a notification queue
 ```
 
 Every component runs on one machine and no document content leaves it.
+
+**The second branch is newer and less finished than the first.** It runs end to end and its
+output is stored and queryable, but unlike the extraction branch it has no ground truth, so it
+can be inspected and not yet scored. §5.9 states that plainly rather than presenting the two
+halves as equally evidenced.
 
 **Before and after the pivot.** The mapping is not one-to-one, and §3.2 records what was
 lost.
@@ -37,16 +50,27 @@ uniqueness and line items held as JSON text inside a column. It is now five rela
 
 | Table | Holds |
 |---|---|
-| `processing_runs` | One row per pipeline execution: model, threshold, counts, timing |
+| `processing_runs` | One row per pipeline execution: model, threshold, counts, timing, and which of the two pipelines it was |
 | `invoices` | One row per distinct document, keyed on a content hash |
 | `line_items` | One row per line, queryable |
-| `email_messages` | Messages fetched, their bodies, and which attachments they carried |
+| `email_messages` | Messages fetched, their bodies, which attachments they carried, and their thread |
 | `tasks` / `outbound_messages` | Follow-on work, and notifications recorded but not sent |
+| `email_analysis` | One row per message per run: category, summary, and whether its evidence held |
+| `thread_analysis` | One row per thread per run, with how that thread was identified |
+| `action_items` | One row per action the model found, under either an email or a thread |
+| `thread_decisions` | One row per decision, because the model returns a list and a list is ordered |
 
 Constraints are enforced by SQLite rather than by application code, so a defect in the
 pipeline cannot write a row that violates them. Amounts are stored as integer cents. Every
 schema change is a numbered, idempotent migration that backs up the database first and
-reports what it changed; there are nine.
+reports what it changed; there are eleven, and the schema is at version 11.
+
+**The last four tables were added in September, and the shape of the first six decided their
+shape.** The original flat table held line items as JSON inside a column, and recovering them
+cost a migration. When the email module returned two fields that are lists, the same question
+arrived again and was answered the other way the first time: `latest_decisions` and
+`outstanding_actions` are rows with an ordinal, not a delimited string. Repeating a mistake the
+project had already paid for once would have been the worse outcome than the mistake itself.
 
 ## 4.3 Design decisions
 
@@ -152,6 +176,60 @@ At the current corpus size, whether embeddings help is a measurement nobody has 
 them first would mean never learning the answer. "The system uses a vector database" is not a
 finding; "at this corpus size, keyword retrieval was measured against embeddings and the
 result was X" is one.
+
+### 4.3.11 One table for action items, two parents, and why that is not the earlier mistake
+
+The email module returns action items in two places: attached to a single message, and
+attached to a thread as work still outstanding. Both are the same four fields, defined once as
+one class in the module.
+
+Two tables would duplicate that definition, so every later change to it would cost two
+migrations and "which actions does one person owe" would need a union. One table with two
+nullable parent keys and a constraint that exactly one is set costs a column that is always
+precisely half empty.
+
+**The same shape was rejected earlier in the project and the difference matters.** Email
+actions were kept out of the existing `tasks` table for exactly this reason: an invoice task
+and an email action need different columns, so merging them produces rows half full of nulls,
+which is the flat table the project spent a migration escaping. Here the rows are identical and
+only their owner differs. Merging identical rows is normalisation. Merging different rows is
+the flat table returning under a new name.
+
+### 4.3.12 A deadline is stored twice, as written and as a date
+
+The model is asked for the deadline exactly as the source words it and never to convert it. The
+database then holds a second column, filled only where the wording is unambiguous.
+
+`by 30 September 2026` becomes a date. `end of month`, `by Friday` and `30/09/2026` do not, and
+the wording survives untouched. The slash form is refused deliberately: day-month order is not
+recoverable from the string, and Australian and American conventions disagree, so a parser that
+guesses is right most of the time and silently wrong the rest.
+
+**The value of the pair is the gap between them.** How often a deadline was found that no
+system can act on is a number, and the pipeline reports it. A single normalised column would
+have hidden that behind a guess.
+
+One detail is a bug fixed before it was hit: `dateutil` parses the ISO string `2026-03-12` as
+3 December when asked to prefer day-first, because it applies that preference to the last two
+components whatever the shape of the string. Anything already in ISO form is returned untouched,
+and a test fails if that ever stops being true.
+
+### 4.3.13 Thread identity is a guess, and the database says so on every row
+
+Grouping messages into conversations is done by stripping the reply prefix from the subject and
+matching what remains. The correct key is the `In-Reply-To` and `References` headers, which mail
+clients use and which this system does not capture, because intake is another member's file.
+
+Subject matching is wrong in a way the project's own test data demonstrates. Three vendors each
+send a message titled "Monthly statement", and it merges them into one conversation: 1 of 16
+threads in the mock mailbox is a collision, and it is counted rather than assumed.
+
+Rather than pick between a correct method that is unavailable and a cheap one that is wrong,
+every row records which was used. A summary computed over a guessed grouping is therefore never
+reported as though it came from a real reply chain. This is the same device used elsewhere in
+the schema for whether a total came from the model or from repair code, and for whether an email
+body is real or generated. **The pattern is worth naming: where a system cannot be certain, the
+uncertainty belongs in a column rather than in the memory of whoever wrote the code.**
 
 ## 4.4 Development process
 

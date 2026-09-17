@@ -44,6 +44,11 @@ numbers rather than after them.
   rule that an amount must sit within two lines of a total label, holds because ReportLab
   puts them there. An invoice placing the amount in a table cell would fail it.
 
+- **The email half is not measured at all.** Everything from §5.3 to §5.8 concerns extraction
+  from invoice PDFs, where ground truth exists. Classification, summarisation and action
+  extraction have no labelled set, so §5.10 reports what a run produces and explicitly claims
+  no accuracy for it.
+
 None of these invalidate the findings below. They bound them, and the bounds are wide.
 
 ## 5.3 The baseline
@@ -361,7 +366,77 @@ currently reaches the extraction step.
 These are stated as unfinished rather than described as working, because a diagram of an
 intended architecture is not evidence that the architecture runs.
 
-## 5.9 Threats to validity
+## 5.9 The email half, which is run but not scored
+
+Everything above concerns the invoice attachment. In September the project also began reading
+the message around it: classifying an email, summarising it, and extracting the actions people
+committed to. **This subsection is deliberately shaped differently from the ones above, because
+it cannot report accuracy.**
+
+### 5.9.1 What a full run produces
+
+One pass over the 18-message mock mailbox on 17 September 2026, `llama3.2:latest`, every email
+with a body:
+
+| | |
+|---|---|
+| Analysed | 18 |
+| Failed | 0 |
+| Evidence validation passed first attempt | 18 of 18 |
+| Action items extracted | 5 |
+| Action items with a deadline that could be normalised | 0 |
+| Threads formed by subject | 16 |
+| Threads that are a probable subject collision | 1 |
+
+**None of these are accuracy figures.** "18 analysed, 0 failed" says the pipeline completed. It
+says nothing about whether the 18 categories are right, whether the summaries are faithful, or
+whether the 5 action items are the ones a person would have found. Those questions need a
+labelled set that does not exist.
+
+### 5.9.2 The one finding the run does support
+
+All 18 messages were classified `Invoice`. The model had six labels available and used one.
+
+This does not show the classifier is broken, and the report resists saying so. Every message in
+this mailbox concerns an invoice, so `Invoice` may be right 18 times out of 18. **What it does
+show is a property of the test data rather than of the model: this corpus cannot distinguish a
+working classifier from one that answers `Invoice` unconditionally.** Both produce identical
+output on it.
+
+That is a more useful result than a score would have been at this stage, and it is the same
+argument §5.2 makes about n = 3. A test set that every candidate passes measures nothing. The
+remedy is a labelled set with messages that are genuinely not invoices, and building one is the
+outstanding work rather than an afterthought.
+
+### 5.9.3 Evidence validation, and the decision to keep failures
+
+Every action item must carry a quote that occurs verbatim in the source. Where it does not, the
+model is asked again, up to three times. **If it still fails, the analysis is kept and marked
+for review rather than discarded**, with a machine-readable reason and the attempt count stored
+alongside it.
+
+The alternative, dropping the result, would have made the failure rate unobservable, and the
+failure rate is exactly the measurement that would tell us whether this technique works. On this
+run it never fired: all 18 passed on the first attempt. **A mechanism that has not yet failed
+has not yet been tested**, and no claim is made for its effectiveness on this evidence.
+
+### 5.9.4 A defect the run found that reading the code did not
+
+Asked for a field that may be absent, the model twice returned the four-character string
+`"null"` rather than an absent value. Stored literally, that is text, and SQL cannot tell it
+apart from a real answer: every count of "action items carrying a deadline" would have been
+inflated, including the one reported in §5.9.1.
+
+It was caught by running two real messages end to end, not by reading either module. The fix
+maps that string, and the three others the module already recognised, to a genuine null before
+the row is written.
+
+**The point is not the defect, which is small. It is that the test suite passed throughout.**
+Twenty-eight tests covered this path and none of them used the literal string `"null"`, because
+nobody writing a test thinks to. A model's actual output found in one run what constructed
+inputs had not.
+
+## 5.10 Threats to validity
 
 - **Construct validity.** `validation_score` measures field completeness and agreement with
   the source text. It is not a confidence score and does not estimate the probability that
@@ -375,3 +450,7 @@ intended architecture is not evidence that the architecture runs.
   required treating two disagreeing numbers as a defect rather than choosing one.
 - **External validity.** Three synthetic documents from one generator. Nothing here
   supports a claim about performance on real invoices, and no such claim is made.
+- **Asymmetry between the two halves.** Extraction is scored against independently transcribed
+  ground truth. The email half in §5.9 is not scored at all. Presenting them side by side risks
+  implying the second is as well evidenced as the first, and it is not. Every figure in §5.9 is
+  a count of what the pipeline did, never of what it got right.

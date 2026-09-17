@@ -15,7 +15,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-OUT="report/Neo Pitayasiri - Final Report Draft v3.docx"
+OUT="report/Neo Pitayasiri - Final Report Draft v4.docx"
 
 pandoc \
   report/draft-v1.md \

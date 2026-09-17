@@ -75,7 +75,8 @@ arrive as images.
 project is fitted to three files the team generated. The ground-truth file covers only those
 three. Adding real invoices without extending it first would mean running experiments with no
 way to determine whether they helped, which would undo the one methodological commitment this
-project has kept.
+project has kept. **The email half is already in that state**, which is the clearest argument
+for the order: it was built and runs, and there is nothing to compare its output against.
 
 **Embedding-based retrieval is deliberately unbuilt.** A third strategy was considered and not
 implemented, on the reasoning that adding a strategy before measuring the two that already
@@ -86,6 +87,28 @@ the work is justified where previously it was not.
 is created. This is an honest boundary rather than an incomplete feature: the queue records what
 would be sent, and the integration that would drain it was out of scope after the pivot. It
 should be presented to a later team as a defined interface with one unimplemented consumer.
+
+**Ground truth for the email half, and it belongs first.** Classification, summarisation and
+action extraction have no labelled set, which means §5.9 can report what a run produced and
+nothing about whether it was right. This is the single change that would move the newer half of
+the project from demonstrable to evidenced, and it is a larger job than it sounds. A labelled
+set of invoice-related emails is not enough: all 18 in the current mailbox are correctly
+`Invoice`, so a classifier that ignores its input scores perfectly. The set has to contain
+messages that genuinely are not invoices, which means writing them, which means deciding what a
+correct summary is before anything can be marked wrong.
+
+**Thread identity from headers rather than subjects.** Conversations are currently reconstructed
+by matching subject lines, which merges three unrelated "Monthly statement" messages into one
+thread in the project's own test data. The correct key is `In-Reply-To` and `References`, which
+requires capturing two headers at intake. The database already carries a column recording which
+method produced each grouping, so the change is additive and the existing rows do not become
+wrong, only superseded.
+
+**An email action item cannot reach the notification queue.** The outbox requires an invoice, so
+work the model found in a message has nowhere to go. The argument for separating invoice tasks
+from email actions in storage was never an argument for two separate queues, and notification
+should have one path. It needs a migration and a decision about whether these items notify
+anyone at all, which is why it is listed as future work rather than done.
 
 ## 7.4 Implications beyond this project
 
