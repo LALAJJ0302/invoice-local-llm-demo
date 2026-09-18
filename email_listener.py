@@ -28,6 +28,40 @@ DOCUMENT_CONTENT_TYPES = {
 
 _TAG_PATTERN = re.compile(r"<[^>]+>")
 
+# MIME headers often name encodings Python does not register (e.g. windows-874 for Thai).
+_ENCODING_ALIASES = {
+    "windows-874": "cp874",
+    "windows-1250": "cp1250",
+    "windows-1251": "cp1251",
+    "windows-1252": "cp1252",
+    "windows-1253": "cp1253",
+    "windows-1254": "cp1254",
+    "windows-1255": "cp1255",
+    "windows-1256": "cp1256",
+    "windows-1257": "cp1257",
+    "windows-1258": "cp1258",
+}
+
+
+def _normalise_encoding(encoding):
+    if not encoding:
+        return None
+    key = encoding.lower().replace("_", "-")
+    return _ENCODING_ALIASES.get(key, key)
+
+
+def _decode_bytes(data, encoding=None):
+    """Decodes bytes using the declared charset, with aliases and safe fallbacks."""
+    normalised = _normalise_encoding(encoding)
+    for candidate in (normalised, "utf-8", "latin-1"):
+        if not candidate:
+            continue
+        try:
+            return data.decode(candidate, errors="ignore")
+        except LookupError:
+            continue
+    return data.decode("latin-1", errors="ignore")
+
 
 def decode_text(value):
     if not value:
@@ -38,7 +72,7 @@ def decode_text(value):
 
     for part, encoding in decoded_parts:
         if isinstance(part, bytes):
-            result += part.decode(encoding or "utf-8", errors="ignore")
+            result += _decode_bytes(part, encoding)
         else:
             result += part
 
@@ -84,11 +118,7 @@ def _decode_part_payload(part):
     payload = part.get_payload(decode=True)
     if not payload:
         return ""
-    charset = part.get_content_charset() or "utf-8"
-    try:
-        return payload.decode(charset, errors="ignore")
-    except (LookupError, ValueError):
-        return payload.decode("utf-8", errors="ignore")
+    return _decode_bytes(payload, part.get_content_charset())
 
 
 def _html_to_text(html):

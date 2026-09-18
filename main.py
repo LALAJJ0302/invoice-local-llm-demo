@@ -553,8 +553,26 @@ class WorkflowOrchestrator:
                       f"File left in {self.inbox_dir} for the next run.")
 
             # 5. Downstream Dispatch
-            self.dispatcher.dispatch(result["invoice_id"], file_name, status, confidence,
-                                     reason=verdict["reason"])
+            # A validation_score of 1.0 means every completeness/agreement check passed and
+            # the amount was verified against the document -- nothing left for a human to
+            # catch. That document skips the Review/Approve task and goes straight to the
+            # same post-approval hand-off a human approval would trigger. Anything below 1.0
+            # still opens a task and waits for a person.
+            if confidence >= 1.0:
+                followup = self.storage.auto_approve(result["invoice_id"])
+                self.storage.queue_outbound(
+                    result["invoice_id"], "Teams",
+                    f"{file_name}: Auto-approved (validation score {confidence:.2f}, "
+                    "no review needed).",
+                )
+                print(f"  └─ [Auto-Approval] Score {confidence:.2f} -- approved without a "
+                      "review task.")
+                if followup and followup["was_created"]:
+                    print(f"  └─ [Task Queue] Opened {followup['task_type']} task "
+                          f"#{followup['task_id']} (post-approval hand-off).")
+            else:
+                self.dispatcher.dispatch(result["invoice_id"], file_name, status, confidence,
+                                         reason=verdict["reason"])
 
         self.storage.finish_run(run_id, processed_count)
         print(f"\n=== Workflow Completed: {processed_count}/{len(files)} documents stored (run_id={run_id}) ===")

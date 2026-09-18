@@ -967,6 +967,22 @@ class StorageManager:
         result["task_type"] = task_type
         return result
 
+    def auto_approve(self, invoice_id: int) -> Optional[Dict[str, Any]]:
+        """The score-1.0 path: no human review, no Review/Approve task. approval_status goes
+        straight to Approved. reviewed_at stays NULL -- nobody reviewed it, and NULL is how
+        the dashboard tells this apart from a human decision.
+
+        Still hands off to the same post-approval work a human approval would: an invoice
+        still has to be paid, a receipt only has to be filed.
+        """
+        with connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE invoices SET approval_status = 'Approved' "
+                "WHERE invoice_id = ? AND approval_status = 'Pending'",
+                (invoice_id,))
+            conn.commit()
+        return self.open_followup_task(invoice_id)
+
     # -- the outbox ----------------------------------------------------
     def queue_outbound(self, invoice_id: int, channel: str, payload: str,
                        task_id: Optional[int] = None) -> int:

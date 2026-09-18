@@ -955,6 +955,58 @@ class TestPostApproval:
 
 
 # =====================================================================
+# Auto-approval on a perfect score (validation_score == 1.0)
+# =====================================================================
+class TestAutoApprove:
+    def test_sets_approval_status_to_approved(self, store, run_id):
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        store.auto_approve(invoice_id)
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status FROM invoices WHERE invoice_id=?", (invoice_id,)
+            ).fetchone()
+        assert row["approval_status"] == "Approved"
+
+    def test_leaves_reviewed_at_null(self, store, run_id):
+        """No human reviewed it -- reviewed_at is how the dashboard tells an auto-approval
+        apart from a person clicking Approve."""
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        store.auto_approve(invoice_id)
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT reviewed_at FROM invoices WHERE invoice_id=?", (invoice_id,)
+            ).fetchone()
+        assert row["reviewed_at"] is None
+
+    def test_opens_the_same_post_approval_task_a_human_approval_would(self, store, run_id):
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        result = store.auto_approve(invoice_id)
+        assert result is not None
+        assert result["task_type"] == "Payment"  # document_type defaults to Invoice
+        assert result["was_created"] is True
+
+    def test_does_not_overwrite_an_existing_human_decision(self, store, run_id):
+        """A record already Rejected by a person should not be silently flipped to Approved."""
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        with connect(store.db_path) as conn:
+            conn.execute("UPDATE invoices SET approval_status='Rejected', "
+                         "reviewed_at=datetime('now') WHERE invoice_id=?", (invoice_id,))
+            conn.commit()
+        store.auto_approve(invoice_id)
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, reviewed_at FROM invoices WHERE invoice_id=?",
+                (invoice_id,)
+            ).fetchone()
+        assert row["approval_status"] == "Rejected"
+        assert row["reviewed_at"] is not None
+
+
+# =====================================================================
 # The outbox
 # =====================================================================
 class TestOutbox:

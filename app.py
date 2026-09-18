@@ -437,6 +437,9 @@ if selected_id:
         st.markdown(f"**Approval (human):** `{row['approval_status']}`")
         if row["reviewed_at"]:
             st.markdown(f"**Reviewed At:** `{row['reviewed_at']}`")
+        elif row["approval_status"] == "Approved":
+            st.caption("✅ Approved automatically — validation score was 1.00, no human "
+                       "review needed.")
 
         if row["validation_status"] == "NeedsReview":
             st.warning("⚠️ The pipeline was not confident about this document. Check it before approving.")
