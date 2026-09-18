@@ -22,3 +22,10 @@ Enterprise_AI_Workflow_Briefing.docx
 # merge a binary, and a PDF gets a new hash on every build even from identical markdown.
 # The markdown is the source of truth; rebuild with ./report/build-pdf.sh
 report/*.pdf
+
+# Word writes a lock file beside any open .docx. It is transient and machine-local.
+~$*
+
+# Built documents. The markdown is the source of truth; a .docx gets a new hash on every
+# build even from identical source, so git cannot merge it.
+report/*.docx

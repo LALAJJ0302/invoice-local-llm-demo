@@ -229,8 +229,12 @@ def download_attachments(mailbox="INBOX", mark_as_read=True, db_path=storage.DEF
             sender=sender,
             subject=subject,
             received_at=received_at,
-            body=body_text,
+            body_text=body_text or None,
+            body_source='intake' if body_text else None,
             attachment_count=len(attachment_parts),
+            attachment_names=[
+                safe_filename(part.get_filename()) for part in attachment_parts
+            ] or None,
         )
 
         if email_record["already_seen"]:

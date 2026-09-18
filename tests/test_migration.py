@@ -385,23 +385,26 @@ class TestEmailBodyAndAttachments:
             assert m.migrate(legacy_db) == 0
         return legacy_db
 
-    def test_adds_body_and_the_attachments_table(self, at_v7):
+    def test_adds_body_columns_and_the_attachments_table(self, at_v7):
         m008.migrate(at_v7)
         with connect(at_v7) as conn:
             columns = [r["name"] for r in conn.execute("PRAGMA table_info(email_messages)")]
             tables = {r["name"] for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'")}
-        assert "body" in columns
+        assert {"body_text", "body_source"} <= set(columns)
         assert "email_attachments" in tables
 
-    def test_existing_emails_get_a_null_body(self, at_v7):
+    def test_existing_emails_get_null_body_columns(self, at_v7):
         with connect(at_v7) as conn:
             conn.execute(
                 "INSERT INTO email_messages (message_id, sender) VALUES ('<x@mail>', 'a@b.com')")
             conn.commit()
         m008.migrate(at_v7)
         with connect(at_v7) as conn:
-            assert conn.execute("SELECT body FROM email_messages").fetchone()["body"] is None
+            row = conn.execute(
+                "SELECT body_text, body_source FROM email_messages").fetchone()
+        assert row["body_text"] is None
+        assert row["body_source"] is None
 
     def test_attachment_dedup_is_scoped_to_one_email(self, at_v7):
         m008.migrate(at_v7)
@@ -429,6 +432,30 @@ class TestEmailBodyAndAttachments:
     def test_refuses_to_run_out_of_order(self, legacy_db):
         assert m008.migrate(legacy_db) == 1
 
+    def test_email_recorded_before_migration_survives_rerun(self, migrated_db):
+        """Additive. An email recorded before the migration survives a re-run unchanged."""
+        store = StorageManager(migrated_db)
+        store.record_email(message_id="<pre@x>", sender="a@x", subject="Before")
+        with connect(migrated_db) as conn:
+            before = conn.execute("SELECT COUNT(*) c FROM email_messages").fetchone()["c"]
+        assert m008.migrate(migrated_db) == 0
+        with connect(migrated_db) as conn:
+            after = conn.execute("SELECT COUNT(*) c FROM email_messages").fetchone()["c"]
+            row = conn.execute(
+                "SELECT subject, body_text FROM email_messages "
+                "WHERE message_id = '<pre@x>'").fetchone()
+        assert after == before
+        assert row["subject"] == "Before"
+        assert row["body_text"] is None
+
+    def test_refuses_an_invalid_body_source(self, migrated_db):
+        """The CHECK is enforced by SQLite, not only by the Python guard."""
+        with connect(migrated_db) as conn:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO email_messages (message_id, sender, body_text, body_source) "
+                    "VALUES ('<bad@x>', 'a@x', 'text', 'invented')")
+
 
 # =====================================================================
 # Migration 009
@@ -440,13 +467,15 @@ class TestAIDocumentFields:
             assert m.migrate(legacy_db) == 0
         return legacy_db
 
-    def test_adds_category_summary_and_action_items(self, at_v8):
+    def test_adds_attachment_names_category_summary_and_action_items(self, at_v8):
         m009.migrate(at_v8)
         with connect(at_v8) as conn:
-            columns = [r["name"] for r in conn.execute("PRAGMA table_info(invoices)")]
+            email_columns = [r["name"] for r in conn.execute("PRAGMA table_info(email_messages)")]
+            invoice_columns = [r["name"] for r in conn.execute("PRAGMA table_info(invoices)")]
             tables = {r["name"] for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'")}
-        assert {"category", "summary"} <= set(columns)
+        assert "attachment_names" in email_columns
+        assert {"category", "summary"} <= set(invoice_columns)
         assert "action_items" in tables
 
     def test_existing_invoices_get_null_category_and_summary(self, at_v8):
@@ -486,6 +515,40 @@ class TestAIDocumentFields:
 
     def test_refuses_to_run_out_of_order(self, legacy_db):
         assert m009.migrate(legacy_db) == 1
+
+    def test_a_document_can_be_traced_to_its_email(self, migrated_db):
+        """The link that closed the gap: inbox/<file> back to the message that sent it."""
+        store = StorageManager(migrated_db)
+        result = store.record_email(
+            message_id="<x@v>", sender="billing@v.io", received_at="2026-09-01 09:00:00",
+            attachment_names=["INV-900.pdf", "statement.pdf"])
+        found = store.email_for_attachment("INV-900.pdf")
+        assert found["email_id"] == result["email_id"]
+        assert found["sender"] == "billing@v.io"
+
+    def test_an_unmatched_file_returns_none(self, migrated_db):
+        """A file dropped straight into inbox/ never had an email. Not an error."""
+        store = StorageManager(migrated_db)
+        store.record_email(message_id="<y@v>", sender="a@v.io",
+                           attachment_names=["other.pdf"])
+        assert store.email_for_attachment("INV-999.pdf") is None
+
+    def test_a_partial_name_does_not_match(self, migrated_db):
+        """'INV-9.pdf' must not match 'INV-90.pdf'. The delimiters exist for this."""
+        store = StorageManager(migrated_db)
+        store.record_email(message_id="<z@v>", sender="a@v.io",
+                           attachment_names=["INV-90.pdf"])
+        assert store.email_for_attachment("INV-9.pdf") is None
+
+    def test_the_newest_match_wins(self, migrated_db):
+        """Two emails attaching the same name cannot be told apart. Documented, not fixed."""
+        store = StorageManager(migrated_db)
+        store.record_email(message_id="<old@v>", sender="old@v.io",
+                           received_at="2026-01-01 09:00:00", attachment_names=["dup.pdf"])
+        newer = store.record_email(message_id="<new@v>", sender="new@v.io",
+                                   received_at="2026-08-01 09:00:00",
+                                   attachment_names=["dup.pdf"])
+        assert store.email_for_attachment("dup.pdf")["email_id"] == newer["email_id"]
 
 
 # =====================================================================

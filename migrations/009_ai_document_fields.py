@@ -1,25 +1,19 @@
-"""Migration 009: category, summary and action items from email_ai.py's document pass.
+"""Migration 009: attachment names, category, summary and action items.
 
     ./.venv/bin/python migrations/009_ai_document_fields.py [--db workflow_platform.db] [--dry-run]
 
-Why: `email_ai.py` (JJ's `jj/email-ai` branch) already classifies a document into a
-category, summarises it, and extracts the concrete follow-up actions it asks for
-(task / owner / deadline_text / evidence_quote). None of it had anywhere to live.
+Combines two additive changes that both belonged at version 9:
 
-invoices.category, invoices.summary
-    One document intelligence pass, added as two nullable columns rather than a new table:
-    both are one value per invoice, so a join buys nothing normalisation would need to pay
-    for. Nullable because the pass can fail (Ollama unreachable, a validation error)
-    independently of the main extraction, and a document must still be stored without it.
+email_messages.attachment_names
+    Comma-separated file names so inbox/<file> can be traced back to the email that
+    delivered it. A lookup, not a guarantee: the newest match wins when names collide.
 
-action_items
-    A list per invoice, so it gets its own table, shaped like `line_items`. Kept distinct
-    from `tasks`: a task is this pipeline's own routing decision (Review/Approve/Payment/
-    File); an action item is a claim about what the *document* says, with the model's
-    supporting quote kept alongside it so a person can check the claim without reopening
-    the file. `is_done` lets the dashboard offer a checklist without needing a second table.
+invoices.category, invoices.summary, action_items
+    Storage for email_ai.py's document-intelligence pass: business category, a one-line
+    summary, and follow-up actions with evidence quotes. Distinct from `tasks`, which
+    are this pipeline's routing decisions.
 
-Both additive. No existing table is rebuilt and no existing value changes.
+Both are additive. No existing table is rebuilt and no existing value changes.
 """
 
 import argparse
@@ -36,7 +30,7 @@ from storage import connect, table_exists  # noqa: E402
 FROM_VERSION = 8
 TARGET_VERSION = 9
 
-COLUMNS = [
+INVOICE_COLUMNS = [
     ("category", "TEXT"),
     ("summary", "TEXT"),
 ]
@@ -78,35 +72,40 @@ def migrate(db_path, dry_run=False):
         if not table_exists(conn, "invoices"):
             print("[!] No 'invoices' table. Run the earlier migrations first.")
             return 1
+        if not table_exists(conn, "email_messages"):
+            print("[!] No 'email_messages' table. Run the earlier migrations first.")
+            return 1
 
         version = current_version(conn)
-        existing = column_names(conn, "invoices")
-        has_columns = all(name in existing for name, _ in COLUMNS)
-        has_table = table_exists(conn, "action_items")
+        email_cols = column_names(conn, "email_messages")
+        invoice_cols = column_names(conn, "invoices")
+        has_attachment_names = "attachment_names" in email_cols
+        has_invoice_columns = all(name in invoice_cols for name, _ in INVOICE_COLUMNS)
+        has_action_items = table_exists(conn, "action_items")
 
-        if has_columns and has_table:
-            print(f"[*] category/summary/action_items already exist. Database at version {version}.")
+        if has_attachment_names and has_invoice_columns and has_action_items:
+            print(f"[*] attachment_names, category/summary and action_items already exist. "
+                  f"Database at version {version}.")
             return 0 if (version is not None and version >= TARGET_VERSION) else 1
         if version != FROM_VERSION:
             print(f"[!] Expected schema version {FROM_VERSION}, found {version}. Refusing to run.")
             return 1
 
+        emails_before = conn.execute("SELECT COUNT(*) c FROM email_messages").fetchone()["c"]
         invoices_before = conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"]
         sum_before = conn.execute("SELECT COALESCE(SUM(total_cents),0) s FROM invoices").fetchone()["s"]
 
-    print(f"=== Migration 009: category, summary, action items in {db_path} ===")
-    print(f"[*] {invoices_before} invoices at schema version {version}. This migration is additive.")
+    print(f"=== Migration 009: attachment names and document intelligence in {db_path} ===")
+    print(f"[*] {invoices_before} invoices, {emails_before} emails at schema version {version}.")
 
     if dry_run:
         print("[*] Dry run: planning only, no writes.\n")
         print("Would add:")
-        print("    invoices.category   nullable, existing rows get NULL")
-        print("    invoices.summary    nullable, existing rows get NULL")
+        print("    email_messages.attachment_names   comma-separated file names")
+        print("    invoices.category                 nullable")
+        print("    invoices.summary                  nullable")
         print("Would create:")
-        print("    action_items        one row per follow-up action, unique on")
-        print("                        (invoice_id, line_no)")
-        print("\nNothing backfills existing rows: the document-intelligence pass has to")
-        print("actually run (main.py) to populate these, same as line_items did originally.")
+        print("    action_items                      one row per follow-up action")
         print("\nDry run only. Re-run without --dry-run to apply.")
         return 0
 
@@ -118,10 +117,13 @@ def migrate(db_path, dry_run=False):
     conn = connect(db_path)
     try:
         conn.execute("BEGIN")
-        if not has_columns:
-            for name, definition in COLUMNS:
-                conn.execute(f"ALTER TABLE invoices ADD COLUMN {name} {definition}")
-        if not has_table:
+        if not has_attachment_names:
+            conn.execute("ALTER TABLE email_messages ADD COLUMN attachment_names TEXT")
+        if not has_invoice_columns:
+            for name, definition in INVOICE_COLUMNS:
+                if name not in column_names(conn, "invoices"):
+                    conn.execute(f"ALTER TABLE invoices ADD COLUMN {name} {definition}")
+        if not has_action_items:
             conn.executescript(DDL_V9)
         conn.execute("INSERT INTO schema_version (version) VALUES (?)", (TARGET_VERSION,))
         violations = conn.execute("PRAGMA foreign_key_check").fetchall()
@@ -136,28 +138,32 @@ def migrate(db_path, dry_run=False):
         conn.close()
 
     with connect(db_path) as conn:
+        emails_after = conn.execute("SELECT COUNT(*) c FROM email_messages").fetchone()["c"]
         invoices_after = conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"]
         sum_after = conn.execute("SELECT COALESCE(SUM(total_cents),0) s FROM invoices").fetchone()["s"]
         action_items = conn.execute("SELECT COUNT(*) c FROM action_items").fetchone()["c"]
+        named = conn.execute(
+            "SELECT COUNT(*) c FROM email_messages "
+            "WHERE attachment_names IS NOT NULL").fetchone()["c"]
 
     print("\n" + "=" * 66)
+    print(f"  emails       {emails_before} -> {emails_after}")
+    print(f"  with names   {named}")
     print(f"  invoices     {invoices_before} -> {invoices_after}")
     print(f"  sum(total)   {sum_before/100:,.2f} -> {sum_after/100:,.2f}")
     print(f"  action_items {action_items} recorded (0 expected on first run)")
     print("=" * 66)
 
-    if (invoices_before, sum_before) != (invoices_after, sum_after):
+    if (emails_before, invoices_before, sum_before) != (emails_after, invoices_after, sum_after):
         print("[!] Data moved during an additive migration. Investigate.")
         return 1
     print("No existing rows or totals changed, as an additive migration requires.")
-    print("Existing invoices have category = NULL and summary = NULL: they predate the")
-    print("document-intelligence pass. Re-run main.py to populate them for existing files")
-    print("(or reprocess.py --restore to bring a file back from archive/ first).")
     return 0
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Add category, summary and action items.")
+    parser = argparse.ArgumentParser(
+        description="Add attachment names, category, summary and action items.")
     parser.add_argument("--db", default=storage.DEFAULT_DB_PATH)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()

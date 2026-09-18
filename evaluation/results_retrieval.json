@@ -1,0 +1,200 @@
+{
+  "corpus_size": 18,
+  "k": 5,
+  "queries": [
+    {
+      "query": "prior mail from nextgenhardware.com.au",
+      "family": "vendor",
+      "n_relevant": 5,
+      "strategies": {
+        "sender": {
+          "precision": 0.8,
+          "recall": 0.8,
+          "mrr": 0.5,
+          "returned": 5
+        },
+        "keyword": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "mrr": 0.0,
+          "returned": 1
+        },
+        "hybrid": {
+          "precision": 0.8,
+          "recall": 0.8,
+          "mrr": 0.5,
+          "returned": 5
+        }
+      }
+    },
+    {
+      "query": "thread INV-2026-015",
+      "family": "thread",
+      "n_relevant": 4,
+      "strategies": {
+        "sender": {
+          "precision": 0.6,
+          "recall": 0.75,
+          "mrr": 0.333,
+          "returned": 5
+        },
+        "keyword": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "mrr": 1.0,
+          "returned": 4
+        },
+        "hybrid": {
+          "precision": 0.8,
+          "recall": 1.0,
+          "mrr": 1.0,
+          "returned": 5
+        }
+      }
+    },
+    {
+      "query": "prior mail from apexcloud.io",
+      "family": "vendor",
+      "n_relevant": 5,
+      "strategies": {
+        "sender": {
+          "precision": 0.8,
+          "recall": 0.8,
+          "mrr": 0.5,
+          "returned": 5
+        },
+        "keyword": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "mrr": 0.0,
+          "returned": 1
+        },
+        "hybrid": {
+          "precision": 0.8,
+          "recall": 0.8,
+          "mrr": 0.5,
+          "returned": 5
+        }
+      }
+    },
+    {
+      "query": "thread INV-2026-005",
+      "family": "thread",
+      "n_relevant": 4,
+      "strategies": {
+        "sender": {
+          "precision": 0.6,
+          "recall": 0.75,
+          "mrr": 0.333,
+          "returned": 5
+        },
+        "keyword": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "mrr": 1.0,
+          "returned": 4
+        },
+        "hybrid": {
+          "precision": 0.8,
+          "recall": 1.0,
+          "mrr": 1.0,
+          "returned": 5
+        }
+      }
+    },
+    {
+      "query": "prior mail from synthetix.ai",
+      "family": "vendor",
+      "n_relevant": 5,
+      "strategies": {
+        "sender": {
+          "precision": 0.8,
+          "recall": 0.8,
+          "mrr": 0.5,
+          "returned": 5
+        },
+        "keyword": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "mrr": 0.0,
+          "returned": 1
+        },
+        "hybrid": {
+          "precision": 0.8,
+          "recall": 0.8,
+          "mrr": 0.5,
+          "returned": 5
+        }
+      }
+    },
+    {
+      "query": "thread INV-2026-025",
+      "family": "thread",
+      "n_relevant": 4,
+      "strategies": {
+        "sender": {
+          "precision": 0.6,
+          "recall": 0.75,
+          "mrr": 0.333,
+          "returned": 5
+        },
+        "keyword": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "mrr": 1.0,
+          "returned": 4
+        },
+        "hybrid": {
+          "precision": 0.8,
+          "recall": 1.0,
+          "mrr": 1.0,
+          "returned": 5
+        }
+      }
+    }
+  ],
+  "summary": {
+    "sender": {
+      "vendor": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "mrr": 0.5,
+        "n_queries": 3
+      },
+      "thread": {
+        "precision": 0.6,
+        "recall": 0.75,
+        "mrr": 0.333,
+        "n_queries": 3
+      }
+    },
+    "keyword": {
+      "vendor": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "mrr": 0.0,
+        "n_queries": 3
+      },
+      "thread": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "mrr": 1.0,
+        "n_queries": 3
+      }
+    },
+    "hybrid": {
+      "vendor": {
+        "precision": 0.8,
+        "recall": 0.8,
+        "mrr": 0.5,
+        "n_queries": 3
+      },
+      "thread": {
+        "precision": 0.8,
+        "recall": 1.0,
+        "mrr": 1.0,
+        "n_queries": 3
+      }
+    }
+  }
+}

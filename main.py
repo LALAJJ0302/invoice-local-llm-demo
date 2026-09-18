@@ -9,6 +9,7 @@ from pypdf import PdfReader
 import ollama
 
 import email_ai
+import retrieval
 import storage
 from storage import StorageManager
 
@@ -271,34 +272,63 @@ class ConfidenceValidator:
 
     # -- scoring -------------------------------------------------------
     def explain(self, data: ExtractedInvoice, raw_text: str) -> dict:
-        """The per-check detail behind the score, so a task can carry a real reason."""
+        """The per-check detail behind the score, so a task can carry a real reason.
+
+        A score of 1.00 means the extraction is complete: no field is empty, every value
+        that can be checked against the document agrees with it, and the amount was found
+        beside a grand-total label. Anything missing reduces the score. A document scoring
+        0.85 with 'items' empty is telling you precisely what it failed to read.
+        """
         lower_text = raw_text.lower()
         amount_state = self.verify_amount(data.total_amount, raw_text)
 
+        rows = storage.normalise_items([i.model_dump() for i in data.items])
+        reconciliation = storage.reconcile(storage.to_cents(data.total_amount), rows)
+
+        # Completeness: is anything empty? 0.40 of the score, 0.06 per header field and
+        # 0.10 for line items, which are worth more because they are a whole table.
+        complete = {
+            "invoice_number": bool(data.invoice_number and data.invoice_number != "None"),
+            "vendor": bool(data.vendor_name and data.vendor_name != "Unknown Vendor"),
+            "date": bool(data.date and str(data.date) != "None"),
+            "currency": bool(data.currency and data.currency != "Unknown"),
+            "total": bool(data.total_amount and data.total_amount > 0),
+        }
+        has_items = bool(data.items)
+
+        # Agreement with the document: is any of it invented? 0.60 of the score.
         checks = {
-            "invoice_number_present": bool(data.invoice_number and data.invoice_number != "None"),
-            "vendor_present": bool(data.vendor_name and data.vendor_name != "Unknown Vendor"),
-            "total_present": bool(data.total_amount and data.total_amount > 0),
             "invoice_number_in_text": bool(
                 data.invoice_number and data.invoice_number.lower() in lower_text),
             "vendor_in_text": bool(data.vendor_name and data.vendor_name.lower() in lower_text),
+            "vendor_is_not_a_label": not self._looks_like_a_label(data.vendor_name),
         }
+        checks.update({f"{k}_present": v for k, v in complete.items()})
+        checks["items_present"] = has_items
 
-        # Completeness 0.40, agreement with the document 0.60.
         score = (
-            0.15 * checks["invoice_number_present"]
-            + 0.10 * checks["vendor_present"]
-            + 0.15 * checks["total_present"]
-            + 0.20 * checks["invoice_number_in_text"]
-            + 0.15 * checks["vendor_in_text"]
+            0.06 * sum(complete.values())
+            + 0.10 * has_items
+            + 0.10 * checks["invoice_number_in_text"]
+            + 0.08 * checks["vendor_in_text"]
+            + 0.07 * checks["vendor_is_not_a_label"]
             + {"verified": 0.25, "present": 0.125, "absent": 0.0}[amount_state]
+            + {"exact": 0.10, "plausible": 0.10, "unknown": 0.05, "short": 0.0}[reconciliation]
         )
         score = round(min(score, 1.0), 2)
 
-        # A hard rule, not a weighting. A weighted score that happens to land below the
+        # Hard rules, not weightings. A weighted score that happens to land below the
         # threshold is fragile: change one weight and the guarantee disappears silently.
-        # The policy is that money we could not confirm is never auto-approved.
-        passes = score >= self.threshold and amount_state == "verified"
+        # Money we could not confirm is never auto-approved; nor is a vendor that is
+        # actually a field label; nor line items that exceed the total they belong to.
+        passes = (
+            score >= self.threshold
+            and amount_state == "verified"
+            and reconciliation != "short"
+            and checks["vendor_is_not_a_label"]
+        )
+
+        empty = [k for k, v in complete.items() if not v] + ([] if has_items else ["items"])
 
         if amount_state == "absent":
             reason = (f"The total {data.total_amount} does not appear in the document."
@@ -306,8 +336,17 @@ class ConfidenceValidator:
         elif amount_state == "present":
             reason = (f"The total {data.total_amount} appears in the document but not beside a "
                       "grand-total label, so it may be a line item rather than the amount due.")
+        elif not checks["vendor_is_not_a_label"]:
+            reason = (f"The vendor {data.vendor_name!r} begins with a field label, so the "
+                      "extraction captured the caption rather than the value.")
+        elif reconciliation == "short":
+            reason = ("The line items add up to more than the stated total, which neither tax "
+                      "nor shipping explains.")
         elif not passes:
             reason = f"Validation score {score:.2f} is below the {self.threshold:.2f} threshold."
+        elif empty:
+            reason = ("Passed the validation gate, with "
+                      f"{', '.join(empty)} not extracted. Awaiting business approval.")
         else:
             reason = "Passed the validation gate. Awaiting business approval."
 
@@ -315,6 +354,8 @@ class ConfidenceValidator:
             "score": score,
             "status": "Validated" if passes else "NeedsReview",
             "amount_state": amount_state,
+            "reconciliation": reconciliation,
+            "empty": empty,
             "checks": checks,
             "reason": reason,
         }
@@ -351,7 +392,10 @@ class DocumentIntelligenceRunner:
                 body="",
                 attachments=[email_ai.ParsedAttachment(filename=file_name, content=raw_text)],
             )
-            return email_ai.analyse_email(message)
+            # analyse_email returns EmailAnalysisOutcome; category/summary/
+            # action_items live on outcome.analysis, which matches this method's
+            # declared return type.
+            return email_ai.analyse_email(message).analysis
         except Exception as error:
             # Broad on purpose, matching DocumentExtractor.extract_invoice_data: a
             # connection error, a validation error and an Ollama response error are all
@@ -477,6 +521,27 @@ class WorkflowOrchestrator:
                 print(f"  └─ [Fail] AI extraction failed.")
                 continue
 
+            # 2b. Trace the document back to the email that delivered it, then pull that
+            # sender's prior correspondence as context. A miss is normal rather than an
+            # error: a file dropped straight into inbox/ never had an email.
+            delivered_by = self.storage.email_for_attachment(file_name)
+            email_id = delivered_by["email_id"] if delivered_by else None
+            context = ""
+            if delivered_by:
+                print(f"  └─ [Step 2b: Link] Delivered by email_id={email_id} "
+                      f"from {delivered_by['sender']}")
+                hits = retrieval.retrieve(sender=delivered_by["sender"],
+                                          strategy="sender", limit=3,
+                                          db_path=self.storage.db_path)
+                # Exclude the email that carried this very document: it is not history.
+                hits = [h for h in hits if h["email_id"] != email_id]
+                if hits:
+                    context = retrieval.as_context(hits, max_chars=1200)
+                    print(f"  └─ [Step 2c: Retrieval] {len(hits)} prior emails, "
+                          f"{len(context)} chars of context")
+            else:
+                print("  └─ [Step 2b: Link] No email matched this file")
+
             # 3. Validation Gate
             verdict = self.validator.explain(data, raw_text)
             confidence, status = verdict["score"], verdict["status"]
@@ -530,6 +595,7 @@ class WorkflowOrchestrator:
                 category=analysis.category if analysis else None,
                 summary=analysis.summary if analysis else None,
                 action_items=self.intelligence.as_action_item_rows(analysis),
+                email_id=email_id,
             )
             processed_count += 1
 
@@ -553,19 +619,20 @@ class WorkflowOrchestrator:
                       f"File left in {self.inbox_dir} for the next run.")
 
             # 5. Downstream Dispatch
-            # A validation_score of 1.0 means every completeness/agreement check passed and
-            # the amount was verified against the document -- nothing left for a human to
-            # catch. That document skips the Review/Approve task and goes straight to the
-            # same post-approval hand-off a human approval would trigger. Anything below 1.0
-            # still opens a task and waits for a person.
-            if confidence >= 1.0:
+            # Auto-approval is a hard rule, not a weight implication: score 1.0 alone is
+            # not enough. The amount must also be verified against the document
+            # (validation-gate-spec.md section 2). Checking amount_state explicitly means a
+            # future weight change cannot silently auto-approve unverified money. Anything
+            # that fails either check still opens a task and waits for a person.
+            if confidence >= 1.0 and verdict["amount_state"] == "verified":
                 followup = self.storage.auto_approve(result["invoice_id"])
                 self.storage.queue_outbound(
                     result["invoice_id"], "Teams",
                     f"{file_name}: Auto-approved (validation score {confidence:.2f}, "
-                    "no review needed).",
+                    "amount verified, no review needed).",
                 )
-                print(f"  └─ [Auto-Approval] Score {confidence:.2f} -- approved without a "
+                print(f"  └─ [Auto-Approval] Score {confidence:.2f}, amount verified -- "
+                      "approved without a "
                       "review task.")
                 if followup and followup["was_created"]:
                     print(f"  └─ [Task Queue] Opened {followup['task_type']} task "

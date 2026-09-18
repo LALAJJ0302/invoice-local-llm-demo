@@ -1,22 +1,17 @@
-"""Migration 008: capture email bodies, and add attachment-level dedup.
+"""Migration 008: email bodies, provenance, and attachment-level dedup.
 
     ./.venv/bin/python migrations/008_email_body_and_attachments.py [--db workflow_platform.db] [--dry-run]
 
-Why: `email_listener.py` downloaded attachments and discarded everything else about the
-email. Two gaps followed from that.
+Combines two additive changes that both belonged at version 8:
 
-email_messages.body
-    Nothing recorded what an email actually said, only who sent it and how many files came
-    with it. The dashboard's "Original Source" panel needs somewhere to show it.
+email_messages.body_text, email_messages.body_source
+    Intake and retrieval need the message body, not just the envelope. body_source
+    records provenance ('intake' or 'mock') so a result measured over generated text
+    is never reported as real correspondence.
 
 email_attachments
-    Attachment-level dedup did not exist. `email_messages` already gives intake duplicate
-    protection *per email* (keyed on Message-ID), but a re-run partway through a batch, or
-    the same bytes attached twice inside one multipart message, had no protection at the
-    attachment level: the only thing stopping a re-download was a filename collision on
-    disk, which says nothing about content. This table is keyed on
-    (email_id, content_sha256), checked by `has_seen_attachment()` before anything is
-    written to disk.
+    Attachment-level dedup keyed on (email_id, content_sha256), checked by
+    has_seen_attachment() before anything is written to disk.
 
 Both are additive. No existing table is rebuilt and no existing value changes.
 """
@@ -34,8 +29,6 @@ from storage import connect, table_exists  # noqa: E402
 
 FROM_VERSION = 7
 TARGET_VERSION = 8
-
-ADD_BODY = "ALTER TABLE email_messages ADD COLUMN body TEXT"
 
 DDL_V8 = """
 CREATE TABLE email_attachments (
@@ -74,11 +67,14 @@ def migrate(db_path, dry_run=False):
             return 1
 
         version = current_version(conn)
-        has_body = "body" in column_names(conn, "email_messages")
-        has_table = table_exists(conn, "email_attachments")
+        cols = column_names(conn, "email_messages")
+        has_body_text = "body_text" in cols
+        has_body_source = "body_source" in cols
+        has_attachments_table = table_exists(conn, "email_attachments")
 
-        if has_body and has_table:
-            print(f"[*] body and email_attachments already exist. Database at version {version}.")
+        if has_body_text and has_body_source and has_attachments_table:
+            print(f"[*] body_text/body_source and email_attachments already exist. "
+                  f"Database at version {version}.")
             return 0 if (version is not None and version >= TARGET_VERSION) else 1
         if version != FROM_VERSION:
             print(f"[!] Expected schema version {FROM_VERSION}, found {version}. Refusing to run.")
@@ -91,8 +87,9 @@ def migrate(db_path, dry_run=False):
 
     if dry_run:
         print("[*] Dry run: planning only, no writes.\n")
-        print("Would add:")
-        print("    email_messages.body   nullable, existing rows get NULL (body unknown)")
+        print("Would add to email_messages:")
+        print("    body_text    TEXT, NULL where the body was never captured")
+        print("    body_source  TEXT CHECK (NULL, 'intake', 'mock')")
         print("Would create:")
         print("    email_attachments     one row per saved attachment, unique on")
         print("                          (email_id, content_sha256)")
@@ -107,9 +104,13 @@ def migrate(db_path, dry_run=False):
     conn = connect(db_path)
     try:
         conn.execute("BEGIN")
-        if not has_body:
-            conn.execute(ADD_BODY)
-        if not has_table:
+        if not has_body_text:
+            conn.execute("ALTER TABLE email_messages ADD COLUMN body_text TEXT")
+        if not has_body_source:
+            conn.execute(
+                "ALTER TABLE email_messages ADD COLUMN body_source TEXT "
+                "CHECK (body_source IS NULL OR body_source IN ('intake','mock'))")
+        if not has_attachments_table:
             conn.executescript(DDL_V8)
         conn.execute("INSERT INTO schema_version (version) VALUES (?)", (TARGET_VERSION,))
         violations = conn.execute("PRAGMA foreign_key_check").fetchall()
@@ -126,9 +127,12 @@ def migrate(db_path, dry_run=False):
     with connect(db_path) as conn:
         emails_after = conn.execute("SELECT COUNT(*) c FROM email_messages").fetchone()["c"]
         attachments = conn.execute("SELECT COUNT(*) c FROM email_attachments").fetchone()["c"]
+        with_body = conn.execute(
+            "SELECT COUNT(*) c FROM email_messages WHERE body_text IS NOT NULL").fetchone()["c"]
 
     print("\n" + "=" * 66)
     print(f"  emails       {emails_before} -> {emails_after}")
+    print(f"  with a body  {with_body}")
     print(f"  attachments  {attachments} recorded (0 expected: nothing backfills history "
           "that was never captured)")
     print("=" * 66)
@@ -137,8 +141,8 @@ def migrate(db_path, dry_run=False):
         print("[!] Emails moved during an additive migration. Investigate.")
         return 1
     print("No existing rows changed, as an additive migration requires.")
-    print("Existing emails have body = NULL: they predate intake capturing bodies, and NULL")
-    print("correctly means 'not known', not 'empty'.")
+    print("Existing emails have body_text = NULL until intake or seed_mock_emails.py writes one.")
+    print("body_source keeps mock and real correspondence apart in retrieval queries.")
     return 0
 
 

@@ -4,11 +4,13 @@ Reads nothing from the live pipeline's inbox/ or archive/, and modifies no file 
 the repository. The fallback switch is applied by monkey-patching at runtime so
 main.py stays untouched.
 
-The switch covers EVERY method matching _infer_*_fallback, discovered at runtime
-rather than listed here. It used to name one method. On 2026-09-03 a second
-fallback was added to main.py, the switch kept reporting "disabled", and the
-harness reported 93.3% for a model that scores 66.7%. A hardcoded list cannot
-know about a fallback added after it was written; a convention can.
+The switch covers EVERY repair our code applies to the model's output, discovered
+at runtime by naming convention rather than listed here: _infer_*_fallback fills a
+field the model omitted, _clean_* rewrites one it returned badly. It used to name
+one method. On 2026-09-03 a second fallback was added to main.py, the switch kept
+reporting "disabled", and the harness reported 93.3% for a model that scores 66.7%.
+A hardcoded list cannot know about a repair added after it was written; a
+convention can.
 
 Usage:
     python evaluation/run_eval.py                    # default: fallbacks disabled
@@ -30,7 +32,7 @@ sys.path.insert(0, REPO_ROOT)
 
 from pypdf import PdfReader  # noqa: E402
 
-import generate_mock_invoices  # noqa: E402
+from samples_fixture import ensure_samples  # noqa: E402
 from main import ConfidenceValidator, DocumentExtractor  # noqa: E402
 
 FIELDS = ["vendor_name", "invoice_number", "date", "total_amount", "currency"]
@@ -62,18 +64,22 @@ def matches(field, expected, actual):
     return normalise_text(actual) == normalise_text(expected)
 
 
-FALLBACK_PATTERN = re.compile(r"^_infer_.*_fallback$")
+# Every repair our own code applies to the model's output, by naming convention:
+# _infer_*_fallback produces a value the model omitted, _clean_* rewrites one it
+# returned. Both are our code, not the model, so both must be switchable off.
+FALLBACK_PATTERN = re.compile(r"^(?:_infer_.*_fallback|_clean_.*)$")
 
 
 def _neutraliser(name):
-    """A do-nothing stand-in matching how the pipeline uses each fallback.
+    """A do-nothing stand-in matching how the pipeline uses each repair.
 
-    Two shapes exist. A *gap-filler* is handed the parsed record and returns it,
-    so it must return its first argument unchanged or extraction loses the record.
-    A *value-producer* returns a single inferred value, so it must return None.
+    Two shapes exist, and getting them the wrong way round corrupts the run rather
+    than disabling it. A *transformer* is handed a value or record and returns it,
+    so it must return its first argument unchanged. A *producer* returns a value the
+    model did not supply, so it must return None.
     """
-    if "missing_fields" in name:
-        return lambda data, *a, **k: data
+    if name.startswith("_clean_") or "missing_fields" in name:
+        return lambda first, *a, **k: first
     return lambda *a, **k: None
 
 
@@ -87,7 +93,7 @@ def disable_fallbacks(extractor):
     names = sorted(n for n in dir(extractor) if FALLBACK_PATTERN.match(n))
     if not names:
         raise SystemExit(
-            "No methods matched _infer_*_fallback on DocumentExtractor.\n"
+            "No methods matched _infer_*_fallback or _clean_* on DocumentExtractor.\n"
             "Either main.py renamed them or the convention changed. Refusing to "
             "report a number that claims fallbacks are disabled when nothing was."
         )
@@ -96,11 +102,6 @@ def disable_fallbacks(extractor):
     return names
 
 
-def ensure_samples():
-    existing = [f for f in os.listdir(SAMPLES_DIR)] if os.path.isdir(SAMPLES_DIR) else []
-    if not any(f.endswith(".pdf") for f in existing):
-        print(f"[setup] Generating sample invoices into {SAMPLES_DIR}")
-        generate_mock_invoices.generate_all_mock_invoices(target_dir=SAMPLES_DIR)
 
 
 def main():
@@ -118,7 +119,7 @@ def main():
     args = parser.parse_args()
 
     truth = json.load(open(os.path.join(EVAL_DIR, "ground_truth.json")))["samples"]
-    ensure_samples()
+    ensure_samples(quiet=False)
 
     extractor = DocumentExtractor(model_name=args.model)
     disabled = [] if args.with_fallback else disable_fallbacks(extractor)

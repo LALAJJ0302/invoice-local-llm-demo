@@ -633,18 +633,20 @@ class TestTaskAssignment:
 # =====================================================================
 class TestEmailAttachments:
     def test_record_email_stores_the_body(self, store):
-        store.record_email("<x@mail>", "a@b.com", body="Please see the attached invoice.")
+        store.record_email("<x@mail>", "a@b.com", body_text="Please see the attached invoice.",
+                           body_source="intake")
         with connect(store.db_path) as conn:
-            assert conn.execute("SELECT body FROM email_messages").fetchone()["body"] == \
+            assert conn.execute("SELECT body_text FROM email_messages").fetchone()["body_text"] == \
                 "Please see the attached invoice."
 
     def test_a_call_without_a_body_does_not_erase_one_already_captured(self, store):
         """The envelope can be re-recorded (e.g. to update attachment_count) without the
         caller re-reading and re-passing the body every time."""
-        store.record_email("<x@mail>", "a@b.com", body="Original body.")
+        store.record_email("<x@mail>", "a@b.com", body_text="Original body.",
+                           body_source="intake")
         store.record_email("<x@mail>", "a@b.com", attachment_count=2)
         with connect(store.db_path) as conn:
-            assert conn.execute("SELECT body FROM email_messages").fetchone()["body"] == \
+            assert conn.execute("SELECT body_text FROM email_messages").fetchone()["body_text"] == \
                 "Original body."
 
     def test_has_seen_attachment_is_false_until_recorded(self, store):
@@ -1044,3 +1046,59 @@ class TestOutbox:
         with connect(store.db_path) as conn:
             conn.execute("DELETE FROM invoices WHERE invoice_id = ?", (invoice_id,))
             assert conn.execute("SELECT COUNT(*) c FROM outbound_messages").fetchone()["c"] == 0
+
+
+# =====================================================================
+# Email bodies, migration 008
+# =====================================================================
+class TestEmailBody:
+    """Retrieval needs the body. Sender and subject answer 'has this vendor written
+    before' and nothing else."""
+
+    def test_a_body_is_stored_with_its_source(self, store):
+        store.record_email(message_id="<a@x>", sender="a@x", body_text="Hello",
+                           body_source="mock")
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT body_text, body_source FROM email_messages").fetchone()
+        assert row["body_text"] == "Hello"
+        assert row["body_source"] == "mock"
+
+    def test_a_body_without_a_source_is_refused(self, store):
+        """An unattributable body is worse than none: a result measured over generated
+        text would be indistinguishable from one measured over real correspondence."""
+        with pytest.raises(ValueError, match="body_source"):
+            store.record_email(message_id="<b@x>", sender="a@x", body_text="Hello")
+
+    def test_an_invalid_source_is_refused(self, store):
+        with pytest.raises(ValueError, match="body_source"):
+            store.record_email(message_id="<c@x>", sender="a@x", body_text="Hi",
+                               body_source="guessed")
+
+    def test_no_body_is_allowed(self, store):
+        """Headers-only intake must keep working. The column is optional."""
+        result = store.record_email(message_id="<d@x>", sender="a@x")
+        assert result["already_seen"] is False
+
+    def test_a_refetch_without_a_body_does_not_erase_one(self, store):
+        """A header-only re-fetch must not delete what was already captured."""
+        store.record_email(message_id="<e@x>", sender="a@x", body_text="Original",
+                           body_source="mock")
+        store.record_email(message_id="<e@x>", sender="a@x", subject="Re: hello")
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT body_text, body_source, subject FROM email_messages").fetchone()
+        assert row["body_text"] == "Original"
+        assert row["body_source"] == "mock"
+        assert row["subject"] == "Re: hello"      # other fields still update
+
+    def test_a_refetch_with_a_body_replaces_it(self, store):
+        store.record_email(message_id="<f@x>", sender="a@x", body_text="First",
+                           body_source="mock")
+        store.record_email(message_id="<f@x>", sender="a@x", body_text="Second",
+                           body_source="intake")
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT body_text, body_source FROM email_messages").fetchone()
+        assert row["body_text"] == "Second"
+        assert row["body_source"] == "intake"
