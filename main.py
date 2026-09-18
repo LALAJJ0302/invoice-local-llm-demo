@@ -158,6 +158,8 @@ class DocumentExtractor:
             if not parsed_data.vendor_name or parsed_data.vendor_name.strip() in ["", "None", "null"]:
                 parsed_data.vendor_name = self._infer_vendor_fallback(raw_text, file_name)
 
+            parsed_data.vendor_name = self._clean_vendor_label(parsed_data.vendor_name)
+
             # Deterministic regex fallback for the remaining structured fields
             parsed_data = self._infer_missing_fields_fallback(parsed_data, raw_text)
 
@@ -165,6 +167,26 @@ class DocumentExtractor:
         except Exception as error:
             print(f"  [Error] LLM Extraction failed: {error}")
             return None
+
+    # Field captions the model sometimes copies along with the value it was asked for.
+    VENDOR_LABELS = ("vendor:", "supplier:", "seller:", "from:", "billed from:", "bill to:")
+
+    def _clean_vendor_label(self, value: Optional[str]) -> Optional[str]:
+        """Strips a leading field caption from an extracted vendor name.
+
+        On 2026-09-03 the model returned 'Vendor: Apex Cloud Solutions Pty Ltd' for
+        invoice 1: the whole line, caption included. This is a repair to our output, not
+        an extraction, so it is named to match the convention evaluation/run_eval.py uses
+        to switch repairs off. With repairs disabled the harness still sees the caption,
+        which is the point: fixing this quietly would delete the evidence that it happens.
+        """
+        if not value:
+            return value
+        text = str(value).strip()
+        for label in self.VENDOR_LABELS:
+            if text.lower().startswith(label):
+                return text[len(label):].strip() or None
+        return text
 
     def _infer_missing_fields_fallback(self, data: ExtractedInvoice, raw_text: str) -> ExtractedInvoice:
         """Deterministic regex fallback that backfills fields the LLM missed.
