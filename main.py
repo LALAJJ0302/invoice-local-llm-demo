@@ -11,6 +11,7 @@ import ollama
 import email_ai
 import retrieval
 import storage
+import task_dispatch
 from storage import StorageManager
 
 # =====================================================================
@@ -221,6 +222,12 @@ class ConfidenceValidator:
     # evaluation/samples, where the label and the amount are on adjacent lines. Wider windows
     # start accepting line-item amounts as though they were the total.
     LABEL_WINDOW = 2
+
+    VENDOR_LABELS = ("vendor:", "supplier:", "seller:", "from:", "billed from:", "bill to:")
+
+    @classmethod
+    def _looks_like_a_label(cls, value: Optional[str]) -> bool:
+        return bool(value) and str(value).strip().lower().startswith(cls.VENDOR_LABELS)
 
     def __init__(self, threshold: float = 0.80):
         self.threshold = threshold
@@ -446,14 +453,6 @@ class DownstreamDispatcher:
 
         result = self.storage.open_task(invoice_id, task_type, reason)
 
-        # The Teams line is still simulated. What changed is that the intent is recorded in
-        # outbound_messages instead of only printed, so "what have we dispatched, and did it
-        # succeed" is answerable. Nothing here contacts Teams; the row stays Pending.
-        self.storage.queue_outbound(
-            invoice_id, "Teams",
-            f"{file_name}: {status} at score {score:.2f}. {reason}",
-            task_id=result["task_id"])
-        print(f"  └─ [Teams Webhook] Queued for {file_name} (Status: {status}, Score: {score})")
         if result["was_created"]:
             print(f"  └─ [Task Queue] Opened {task_type} task #{result['task_id']}: {reason}")
         else:
@@ -626,17 +625,24 @@ class WorkflowOrchestrator:
             # that fails either check still opens a task and waits for a person.
             if confidence >= 1.0 and verdict["amount_state"] == "verified":
                 followup = self.storage.auto_approve(result["invoice_id"])
-                self.storage.queue_outbound(
-                    result["invoice_id"], "Teams",
-                    f"{file_name}: Auto-approved (validation score {confidence:.2f}, "
-                    "amount verified, no review needed).",
-                )
                 print(f"  └─ [Auto-Approval] Score {confidence:.2f}, amount verified -- "
                       "approved without a "
                       "review task.")
-                if followup and followup["was_created"]:
-                    print(f"  └─ [Task Queue] Opened {followup['task_type']} task "
-                          f"#{followup['task_id']} (post-approval hand-off).")
+                if followup:
+                    if followup["was_created"]:
+                        print(f"  └─ [Task Queue] Opened {followup['task_type']} task "
+                              f"#{followup['task_id']} (post-approval hand-off).")
+                    else:
+                        print(f"  └─ [Task Queue] {followup['task_type']} task "
+                              f"#{followup['task_id']} already open.")
+                    task_dispatch.dispatch_task_to_jira(
+                        self.storage,
+                        followup["task_id"],
+                        result["invoice_id"],
+                        followup["task_type"],
+                        followup.get("reason") or "Auto-approved invoice follow-up.",
+                        approval_path="auto",
+                    )
             else:
                 self.dispatcher.dispatch(result["invoice_id"], file_name, status, confidence,
                                          reason=verdict["reason"])

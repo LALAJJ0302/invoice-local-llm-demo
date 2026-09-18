@@ -3,7 +3,8 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from storage import DEFAULT_DB_PATH, StorageManager, connect
+import task_dispatch
+from storage import APPROVAL_TASK_TYPES, DEFAULT_DB_PATH, StorageManager, connect
 
 # =====================================================================
 # 1. Page Configuration
@@ -115,7 +116,9 @@ def set_action_item_done(action_item_id: int, is_done: bool):
 
 def assign_task(task_id: int, assignee: str):
     """A person claiming (or clearing, with an empty string) a task from the queue."""
-    StorageManager(DB_PATH).assign_task(task_id, assignee or None)
+    store = StorageManager(DB_PATH)
+    store.assign_task(task_id, assignee or None)
+    task_dispatch.sync_jira_assignee(store, task_id, assignee or None)
 
 def record_decision(record_id: int, decision: str):
     """Records a human decision about an invoice.
@@ -155,16 +158,24 @@ def record_decision(record_id: int, decision: str):
     # accepted. Nothing is sent anywhere; the outbox row stays Pending.
     if decision == "Approved":
         followup = store.open_followup_task(record_id)
-        if followup and followup["was_created"]:
-            store.queue_outbound(
-                record_id, "Planner",
-                f"Invoice {record_id} approved. Opened a {followup['task_type']} task.",
-                task_id=followup["task_id"])
+        if followup:
+            task_dispatch.dispatch_task_to_jira(
+                store,
+                followup["task_id"],
+                record_id,
+                followup["task_type"],
+                followup.get("reason") or f"Invoice {record_id} approved.",
+                approval_path="human",
+            )
 
 
 def load_open_tasks() -> pd.DataFrame:
-    """The work queue. Written by the pipeline, cleared by a human decision."""
-    rows = StorageManager(DB_PATH).open_tasks()
+    """The approval queue: Review and Approve tasks still waiting for a person.
+
+    Payment/File follow-ups are created after approval (including auto-approval) and
+    dispatched to Jira; they are not shown here.
+    """
+    rows = StorageManager(DB_PATH).open_tasks(task_types=APPROVAL_TASK_TYPES)
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame([{
@@ -178,6 +189,7 @@ def load_open_tasks() -> pd.DataFrame:
         "Data Quality": r["validation_status"],
         "Approval": r["approval_status"],
         "Assignee": r["assignee"] or "",
+        "Jira": r["external_ref"] or "",
         "Why": r["reason"],
         "Opened": r["created_at"],
     } for r in rows])
@@ -280,9 +292,11 @@ st.divider()
 # =====================================================================
 st.subheader("📌 Task Queue")
 st.caption(
-    "Work the pipeline handed to a person. `Review` means the extraction could not be trusted. "
-    "`Approve` means it was read cleanly but the money still needs a signature. A task leaves "
-    "the queue when someone approves or rejects the invoice below."
+    "Work still waiting for a person. `Review` means the extraction could not be trusted. "
+    "`Approve` means it was read cleanly but the money still needs a signature. A score of "
+    "1.00 with a verified amount is auto-approved and skips this queue; its Payment or File "
+    "follow-up goes to Jira. A task leaves the queue when someone approves or rejects the "
+    "invoice below."
 )
 
 if open_tasks_df.empty:
@@ -293,7 +307,7 @@ else:
         open_tasks_df,
         use_container_width=True,
         hide_index=True,
-        disabled=[c for c in open_tasks_df.columns if c != "Assignee"],
+        disabled=[c for c in open_tasks_df.columns if c not in ("Assignee",)],
         column_config={
             "Amount": st.column_config.NumberColumn(format="%.2f"),
         },

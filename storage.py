@@ -22,6 +22,9 @@ VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
 VALID_TOTAL_SOURCES = ("model", "fallback", "manual")
 VALID_BODY_SOURCES = ("intake", "mock")
 VALID_TASK_TYPES = ("Review", "Approve", "Fix", "Payment", "File")
+# The dashboard queue: work that still needs a person to decide. Payment/File follow-ups
+# are created after approval (including auto-approval) and live in Jira, not here.
+APPROVAL_TASK_TYPES = ("Review", "Approve")
 VALID_RECONCILIATIONS = ("exact", "plausible", "short", "unknown")
 VALID_DOCUMENT_TYPES = ("Invoice", "Receipt", "Unknown")
 VALID_OUTBOUND_CHANNELS = ("Teams", "Jira", "Planner", "Email")
@@ -963,6 +966,35 @@ class StorageManager:
             conn.commit()
             return cursor.rowcount > 0
 
+    def set_task_external_ref(self, task_id: int, external_ref: str) -> bool:
+        """Records the external ticket key (e.g. Jira issue key) on a task."""
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE tasks SET external_ref = ? WHERE task_id = ?",
+                (external_ref, task_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def task_by_id(self, task_id: int) -> Optional[sqlite3.Row]:
+        """One task row, for Jira assignee sync."""
+        with connect(self.db_path) as conn:
+            return conn.execute(
+                "SELECT task_id, invoice_id, task_type, reason, assignee, external_ref, state "
+                "FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+
+    def invoice_summary(self, invoice_id: int) -> Optional[sqlite3.Row]:
+        """Header fields needed to build a Jira issue summary."""
+        with connect(self.db_path) as conn:
+            return conn.execute(
+                """SELECT invoice_id, file_name, vendor_name, validation_score,
+                          validation_status, document_type, total_cents
+                   FROM invoices WHERE invoice_id = ?""",
+                (invoice_id,),
+            ).fetchone()
+
     # -- action items (email_ai.py's document-intelligence pass) -------
     def action_items_for(self, invoice_id: int) -> List[sqlite3.Row]:
         """The follow-up actions email_ai.py found in this document, in extraction order."""
@@ -1011,6 +1043,7 @@ class StorageManager:
         task_type, reason = self.FOLLOWUP_BY_TYPE[row["document_type"]]
         result = self.open_task(invoice_id, task_type, reason)
         result["task_type"] = task_type
+        result["reason"] = reason
         return result
 
     def auto_approve(self, invoice_id: int) -> Optional[Dict[str, Any]]:
@@ -1019,7 +1052,9 @@ class StorageManager:
         the dashboard tells this apart from a human decision.
 
         Still hands off to the same post-approval work a human approval would: an invoice
-        still has to be paid, a receipt only has to be filed.
+        still has to be paid, a receipt only has to be filed. Any Review/Approve task left
+        open from an earlier run is closed first, so the document does not sit in the
+        dashboard queue after the decision has already been made.
         """
         with connect(self.db_path) as conn:
             conn.execute(
@@ -1027,17 +1062,22 @@ class StorageManager:
                 "WHERE invoice_id = ? AND approval_status = 'Pending'",
                 (invoice_id,))
             conn.commit()
+            row = conn.execute(
+                "SELECT approval_status FROM invoices WHERE invoice_id = ?",
+                (invoice_id,),
+            ).fetchone()
+        if row and row["approval_status"] == "Approved":
+            for task_type in APPROVAL_TASK_TYPES:
+                self.resolve_tasks(invoice_id, state="Done", task_type=task_type)
         return self.open_followup_task(invoice_id)
 
     # -- the outbox ----------------------------------------------------
     def queue_outbound(self, invoice_id: int, channel: str, payload: str,
                        task_id: Optional[int] = None) -> int:
-        """Records that something should reach an external system. Sends nothing.
+        """Records that something should reach an external system.
 
-        Rows are written Pending and stay there. No Teams, Jira or Planner call is made
-        anywhere in this codebase. This is the honest shape of where the project is: the
-        decision to notify is made and recorded, the transport is not built. A real
-        integration would read this table and fill in external_ref.
+        Jira rows may be marked Sent or Failed by task_dispatch.py when configured.
+        Teams and Planner rows stay Pending until a transport is built.
         """
         if channel not in VALID_OUTBOUND_CHANNELS:
             raise ValueError(f"channel must be one of {VALID_OUTBOUND_CHANNELS}, got {channel!r}")
@@ -1049,6 +1089,27 @@ class StorageManager:
             outbox_id = int(cursor.fetchone()["outbox_id"])
             conn.commit()
         return outbox_id
+
+    def mark_outbound_sent(self, outbox_id: int, external_ref: str) -> bool:
+        """Marks an outbox row as successfully dispatched."""
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE outbound_messages SET state = 'Sent', sent_at = datetime('now'), "
+                "external_ref = ? WHERE outbox_id = ?",
+                (external_ref, outbox_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def mark_outbound_failed(self, outbox_id: int, error: str) -> bool:
+        """Records a failed dispatch attempt without aborting the pipeline."""
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE outbound_messages SET state = 'Failed', error = ? WHERE outbox_id = ?",
+                (error, outbox_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def pending_outbound(self) -> List[sqlite3.Row]:
         """The dispatch queue: what would be sent if the integrations existed."""
@@ -1062,19 +1123,37 @@ class StorageManager:
                 ORDER BY o.created_at, o.outbox_id
             """).fetchall()
 
-    def open_tasks(self) -> List[sqlite3.Row]:
-        """The work queue: every live task with the invoice it belongs to."""
+    def open_tasks(self, task_types: Optional[Iterable[str]] = None) -> List[sqlite3.Row]:
+        """The work queue: every live task with the invoice it belongs to.
+
+        Pass task_types to restrict to those kinds. The dashboard queue asks for
+        APPROVAL_TASK_TYPES so Payment/File follow-ups (handed to Jira) stay out of it.
+        """
+        if task_types is not None:
+            task_types = tuple(task_types)
+            unknown = [t for t in task_types if t not in VALID_TASK_TYPES]
+            if unknown:
+                raise ValueError(
+                    f"task_type must be one of {VALID_TASK_TYPES}, got {unknown[0]!r}"
+                )
+            if not task_types:
+                return []
+
         placeholders = ",".join("?" for _ in OPEN_TASK_STATES)
-        with connect(self.db_path) as conn:
-            return conn.execute(
-                f"""
+        sql = f"""
                 SELECT t.task_id, t.task_type, t.reason, t.assignee, t.state, t.created_at,
+                       t.external_ref,
                        i.invoice_id, i.file_name, i.vendor_name, i.total_cents,
                        i.validation_status, i.approval_status, i.document_type
                 FROM tasks t
                 JOIN invoices i ON i.invoice_id = t.invoice_id
                 WHERE t.state IN ({placeholders})
-                ORDER BY t.created_at, t.task_id
-                """,
-                OPEN_TASK_STATES,
-            ).fetchall()
+                """
+        params: List[Any] = list(OPEN_TASK_STATES)
+        if task_types is not None:
+            type_placeholders = ",".join("?" for _ in task_types)
+            sql += f" AND t.task_type IN ({type_placeholders})"
+            params.extend(task_types)
+        sql += " ORDER BY t.created_at, t.task_id"
+        with connect(self.db_path) as conn:
+            return conn.execute(sql, params).fetchall()

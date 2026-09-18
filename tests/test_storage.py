@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from storage import (  # noqa: E402
+    APPROVAL_TASK_TYPES,
     SCHEMA_VERSION,
     SchemaMismatch,
     StorageManager,
@@ -561,6 +562,18 @@ class TestTasks:
         assert row["total_cents"] == 150000
         assert row["reason"] == "score below threshold"
 
+    def test_open_tasks_can_restrict_to_approval_types(self, store, invoice_id):
+        """The dashboard queue is Review/Approve only; Payment/File stay out of it."""
+        store.open_task(invoice_id, "Approve")
+        store.open_task(invoice_id, "Payment")
+        rows = store.open_tasks(task_types=APPROVAL_TASK_TYPES)
+        assert [r["task_type"] for r in rows] == ["Approve"]
+        assert [r["task_type"] for r in store.open_tasks()] == ["Approve", "Payment"]
+
+    def test_open_tasks_rejects_an_unknown_type(self, store):
+        with pytest.raises(ValueError):
+            store.open_tasks(task_types=("Escalate",))
+
     def test_deleting_an_invoice_cascades_to_its_tasks(self, store, invoice_id):
         store.open_task(invoice_id, "Review")
         with connect(store.db_path) as conn:
@@ -626,6 +639,18 @@ class TestTaskAssignment:
 
     def test_assigning_an_unknown_task_id_returns_false(self, store):
         assert store.assign_task(999999, "Luke") is False
+
+    def test_set_task_external_ref(self, store, task_id):
+        assert store.set_task_external_ref(task_id, "INV-3") is True
+        with connect(store.db_path) as conn:
+            assert conn.execute(
+                "SELECT external_ref FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()["external_ref"] == "INV-3"
+
+    def test_open_tasks_includes_external_ref(self, store, task_id):
+        store.set_task_external_ref(task_id, "INV-8")
+        row = store.open_tasks()[0]
+        assert row["external_ref"] == "INV-8"
 
 
 # =====================================================================
@@ -1007,6 +1032,23 @@ class TestAutoApprove:
         assert row["approval_status"] == "Rejected"
         assert row["reviewed_at"] is not None
 
+    def test_closes_a_preexisting_approve_task_and_still_opens_payment(self, store, run_id):
+        """Re-processing a document that already had an Approve task must not leave it in
+        the dashboard queue after auto-approval."""
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        approve = store.open_task(invoice_id, "Approve")
+        result = store.auto_approve(invoice_id)
+        assert result is not None
+        assert result["task_type"] == "Payment"
+        assert store.open_tasks(task_types=APPROVAL_TASK_TYPES) == []
+        assert [r["task_type"] for r in store.open_tasks()] == ["Payment"]
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT state FROM tasks WHERE task_id=?", (approve["task_id"],)
+            ).fetchone()
+        assert row["state"] == "Done"
+
 
 # =====================================================================
 # The outbox
@@ -1021,14 +1063,28 @@ class TestOutbox:
         rows = store.pending_outbound()
         assert len(rows) == 1 and rows[0]["state"] == "Pending"
 
-    def test_nothing_is_ever_sent(self, store, invoice_id):
-        """No code path in this project sets Sent. The transport does not exist, and the
-        outbox says so rather than pretending otherwise."""
-        store.queue_outbound(invoice_id, "Teams", "hello")
-        store.queue_outbound(invoice_id, "Jira", "world")
+    def test_mark_outbound_sent_sets_timestamp_and_ref(self, store, invoice_id):
+        outbox_id = store.queue_outbound(invoice_id, "Jira", "hello")
+        assert store.mark_outbound_sent(outbox_id, "INV-12") is True
         with connect(store.db_path) as conn:
-            states = {r["state"] for r in conn.execute("SELECT state FROM outbound_messages")}
-        assert states == {"Pending"}
+            row = conn.execute(
+                "SELECT state, sent_at, external_ref FROM outbound_messages WHERE outbox_id = ?",
+                (outbox_id,),
+            ).fetchone()
+        assert row["state"] == "Sent"
+        assert row["sent_at"] is not None
+        assert row["external_ref"] == "INV-12"
+
+    def test_mark_outbound_failed_records_error(self, store, invoice_id):
+        outbox_id = store.queue_outbound(invoice_id, "Jira", "hello")
+        assert store.mark_outbound_failed(outbox_id, "HTTP 401") is True
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT state, error FROM outbound_messages WHERE outbox_id = ?",
+                (outbox_id,),
+            ).fetchone()
+        assert row["state"] == "Failed"
+        assert row["error"] == "HTTP 401"
 
     def test_an_unknown_channel_is_rejected(self, store, invoice_id):
         with pytest.raises(ValueError):
