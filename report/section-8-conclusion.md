@@ -29,6 +29,18 @@ validation score of 1.00 should skip that action, and §7.2 sets out why that sh
 in its current form: every check the score performs is internal to the document, so a duplicate,
 an unknown vendor and a well-formatted fraud all score 1.00.
 
+**A fifth strand, added late and deliberately not claimed as an objective.** From September the
+system also reads the message around the invoice: it classifies an email, summarises it, and
+extracts the actions people committed to, each carrying the sentence it was inferred from. It
+runs end to end and its output is stored under the same constraints as everything else.
+
+It is reported here rather than as a fifth objective for two reasons. The objectives in §1.2
+were agreed when this project handled attachments only, and adding one retrospectively to match
+what was built would invert the relationship between them. More importantly, **there is nothing
+to claim.** §5.9 reports what a run produces and states that none of it is a score, because no
+ground truth exists for classification or summarisation. Presenting it beside four objectives
+that were each judged against evidence would borrow a credibility it has not earned.
+
 ## What the project establishes
 
 The result worth carrying forward is not the accuracy figure. It is that the same headline
@@ -65,3 +77,12 @@ That asymmetry is the project's most transferable conclusion. Verification of ou
 served by automation. Verification of reasoning is not, and a project that automates the first
 while assuming the second has been handled will produce confident, well-tested, incorrect
 explanations of its own results.
+
+A third category appeared late and is worth naming, because it sits between the two. A field
+that may be absent was covered by twenty-eight tests when the model returned the four-character
+string `"null"`, which is text rather than an absent value; every test still passed. No amount of
+reasoning would have found it and no additional test of the same kind would have either, because
+the input was one no author thinks to write. It was found by running the real model over real
+messages. **Automation verifies what was imagined, review verifies what was argued, and only
+running the system verifies what it actually does.** All three were necessary here, and the
+project used the third least.

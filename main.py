@@ -8,8 +8,10 @@ from pydantic import BaseModel, Field
 from pypdf import PdfReader
 import ollama
 
+import email_ai
 import retrieval
 import storage
+import task_dispatch
 from storage import StorageManager
 
 # =====================================================================
@@ -243,10 +245,6 @@ class ConfidenceValidator:
     # start accepting line-item amounts as though they were the total.
     LABEL_WINDOW = 2
 
-    # A vendor value starting with one of these is the caption, not the company. The model
-    # returned 'Vendor: Apex Cloud Solutions Pty Ltd' on 2026-09-03 and scored full marks,
-    # because the substring check is satisfied more easily by copying more of the document.
-    # Unrecognised labels are not penalised, so this check can only improve on not having it.
     VENDOR_LABELS = ("vendor:", "supplier:", "seller:", "from:", "billed from:", "bill to:")
 
     @classmethod
@@ -397,6 +395,51 @@ class ConfidenceValidator:
         return detail["score"], detail["status"]
 
 # =====================================================================
+# 3b. Document Intelligence (category / summary / action items)
+# =====================================================================
+class DocumentIntelligenceRunner:
+    """Runs email_ai.py's document analysis over one already-extracted document.
+
+    A second, independent Ollama pass (email_ai.analyse_email), not part of
+    ExtractedInvoice/DocumentExtractor above. Kept separate rather than folded into that
+    schema so this pass can fail without affecting the invoice fields it has nothing to do
+    with -- see ai-document-fields-spec.md ("all optional: that pass can fail independently
+    and a document must still be stored without it").
+
+    email_ai.py's schema is built for an email (subject/sender/body/attachments). main.py
+    processes files from inbox/, which may or may not have arrived by email, so the
+    document's own text is passed as if it were a single attachment; subject is the file
+    name, since that is the only "envelope" information guaranteed to exist.
+    """
+
+    def analyse(self, file_name: str, raw_text: str) -> Optional[email_ai.EmailAnalysis]:
+        if not raw_text.strip():
+            return None
+        try:
+            message = email_ai.EmailMessageInput(
+                subject=file_name,
+                body="",
+                attachments=[email_ai.ParsedAttachment(filename=file_name, content=raw_text)],
+            )
+            # analyse_email returns EmailAnalysisOutcome; category/summary/
+            # action_items live on outcome.analysis, which matches this method's
+            # declared return type.
+            return email_ai.analyse_email(message).analysis
+        except Exception as error:
+            # Broad on purpose, matching DocumentExtractor.extract_invoice_data: a
+            # connection error, a validation error and an Ollama response error are all
+            # "this pass did not produce an answer", and the caller treats them alike.
+            print(f"  [Warn] Document intelligence (category/summary/action items) failed: {error}")
+            return None
+
+    @staticmethod
+    def as_action_item_rows(analysis: Optional[email_ai.EmailAnalysis]) -> List[dict]:
+        """Converts email_ai.ActionItem objects to the plain dicts storage.py expects."""
+        if not analysis:
+            return []
+        return [item.model_dump() for item in analysis.action_items]
+
+# =====================================================================
 # 4. Storage Layer
 # =====================================================================
 # The normalised schema, the content-hash upsert and the money helpers live in storage.py.
@@ -432,14 +475,6 @@ class DownstreamDispatcher:
 
         result = self.storage.open_task(invoice_id, task_type, reason)
 
-        # The Teams line is still simulated. What changed is that the intent is recorded in
-        # outbound_messages instead of only printed, so "what have we dispatched, and did it
-        # succeed" is answerable. Nothing here contacts Teams; the row stays Pending.
-        self.storage.queue_outbound(
-            invoice_id, "Teams",
-            f"{file_name}: {status} at score {score:.2f}. {reason}",
-            task_id=result["task_id"])
-        print(f"  └─ [Teams Webhook] Queued for {file_name} (Status: {status}, Score: {score})")
         if result["was_created"]:
             print(f"  └─ [Task Queue] Opened {task_type} task #{result['task_id']}: {reason}")
         else:
@@ -459,6 +494,7 @@ class WorkflowOrchestrator:
 
         self.extractor = DocumentExtractor(model_name="llama3.2")
         self.validator = ConfidenceValidator(threshold=self.threshold)
+        self.intelligence = DocumentIntelligenceRunner()
         self.storage = StorageManager(db_path="workflow_platform.db")
         self.dispatcher = DownstreamDispatcher(self.storage)
 
@@ -535,6 +571,15 @@ class WorkflowOrchestrator:
             if verdict["amount_state"] != "verified":
                 print(f"     {verdict['reason']}")
 
+            # 3b. Document Intelligence: category, summary, action items.
+            # Independent of steps 2-3 above; a failure here does not stop the document
+            # from being stored, it is just stored without these three fields.
+            print("  └─ [Step 3b: Document Intelligence] Categorising with Ollama...")
+            analysis = self.intelligence.analyse(file_name, raw_text)
+            if analysis:
+                print(f"     Category: {analysis.category} | "
+                      f"{len(analysis.action_items)} action item(s)")
+
             # 4. Storage, then archive.
             # The database write commits first. If the move then fails, the file simply stays
             # in inbox/ and the next run upserts onto the same row, rather than the old
@@ -568,6 +613,9 @@ class WorkflowOrchestrator:
                 archive_path=record.archive_path,
                 raw_json=data.model_dump_json(),
                 raw_text=raw_text,
+                category=analysis.category if analysis else None,
+                summary=analysis.summary if analysis else None,
+                action_items=self.intelligence.as_action_item_rows(analysis),
                 email_id=email_id,
             )
             processed_count += 1
@@ -592,8 +640,34 @@ class WorkflowOrchestrator:
                       f"File left in {self.inbox_dir} for the next run.")
 
             # 5. Downstream Dispatch
-            self.dispatcher.dispatch(result["invoice_id"], file_name, status, confidence,
-                                     reason=verdict["reason"])
+            # Auto-approval is a hard rule, not a weight implication: score 1.0 alone is
+            # not enough. The amount must also be verified against the document
+            # (validation-gate-spec.md section 2). Checking amount_state explicitly means a
+            # future weight change cannot silently auto-approve unverified money. Anything
+            # that fails either check still opens a task and waits for a person.
+            if confidence >= 1.0 and verdict["amount_state"] == "verified":
+                followup = self.storage.auto_approve(result["invoice_id"])
+                print(f"  └─ [Auto-Approval] Score {confidence:.2f}, amount verified -- "
+                      "approved without a "
+                      "review task.")
+                if followup:
+                    if followup["was_created"]:
+                        print(f"  └─ [Task Queue] Opened {followup['task_type']} task "
+                              f"#{followup['task_id']} (post-approval hand-off).")
+                    else:
+                        print(f"  └─ [Task Queue] {followup['task_type']} task "
+                              f"#{followup['task_id']} already open.")
+                    task_dispatch.dispatch_task_to_jira(
+                        self.storage,
+                        followup["task_id"],
+                        result["invoice_id"],
+                        followup["task_type"],
+                        followup.get("reason") or "Auto-approved invoice follow-up.",
+                        approval_path="auto",
+                    )
+            else:
+                self.dispatcher.dispatch(result["invoice_id"], file_name, status, confidence,
+                                         reason=verdict["reason"])
 
         self.storage.finish_run(run_id, processed_count)
         print(f"\n=== Workflow Completed: {processed_count}/{len(files)} documents stored (run_id={run_id}) ===")

@@ -4,7 +4,7 @@
 Supersedes `database-redesign-spec.md` and `database-completion-spec.md`, both of which are folded
 into this document. Their earlier versions remain in git history.
 
-**Owner:** Neo. **Branch:** `neo/email-analysis-storage`. **Schema version:** 11.
+**Owner:** Neo. **Branch:** `neo/integrate-team`. **Schema version:** 12.
 **Last verified:** 2026-09-17, by `./.venv/bin/python -m pytest tests/ -q` plus an
 end-to-end pipeline run. The test count is deliberately not quoted here: it changes on
 every push and a number in a document rots where a command does not.
@@ -663,9 +663,15 @@ better report line than a normaliser that guesses and is usually right.
 | 9 | `migrations/009_attachment_names.py` | Added `email_messages.attachment_names`, so a file in `inbox/` can be traced to its message. Additive. | **Applied** |
 | 10 | `migrations/010_run_kind_and_threads.py` | Rebuilt `processing_runs` for a nullable `threshold` and a `run_kind`; added `thread_id` and `thread_source` to `email_messages`. | **Applied** |
 | 11 | `migrations/011_email_analysis.py` | Added `email_analysis`, `thread_analysis`, `email_action_items`, `thread_decisions`. Additive. | **Applied** |
+| 12 | `migrations/012_invoice_ai_fields.py` | Added `email_attachments` and `invoice_action_items`, and `invoices.category` / `invoices.summary`. Luke's SQL, re-landed at a free number. Additive. | **Applied** |
 
 Every migration backs the database up first, refuses to run out of order, is idempotent, and prints
 a before/after report that proves no money moved.
+
+**Never renumber a migration that is already on `main`.** Migration 012 carries SQL Luke
+wrote as 008 and 009, numbers that were already taken and already applied to every
+teammate's database. A renumbered migration expects a version that no longer exists,
+refuses, and the chain stops there. The SQL was never the problem.
 
 **010 and 011 name their backups differently, and 001 to 009 should follow.** The others stamp the
 file with `%Y%m%d-%H%M%S`. Run two migrations back to back, which is exactly what the quickstart

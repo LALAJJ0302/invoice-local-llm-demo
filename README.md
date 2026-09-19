@@ -161,6 +161,24 @@ Open the dashboard:
 python3 -m streamlit run app.py
 ```
 
+### Option C: Run everything in Docker
+
+Requires Docker Desktop (or the Docker Engine + Compose plugin on Linux). No local Python,
+Ollama, or `pip install` needed — everything is still local, just containerised.
+
+```bash
+cp .env.example .env        # fill in Gmail credentials if you want Option B inside Docker too
+docker compose up -d ollama # starts Ollama, pulls llama3.2 (first run downloads ~2GB)
+docker compose run --rm pipeline   # generates nothing by itself: drop PDFs into inbox/ first,
+                                    # or run `docker compose run --rm listener` to fetch from Gmail
+docker compose up app       # dashboard on http://localhost:8501
+```
+
+The whole project directory is bind-mounted into each container, so `workflow_platform.db`,
+`inbox/`, and `archive/` are the exact same files a non-Docker run would use — nothing
+Docker-specific to clean up afterwards. See `deployment-spec.md` for why it is built this
+way, and `docker-compose.yml`'s header comment for the full command list.
+
 ## Useful Commands
 
 | Task | Command |
