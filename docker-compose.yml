@@ -1,0 +1,81 @@
+# Local-only packaging: everything here runs on one machine, nothing is a cloud service.
+# Requires .env to exist first (cp .env.example .env) -- see README.md "Docker" section.
+#
+# Typical use:
+#   docker compose up -d ollama              # start Ollama, pull llama3.2 (first run is slow)
+#   docker compose run --rm pipeline         # process inbox/ once, then exits
+#   docker compose run --rm listener         # fetch Gmail attachments once, then exits
+#   docker compose up app                    # dashboard on http://localhost:8501
+#
+# pipeline and listener are one-shot batch jobs, same as running `python main.py` or
+# `python email_listener.py` directly: they process what is there and exit. Bringing them
+# up with plain `docker compose up` (no service name) is harmless -- they just run once
+# and report "Exited (0)" -- but `run --rm` above is the intended way to invoke them.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    # Starts the daemon, then pulls the model the pipeline needs. Pulling blocks the
+    # healthcheck from passing until it finishes, which is the point: nothing that depends
+    # on `ollama` (below) should start extracting against a model that is not there yet.
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 3 && ollama pull llama3.2 && wait"]
+
+  pipeline:
+    build: .
+    depends_on:
+      ollama:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Overrides the ollama Python client's localhost:11434 default so it reaches the
+      # 'ollama' service by its Compose network name instead.
+      OLLAMA_HOST: http://ollama:11434
+    # The whole project, not a subset: main.py, storage.py, migrations/, workflow_platform.db,
+    # inbox/, archive/ all need to be the same files a bare-metal run would use, not a copy
+    # frozen at image build time.
+    volumes:
+      - .:/app
+    command: ["python", "main.py"]
+
+  listener:
+    build: .
+    depends_on:
+      ollama:
+        condition: service_healthy
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    command: ["python", "email_listener.py"]
+
+  app:
+    build: .
+    depends_on:
+      ollama:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    command: ["python", "-m", "streamlit", "run", "app.py",
+              "--server.address=0.0.0.0", "--server.port=8501"]
+
+volumes:
+  # Named, not bind-mounted: the pulled model is multi-gigabyte and has no reason to live
+  # inside the git-tracked project directory the way workflow_platform.db/inbox/archive do.
+  ollama_models:

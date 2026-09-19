@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from storage import (  # noqa: E402
+    APPROVAL_TASK_TYPES,
     SCHEMA_VERSION,
     SchemaMismatch,
     StorageManager,
@@ -561,6 +562,18 @@ class TestTasks:
         assert row["total_cents"] == 150000
         assert row["reason"] == "score below threshold"
 
+    def test_open_tasks_can_restrict_to_approval_types(self, store, invoice_id):
+        """The dashboard queue is Review/Approve only; Payment/File stay out of it."""
+        store.open_task(invoice_id, "Approve")
+        store.open_task(invoice_id, "Payment")
+        rows = store.open_tasks(task_types=APPROVAL_TASK_TYPES)
+        assert [r["task_type"] for r in rows] == ["Approve"]
+        assert [r["task_type"] for r in store.open_tasks()] == ["Approve", "Payment"]
+
+    def test_open_tasks_rejects_an_unknown_type(self, store):
+        with pytest.raises(ValueError):
+            store.open_tasks(task_types=("Escalate",))
+
     def test_deleting_an_invoice_cascades_to_its_tasks(self, store, invoice_id):
         store.open_task(invoice_id, "Review")
         with connect(store.db_path) as conn:
@@ -590,6 +603,184 @@ class TestTasks:
     def test_resolve_rejects_a_non_terminal_state(self, store, invoice_id):
         with pytest.raises(ValueError):
             store.resolve_tasks(invoice_id, "Open")
+
+
+# =====================================================================
+# Task assignment
+# =====================================================================
+class TestTaskAssignment:
+    @pytest.fixture
+    def task_id(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        return store.open_task(invoice_id, "Review")["task_id"]
+
+    def test_assigns_a_task(self, store, task_id):
+        assert store.assign_task(task_id, "Luke") is True
+        with connect(store.db_path) as conn:
+            assert conn.execute(
+                "SELECT assignee FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()["assignee"] == "Luke"
+
+    def test_reassigning_overwrites_the_previous_assignee(self, store, task_id):
+        store.assign_task(task_id, "Luke")
+        store.assign_task(task_id, "Neo")
+        with connect(store.db_path) as conn:
+            assert conn.execute(
+                "SELECT assignee FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()["assignee"] == "Neo"
+
+    def test_clearing_the_assignee_with_none(self, store, task_id):
+        store.assign_task(task_id, "Luke")
+        store.assign_task(task_id, None)
+        with connect(store.db_path) as conn:
+            assert conn.execute(
+                "SELECT assignee FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()["assignee"] is None
+
+    def test_assigning_an_unknown_task_id_returns_false(self, store):
+        assert store.assign_task(999999, "Luke") is False
+
+    def test_set_task_external_ref(self, store, task_id):
+        assert store.set_task_external_ref(task_id, "INV-3") is True
+        with connect(store.db_path) as conn:
+            assert conn.execute(
+                "SELECT external_ref FROM tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()["external_ref"] == "INV-3"
+
+    def test_open_tasks_includes_external_ref(self, store, task_id):
+        store.set_task_external_ref(task_id, "INV-8")
+        row = store.open_tasks()[0]
+        assert row["external_ref"] == "INV-8"
+
+
+# =====================================================================
+# Email bodies and attachment-level dedup
+# =====================================================================
+class TestEmailAttachments:
+    def test_record_email_stores_the_body(self, store):
+        store.record_email("<x@mail>", "a@b.com", body_text="Please see the attached invoice.",
+                           body_source="intake")
+        with connect(store.db_path) as conn:
+            assert conn.execute("SELECT body_text FROM email_messages").fetchone()["body_text"] == \
+                "Please see the attached invoice."
+
+    def test_a_call_without_a_body_does_not_erase_one_already_captured(self, store):
+        """The envelope can be re-recorded (e.g. to update attachment_count) without the
+        caller re-reading and re-passing the body every time."""
+        store.record_email("<x@mail>", "a@b.com", body_text="Original body.",
+                           body_source="intake")
+        store.record_email("<x@mail>", "a@b.com", attachment_count=2)
+        with connect(store.db_path) as conn:
+            assert conn.execute("SELECT body_text FROM email_messages").fetchone()["body_text"] == \
+                "Original body."
+
+    def test_has_seen_attachment_is_false_until_recorded(self, store):
+        email = store.record_email("<x@mail>", "a@b.com")
+        assert store.has_seen_attachment(email["email_id"], "a" * 64) is False
+        store.record_attachment(email["email_id"], "invoice.pdf", "a" * 64, "/tmp/invoice.pdf")
+        assert store.has_seen_attachment(email["email_id"], "a" * 64) is True
+
+    def test_recording_the_same_attachment_twice_does_not_duplicate(self, store):
+        email = store.record_email("<x@mail>", "a@b.com")
+        first = store.record_attachment(email["email_id"], "invoice.pdf", "a" * 64, "/tmp/i.pdf")
+        second = store.record_attachment(email["email_id"], "invoice.pdf", "a" * 64, "/tmp/i.pdf")
+        assert first["was_created"] is True
+        assert second["was_created"] is False
+        assert second["attachment_id"] == first["attachment_id"]
+        with connect(store.db_path) as conn:
+            assert conn.execute("SELECT COUNT(*) c FROM email_attachments").fetchone()["c"] == 1
+
+    def test_the_same_content_is_allowed_across_different_emails(self, store):
+        """A vendor resending an identical invoice is two legitimate, separately
+        provenanced copies, not a duplicate to reject."""
+        first_email = store.record_email("<a@mail>", "a@b.com")
+        second_email = store.record_email("<b@mail>", "a@b.com")
+        store.record_attachment(first_email["email_id"], "invoice.pdf", "a" * 64, "/tmp/i1.pdf")
+        result = store.record_attachment(second_email["email_id"], "invoice.pdf", "a" * 64, "/tmp/i2.pdf")
+        assert result["was_created"] is True
+
+    def test_deleting_an_email_cascades_to_its_attachments(self, store):
+        email = store.record_email("<x@mail>", "a@b.com")
+        store.record_attachment(email["email_id"], "invoice.pdf", "a" * 64, "/tmp/i.pdf")
+        with connect(store.db_path) as conn:
+            conn.execute("DELETE FROM email_messages WHERE email_id = ?", (email["email_id"],))
+            assert conn.execute(
+                "SELECT COUNT(*) c FROM email_attachments").fetchone()["c"] == 0
+
+
+# =====================================================================
+# category, summary and action items (email_ai.py's document pass)
+# =====================================================================
+class TestAIDocumentFields:
+    def test_category_and_summary_are_stored(self, store, run_id):
+        invoice_id = save(store, run_id, category="Software",
+                          summary="A cloud services invoice for August.")["invoice_id"]
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT category, summary FROM invoices WHERE invoice_id = ?",
+                (invoice_id,)).fetchone()
+        assert row["category"] == "Software"
+        assert row["summary"] == "A cloud services invoice for August."
+
+    def test_missing_ai_fields_default_to_null_not_a_failure(self, store, run_id):
+        """The document-intelligence pass can fail independently of the main extraction;
+        a document must still be stored without it."""
+        invoice_id = save(store, run_id)["invoice_id"]
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT category, summary FROM invoices WHERE invoice_id = ?",
+                (invoice_id,)).fetchone()
+        assert row["category"] is None and row["summary"] is None
+
+    def test_action_items_are_stored_in_order(self, store, run_id):
+        invoice_id = save(store, run_id, action_items=[
+            {"task": "Approve the invoice", "owner": None, "deadline_text": None,
+             "evidence_quote": "please approve"},
+            {"task": "Pay by due date", "owner": "Finance", "deadline_text": "by 2026-09-30",
+             "evidence_quote": "due 2026-09-30"},
+        ])["invoice_id"]
+        items = store.action_items_for(invoice_id)
+        assert [i["task"] for i in items] == ["Approve the invoice", "Pay by due date"]
+        assert items[1]["owner"] == "Finance"
+        assert items[1]["deadline_text"] == "by 2026-09-30"
+
+    def test_action_items_with_a_blank_task_are_dropped(self, store, run_id):
+        invoice_id = save(store, run_id, action_items=[
+            {"task": "  ", "owner": None, "deadline_text": None, "evidence_quote": None},
+            {"task": "Real action", "owner": None, "deadline_text": None, "evidence_quote": None},
+        ])["invoice_id"]
+        items = store.action_items_for(invoice_id)
+        assert [i["task"] for i in items] == ["Real action"]
+
+    def test_set_action_item_done_toggles_the_checkbox(self, store, run_id):
+        invoice_id = save(store, run_id, action_items=[
+            {"task": "Pay the invoice", "owner": None, "deadline_text": None, "evidence_quote": None},
+        ])["invoice_id"]
+        action_item_id = store.action_items_for(invoice_id)[0]["action_item_id"]
+        assert store.set_action_item_done(action_item_id, True) is True
+        assert store.action_items_for(invoice_id)[0]["is_done"] == 1
+
+    def test_reprocessing_with_an_unchanged_action_list_keeps_is_done(self, store, run_id):
+        """A person's checkbox must not be silently reset by a routine reprocess that
+        finds the exact same action items."""
+        action_items = [{"task": "Pay the invoice", "owner": None, "deadline_text": None,
+                         "evidence_quote": None}]
+        invoice_id = save(store, run_id, action_items=action_items)["invoice_id"]
+        action_item_id = store.action_items_for(invoice_id)[0]["action_item_id"]
+        store.set_action_item_done(action_item_id, True)
+
+        save(store, run_id, action_items=action_items)  # re-run, identical action items
+
+        items = store.action_items_for(invoice_id)
+        assert len(items) == 1 and items[0]["is_done"] == 1
+
+    def test_deleting_an_invoice_cascades_to_its_action_items(self, store, run_id):
+        invoice_id = save(store, run_id, action_items=[
+            {"task": "Pay the invoice", "owner": None, "deadline_text": None, "evidence_quote": None},
+        ])["invoice_id"]
+        with connect(store.db_path) as conn:
+            conn.execute("DELETE FROM invoices WHERE invoice_id = ?", (invoice_id,))
+            assert conn.execute("SELECT COUNT(*) c FROM invoice_action_items").fetchone()["c"] == 0
 
 
 # =====================================================================
@@ -791,6 +982,75 @@ class TestPostApproval:
 
 
 # =====================================================================
+# Auto-approval on a perfect score (validation_score == 1.0)
+# =====================================================================
+class TestAutoApprove:
+    def test_sets_approval_status_to_approved(self, store, run_id):
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        store.auto_approve(invoice_id)
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status FROM invoices WHERE invoice_id=?", (invoice_id,)
+            ).fetchone()
+        assert row["approval_status"] == "Approved"
+
+    def test_leaves_reviewed_at_null(self, store, run_id):
+        """No human reviewed it -- reviewed_at is how the dashboard tells an auto-approval
+        apart from a person clicking Approve."""
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        store.auto_approve(invoice_id)
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT reviewed_at FROM invoices WHERE invoice_id=?", (invoice_id,)
+            ).fetchone()
+        assert row["reviewed_at"] is None
+
+    def test_opens_the_same_post_approval_task_a_human_approval_would(self, store, run_id):
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        result = store.auto_approve(invoice_id)
+        assert result is not None
+        assert result["task_type"] == "Payment"  # document_type defaults to Invoice
+        assert result["was_created"] is True
+
+    def test_does_not_overwrite_an_existing_human_decision(self, store, run_id):
+        """A record already Rejected by a person should not be silently flipped to Approved."""
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        with connect(store.db_path) as conn:
+            conn.execute("UPDATE invoices SET approval_status='Rejected', "
+                         "reviewed_at=datetime('now') WHERE invoice_id=?", (invoice_id,))
+            conn.commit()
+        store.auto_approve(invoice_id)
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, reviewed_at FROM invoices WHERE invoice_id=?",
+                (invoice_id,)
+            ).fetchone()
+        assert row["approval_status"] == "Rejected"
+        assert row["reviewed_at"] is not None
+
+    def test_closes_a_preexisting_approve_task_and_still_opens_payment(self, store, run_id):
+        """Re-processing a document that already had an Approve task must not leave it in
+        the dashboard queue after auto-approval."""
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        approve = store.open_task(invoice_id, "Approve")
+        result = store.auto_approve(invoice_id)
+        assert result is not None
+        assert result["task_type"] == "Payment"
+        assert store.open_tasks(task_types=APPROVAL_TASK_TYPES) == []
+        assert [r["task_type"] for r in store.open_tasks()] == ["Payment"]
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT state FROM tasks WHERE task_id=?", (approve["task_id"],)
+            ).fetchone()
+        assert row["state"] == "Done"
+
+
+# =====================================================================
 # The outbox
 # =====================================================================
 class TestOutbox:
@@ -803,14 +1063,28 @@ class TestOutbox:
         rows = store.pending_outbound()
         assert len(rows) == 1 and rows[0]["state"] == "Pending"
 
-    def test_nothing_is_ever_sent(self, store, invoice_id):
-        """No code path in this project sets Sent. The transport does not exist, and the
-        outbox says so rather than pretending otherwise."""
-        store.queue_outbound(invoice_id, "Teams", "hello")
-        store.queue_outbound(invoice_id, "Jira", "world")
+    def test_mark_outbound_sent_sets_timestamp_and_ref(self, store, invoice_id):
+        outbox_id = store.queue_outbound(invoice_id, "Jira", "hello")
+        assert store.mark_outbound_sent(outbox_id, "INV-12") is True
         with connect(store.db_path) as conn:
-            states = {r["state"] for r in conn.execute("SELECT state FROM outbound_messages")}
-        assert states == {"Pending"}
+            row = conn.execute(
+                "SELECT state, sent_at, external_ref FROM outbound_messages WHERE outbox_id = ?",
+                (outbox_id,),
+            ).fetchone()
+        assert row["state"] == "Sent"
+        assert row["sent_at"] is not None
+        assert row["external_ref"] == "INV-12"
+
+    def test_mark_outbound_failed_records_error(self, store, invoice_id):
+        outbox_id = store.queue_outbound(invoice_id, "Jira", "hello")
+        assert store.mark_outbound_failed(outbox_id, "HTTP 401") is True
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT state, error FROM outbound_messages WHERE outbox_id = ?",
+                (outbox_id,),
+            ).fetchone()
+        assert row["state"] == "Failed"
+        assert row["error"] == "HTTP 401"
 
     def test_an_unknown_channel_is_rejected(self, store, invoice_id):
         with pytest.raises(ValueError):

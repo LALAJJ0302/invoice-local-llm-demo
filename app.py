@@ -3,7 +3,8 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from storage import DEFAULT_DB_PATH, StorageManager, connect
+import task_dispatch
+from storage import APPROVAL_TASK_TYPES, DEFAULT_DB_PATH, StorageManager, connect
 
 # =====================================================================
 # 1. Page Configuration
@@ -18,33 +19,45 @@ st.set_page_config(
 DB_PATH = DEFAULT_DB_PATH
 
 def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
-    """Loads invoices from the normalised schema. Money is converted to dollars here, at the edge."""
+    """Loads invoices from the normalised schema. Money is converted to dollars here, at the edge.
+
+    Joins email_messages so the Original Source panel can show who actually sent the
+    document, instead of just carrying the FK. email_id is nullable (a file dropped
+    straight into inbox/ never had an email), so this is a LEFT JOIN: an invoice with no
+    email must still appear in the table, just with the source columns empty.
+    """
     if not os.path.exists(db_file):
         return pd.DataFrame()
 
     conn = connect(db_file)
     query = """
         SELECT
-            invoice_id AS id,
-            run_id,
-            file_name,
-            validation_status,
-            approval_status,
-            reviewed_at,
-            validation_score,
-            total_source,
-            document_type,
-            reconciliation,
-            invoice_number,
-            vendor_name,
-            invoice_date,
-            total_cents / 100.0 AS total_amount,
-            currency,
-            archive_path,
-            email_id,
-            processed_at AS system_processed_at
-        FROM invoices
-        ORDER BY invoice_id DESC
+            i.invoice_id AS id,
+            i.run_id,
+            i.file_name,
+            i.validation_status,
+            i.approval_status,
+            i.reviewed_at,
+            i.validation_score,
+            i.total_source,
+            i.document_type,
+            i.reconciliation,
+            i.invoice_number,
+            i.vendor_name,
+            i.invoice_date,
+            i.total_cents / 100.0 AS total_amount,
+            i.currency,
+            i.archive_path,
+            i.email_id,
+            i.category,
+            i.summary,
+            i.processed_at AS system_processed_at,
+            e.sender AS email_sender,
+            e.subject AS email_subject,
+            e.received_at AS email_received_at
+        FROM invoices i
+        LEFT JOIN email_messages e ON e.email_id = i.email_id
+        ORDER BY i.invoice_id DESC
     """
     df = pd.read_sql_query(query, conn)
     conn.close()
@@ -71,6 +84,41 @@ def load_line_items(invoice_id: int) -> pd.DataFrame:
     )
     conn.close()
     return df
+
+def load_action_items(invoice_id: int) -> pd.DataFrame:
+    """Follow-up actions email_ai.py found in the document text (see main.py's
+    DocumentIntelligenceRunner), with the model's supporting quote kept alongside so a
+    person can check the claim without reopening the file."""
+    conn = connect(DB_PATH)
+    df = pd.read_sql_query(
+        """
+        SELECT
+            action_item_id,
+            task AS "Action",
+            owner AS "Owner",
+            deadline_text AS "Deadline",
+            evidence_quote AS "Evidence",
+            is_done
+        FROM invoice_action_items
+        WHERE invoice_id = ?
+        ORDER BY line_no
+        """,
+        conn,
+        params=(invoice_id,),
+    )
+    conn.close()
+    return df
+
+def set_action_item_done(action_item_id: int, is_done: bool):
+    """A person checking off an action item. Does not touch validation_score or
+    approval_status -- an action item is a claim about the document, not a workflow gate."""
+    StorageManager(DB_PATH).set_action_item_done(action_item_id, is_done)
+
+def assign_task(task_id: int, assignee: str):
+    """A person claiming (or clearing, with an empty string) a task from the queue."""
+    store = StorageManager(DB_PATH)
+    store.assign_task(task_id, assignee or None)
+    task_dispatch.sync_jira_assignee(store, task_id, assignee or None)
 
 def record_decision(record_id: int, decision: str):
     """Records a human decision about an invoice.
@@ -110,16 +158,24 @@ def record_decision(record_id: int, decision: str):
     # accepted. Nothing is sent anywhere; the outbox row stays Pending.
     if decision == "Approved":
         followup = store.open_followup_task(record_id)
-        if followup and followup["was_created"]:
-            store.queue_outbound(
-                record_id, "Planner",
-                f"Invoice {record_id} approved. Opened a {followup['task_type']} task.",
-                task_id=followup["task_id"])
+        if followup:
+            task_dispatch.dispatch_task_to_jira(
+                store,
+                followup["task_id"],
+                record_id,
+                followup["task_type"],
+                followup.get("reason") or f"Invoice {record_id} approved.",
+                approval_path="human",
+            )
 
 
 def load_open_tasks() -> pd.DataFrame:
-    """The work queue. Written by the pipeline, cleared by a human decision."""
-    rows = StorageManager(DB_PATH).open_tasks()
+    """The approval queue: Review and Approve tasks still waiting for a person.
+
+    Payment/File follow-ups are created after approval (including auto-approval) and
+    dispatched to Jira; they are not shown here.
+    """
+    rows = StorageManager(DB_PATH).open_tasks(task_types=APPROVAL_TASK_TYPES)
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame([{
@@ -132,6 +188,8 @@ def load_open_tasks() -> pd.DataFrame:
         "Amount": None if r["total_cents"] is None else r["total_cents"] / 100.0,
         "Data Quality": r["validation_status"],
         "Approval": r["approval_status"],
+        "Assignee": r["assignee"] or "",
+        "Jira": r["external_ref"] or "",
         "Why": r["reason"],
         "Opened": r["created_at"],
     } for r in rows])
@@ -234,19 +292,34 @@ st.divider()
 # =====================================================================
 st.subheader("📌 Task Queue")
 st.caption(
-    "Work the pipeline handed to a person. `Review` means the extraction could not be trusted. "
-    "`Approve` means it was read cleanly but the money still needs a signature. A task leaves "
-    "the queue when someone approves or rejects the invoice below."
+    "Work still waiting for a person. `Review` means the extraction could not be trusted. "
+    "`Approve` means it was read cleanly but the money still needs a signature. A score of "
+    "1.00 with a verified amount is auto-approved and skips this queue; its Payment or File "
+    "follow-up goes to Jira. A task leaves the queue when someone approves or rejects the "
+    "invoice below."
 )
 
 if open_tasks_df.empty:
     st.success("No open tasks. Every processed document has been decided.")
 else:
-    st.dataframe(
-        open_tasks_df.style.format({"Amount": "{:,.2f}"}),
+    st.caption("Edit the **Assignee** column and press Enter to claim or reassign a task.")
+    edited_tasks_df = st.data_editor(
+        open_tasks_df,
         use_container_width=True,
         hide_index=True,
+        disabled=[c for c in open_tasks_df.columns if c not in ("Assignee",)],
+        column_config={
+            "Amount": st.column_config.NumberColumn(format="%.2f"),
+        },
+        key="task_queue_editor",
     )
+    # Only the rows a person actually touched are written back, so an unrelated edit
+    # elsewhere in the grid cannot silently reassign every other task.
+    changed = edited_tasks_df[edited_tasks_df["Assignee"] != open_tasks_df["Assignee"]]
+    if not changed.empty:
+        for _, row in changed.iterrows():
+            assign_task(int(row["Task"]), row["Assignee"])
+        st.rerun()
 
 st.divider()
 
@@ -276,6 +349,7 @@ table_display = filtered_df[[
     "id",
     "file_name",
     "document_type",
+    "category",                # email_ai.py's business category, distinct from Doc Type
     "validation_status",      # the gate's verdict, not the model's and not a person's
     "validation_score",
     "approval_status",        # human decision
@@ -290,7 +364,7 @@ table_display = filtered_df[[
 ]].copy()
 
 table_display.columns = [
-    "ID", "File Name", "Doc Type", "Data Quality", "Validation Score", "Approval",
+    "ID", "File Name", "Doc Type", "Category", "Data Quality", "Validation Score", "Approval",
     "Total Source", "Reconciliation",
     "Vendor Name", "Invoice #", "Invoice Date (Doc)",
     "Total Amount", "Currency", "Processed At (System)"
@@ -328,6 +402,8 @@ if selected_id:
         total_text = "not extracted" if pd.isna(total) else f"{row['currency']} {total:,.2f}"
         st.markdown(f"**Total Amount:** `{total_text}`")
         st.markdown(f"**Document Type:** `{row['document_type']}`")
+        category_text = row["category"] if pd.notna(row["category"]) else "not categorised"
+        st.markdown(f"**Category:** `{category_text}`")
         st.markdown(f"**Total Source:** `{row['total_source']}`")
         st.markdown(f"**Reconciliation:** `{row['reconciliation']}`")
 
@@ -344,11 +420,40 @@ if selected_id:
             st.info("This total was derived from the line items, not read from the document.")
 
         st.divider()
+        st.markdown("**Summary:**")
+        if pd.notna(row["summary"]) and row["summary"]:
+            st.markdown(f"> {row['summary']}")
+        else:
+            st.caption("Not summarised (email_ai.py's document-intelligence pass did not "
+                       "run or did not return one; the invoice itself is unaffected).")
+
+        with st.expander("📧 Original Source"):
+            if pd.notna(row["email_id"]):
+                st.markdown(f"**From:** `{row['email_sender']}`")
+                st.markdown(f"**Subject:** `{row['email_subject']}`")
+                st.markdown(f"**Received:** `{row['email_received_at']}`")
+            else:
+                st.caption("Not delivered by email: this file was dropped straight into "
+                           "inbox/, which is the documented way to test without Gmail.")
+            if pd.notna(row["archive_path"]) and row["archive_path"]:
+                st.markdown(f"**Archived file:** `{row['archive_path']}`")
+                if os.path.exists(row["archive_path"]):
+                    with open(row["archive_path"], "rb") as f:
+                        st.download_button(
+                            "Download original file", data=f.read(),
+                            file_name=row["file_name"], key=f"download_{selected_id}")
+                else:
+                    st.caption("The archived file is no longer on disk.")
+
+        st.divider()
         st.markdown(f"**Data Quality (pipeline):** `{row['validation_status']}` "
                     f"at score `{row['validation_score']:.2f}`")
         st.markdown(f"**Approval (human):** `{row['approval_status']}`")
         if row["reviewed_at"]:
             st.markdown(f"**Reviewed At:** `{row['reviewed_at']}`")
+        elif row["approval_status"] == "Approved":
+            st.caption("✅ Approved automatically — validation score was 1.00, no human "
+                       "review needed.")
 
         if row["validation_status"] == "NeedsReview":
             st.warning("⚠️ The pipeline was not confident about this document. Check it before approving.")
@@ -384,3 +489,29 @@ if selected_id:
                 hide_index=True,
             )
             st.caption("Rows marked as a summary row are excluded from any line item total.")
+
+    st.divider()
+    st.markdown("**✅ Action Items**")
+    st.caption(
+        "Follow-up actions email_ai.py found in the document text, each with the exact "
+        "quote it was read from -- check the quote before trusting the action. Checking a "
+        "box here is a personal to-do; it does not change Data Quality or Approval above."
+    )
+    action_items_df = load_action_items(int(selected_id))
+    if action_items_df.empty:
+        st.info("No action items extracted.")
+    else:
+        for _, item in action_items_df.iterrows():
+            label = item["Action"]
+            if pd.notna(item["Owner"]) and item["Owner"]:
+                label += f" — owner: {item['Owner']}"
+            if pd.notna(item["Deadline"]) and item["Deadline"]:
+                label += f" ({item['Deadline']})"
+            checked = st.checkbox(
+                label, value=bool(item["is_done"]),
+                key=f"action_item_{item['action_item_id']}")
+            if checked != bool(item["is_done"]):
+                set_action_item_done(int(item["action_item_id"]), checked)
+                st.rerun()
+            if pd.notna(item["Evidence"]) and item["Evidence"]:
+                st.caption(f"↳ “{item['Evidence']}”")

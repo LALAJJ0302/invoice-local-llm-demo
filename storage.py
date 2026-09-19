@@ -15,13 +15,16 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
 VALID_TOTAL_SOURCES = ("model", "fallback", "manual")
 VALID_BODY_SOURCES = ("intake", "mock")
 VALID_TASK_TYPES = ("Review", "Approve", "Fix", "Payment", "File")
+# The dashboard queue: work that still needs a person to decide. Payment/File follow-ups
+# are created after approval (including auto-approval) and live in Jira, not here.
+APPROVAL_TASK_TYPES = ("Review", "Approve")
 VALID_RECONCILIATIONS = ("exact", "plausible", "short", "unknown")
 VALID_DOCUMENT_TYPES = ("Invoice", "Receipt", "Unknown")
 VALID_OUTBOUND_CHANNELS = ("Teams", "Jira", "Planner", "Email")
@@ -117,6 +120,24 @@ CREATE TABLE email_messages (
 
 CREATE INDEX ix_email_sender ON email_messages(sender);
 
+-- One row per saved attachment. Added in migration 008 alongside email_messages.body_text:
+-- before this, attachment-level dedup did not exist at all, and a re-run of
+-- email_listener.py could only avoid re-saving a file by noticing a filename collision on
+-- disk, which says nothing about whether the *content* was already seen.
+CREATE TABLE email_attachments (
+    attachment_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    email_id       INTEGER NOT NULL REFERENCES email_messages(email_id) ON DELETE CASCADE,
+    filename       TEXT    NOT NULL,
+    content_sha256 TEXT    NOT NULL,
+    saved_path     TEXT,
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+    -- The same attachment (by content, not by filename) recorded twice for one email is
+    -- always a bug in the caller, not a legitimate second attachment.
+    UNIQUE (email_id, content_sha256)
+);
+
+CREATE INDEX ix_email_attachments_email ON email_attachments(email_id);
+
 CREATE TABLE invoices (
     invoice_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id            INTEGER NOT NULL REFERENCES processing_runs(run_id),
@@ -167,7 +188,15 @@ CREATE TABLE invoices (
     -- make 'plausible' legitimate. Only 'short' is a genuine anomaly, because neither can
     -- reduce a total.
     reconciliation    TEXT    NOT NULL DEFAULT 'unknown'
-                              CHECK (reconciliation IN ('exact','plausible','short','unknown'))
+                              CHECK (reconciliation IN ('exact','plausible','short','unknown')),
+    -- Added in migration 012, alongside the invoice_action_items table below. Both come from
+    -- email_ai.py's EmailAnalysis (JJ's jj/email-ai branch), run as a second pass over the
+    -- same document text. category is one of email_ai.EmailOverview's Literal values;
+    -- summary is its one-or-two-sentence plain-English summary. Nullable: this pass can
+    -- fail (Ollama unreachable, a validation error) independently of the main extraction,
+    -- and a document should still be stored without it rather than not at all.
+    category          TEXT,
+    summary           TEXT
 );
 
 CREATE UNIQUE INDEX ux_invoices_content ON invoices(content_sha256);
@@ -188,6 +217,29 @@ CREATE TABLE line_items (
 );
 
 CREATE INDEX ix_line_items_invoice ON line_items(invoice_id);
+
+-- Added in migration 009. One row per follow-up action email_ai.py's ActionExtraction
+-- pulled out of the document text -- "Pay by 2026-09-30", "Renew the contract before it
+-- expires". Distinct from `tasks`: a task is this pipeline's own routing decision
+-- (Review/Approve/Payment/File); an action item is a claim about what the *document*
+-- itself asks for, with the model's supporting quote kept alongside it so a person can
+-- check the claim against the source without reopening the file.
+-- Actions found inside the invoice document itself, as opposed to email_action_items below,
+-- which holds actions found in the message that carried it. Both were briefly called
+-- `action_items`, on two branches at once. Neither name said which parent it belonged to.
+CREATE TABLE invoice_action_items (
+    action_item_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    invoice_id      INTEGER NOT NULL REFERENCES invoices(invoice_id) ON DELETE CASCADE,
+    line_no         INTEGER NOT NULL,
+    task            TEXT    NOT NULL,
+    owner           TEXT,
+    deadline_text   TEXT,
+    evidence_quote  TEXT,
+    is_done         INTEGER NOT NULL DEFAULT 0 CHECK (is_done IN (0,1)),
+    UNIQUE (invoice_id, line_no)
+);
+
+CREATE INDEX ix_invoice_action_items_invoice ON invoice_action_items(invoice_id);
 
 CREATE TABLE tasks (
     task_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -775,12 +827,21 @@ class StorageManager:
         raw_json: str,
         email_id: Optional[int] = None,
         raw_text: str = "",
+        category: Optional[str] = None,
+        summary: Optional[str] = None,
+        action_items: Optional[Iterable[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Upserts one invoice and replaces its line items, in a single transaction.
 
         Keyed on content_sha256, so re-processing the same document updates its row instead
         of appending a duplicate. approval_status and reviewed_at are never overwritten:
         they record a human decision, not an extraction result.
+
+        category, summary and action_items come from email_ai.py's document-intelligence
+        pass (migration 009), run separately from the main extraction. All optional: that
+        pass can fail independently and a document must still be stored without it.
+        action_items entries are dicts shaped like email_ai.ActionItem
+        (task/owner/deadline_text/evidence_quote); unrecognised keys are ignored.
         """
         if validation_status not in VALID_VALIDATION_STATUSES:
             raise ValueError(f"validation_status must be one of {VALID_VALIDATION_STATUSES}, "
@@ -813,8 +874,8 @@ class StorageManager:
                     run_id, file_name, source_sha256, content_sha256, invoice_number,
                     vendor_name, invoice_date, total_cents, currency, validation_score,
                     validation_status, total_source, document_type, reconciliation,
-                    archive_path, raw_json, email_id, processed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    archive_path, raw_json, email_id, category, summary, processed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(content_sha256) DO UPDATE SET
                     run_id            = excluded.run_id,
                     file_name         = excluded.file_name,
@@ -838,6 +899,8 @@ class StorageManager:
                     -- COALESCE so a manual re-run never erases the email a document
                     -- originally arrived on.
                     email_id          = COALESCE(excluded.email_id, invoices.email_id),
+                    category          = excluded.category,
+                    summary           = excluded.summary,
                     processed_at      = excluded.processed_at
                 RETURNING invoice_id
                 """,
@@ -859,6 +922,8 @@ class StorageManager:
                     archive_path,
                     raw_json,
                     email_id,
+                    category,
+                    summary,
                 ),
             )
             invoice_id = int(cursor.fetchone()["invoice_id"])
@@ -879,6 +944,40 @@ class StorageManager:
                     for r in rows
                 ],
             )
+
+            # Same replace-in-place pattern as line_items. is_done is not reset here: a
+            # reprocess with an unchanged action list should not silently un-tick a box a
+            # person already checked. Simplest safe rule, given we cannot yet match action
+            # items across a re-run by anything better than position: only wipe and
+            # reinsert when the new list actually differs in size or text.
+            action_rows = [
+                {
+                    "task": str(item.get("task") or "").strip(),
+                    "owner": item.get("owner") or None,
+                    "deadline_text": item.get("deadline_text") or None,
+                    "evidence_quote": item.get("evidence_quote") or None,
+                }
+                for item in (action_items or [])
+                if str(item.get("task") or "").strip()
+            ]
+            existing_tasks = [
+                r["task"] for r in conn.execute(
+                    "SELECT task FROM invoice_action_items WHERE invoice_id = ? ORDER BY line_no",
+                    (invoice_id,)).fetchall()
+            ]
+            if action_rows and [r["task"] for r in action_rows] != existing_tasks:
+                conn.execute("DELETE FROM invoice_action_items WHERE invoice_id = ?", (invoice_id,))
+                conn.executemany(
+                    """
+                    INSERT INTO invoice_action_items (
+                        invoice_id, line_no, task, owner, deadline_text, evidence_quote
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (invoice_id, i, r["task"], r["owner"], r["deadline_text"], r["evidence_quote"])
+                        for i, r in enumerate(action_rows, start=1)
+                    ],
+                )
             conn.commit()
 
         return {
@@ -890,6 +989,8 @@ class StorageManager:
             "line_item_count": len(rows),
             "document_type": document_type,
             "reconciliation": reconciliation,
+            "category": category,
+            "action_item_count": len(action_rows),
         }
 
     # -- email intake --------------------------------------------------
@@ -990,6 +1091,50 @@ class StorageManager:
             ).fetchone()
         return row is not None
 
+    # -- email attachments ---------------------------------------------
+    def has_seen_attachment(self, email_id: int, content_sha256: str) -> bool:
+        """Attachment-level dedup, checked before anything is written to disk.
+
+        Scoped to one email on purpose: the same bytes attached to two different emails
+        (a vendor resending an invoice) are two legitimate, separately-provenanced copies.
+        """
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM email_attachments WHERE email_id = ? AND content_sha256 = ?",
+                (email_id, content_sha256),
+            ).fetchone()
+        return row is not None
+
+    def record_attachment(
+        self,
+        email_id: int,
+        filename: str,
+        content_sha256: str,
+        saved_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Records one saved attachment. Idempotent on (email_id, content_sha256).
+
+        Checks first rather than relying on the UNIQUE constraint to raise, so the caller
+        can tell "recorded" apart from "already there" the same way open_task() does.
+        """
+        with connect(self.db_path) as conn:
+            existing = conn.execute(
+                "SELECT attachment_id FROM email_attachments "
+                "WHERE email_id = ? AND content_sha256 = ?",
+                (email_id, content_sha256),
+            ).fetchone()
+            if existing:
+                return {"attachment_id": int(existing["attachment_id"]), "was_created": False}
+
+            cursor = conn.execute(
+                "INSERT INTO email_attachments (email_id, filename, content_sha256, saved_path) "
+                "VALUES (?, ?, ?, ?) RETURNING attachment_id",
+                (email_id, filename, content_sha256, saved_path),
+            )
+            attachment_id = int(cursor.fetchone()["attachment_id"])
+            conn.commit()
+        return {"attachment_id": attachment_id, "was_created": True}
+
     # -- tasks ---------------------------------------------------------
     def open_task(
         self,
@@ -1055,6 +1200,69 @@ class StorageManager:
             conn.commit()
             return cursor.rowcount
 
+    def assign_task(self, task_id: int, assignee: Optional[str]) -> bool:
+        """Assigns, reassigns, or (passing None) clears who is responsible for a task.
+
+        Returns whether a row actually changed, so the dashboard can tell a bad task_id
+        apart from a genuine no-op. Deliberately does not require the task to still be
+        open: reassigning a resolved task's record for audit purposes is legitimate.
+        """
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE tasks SET assignee = ? WHERE task_id = ?", (assignee, task_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def set_task_external_ref(self, task_id: int, external_ref: str) -> bool:
+        """Records the external ticket key (e.g. Jira issue key) on a task."""
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE tasks SET external_ref = ? WHERE task_id = ?",
+                (external_ref, task_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def task_by_id(self, task_id: int) -> Optional[sqlite3.Row]:
+        """One task row, for Jira assignee sync."""
+        with connect(self.db_path) as conn:
+            return conn.execute(
+                "SELECT task_id, invoice_id, task_type, reason, assignee, external_ref, state "
+                "FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+
+    def invoice_summary(self, invoice_id: int) -> Optional[sqlite3.Row]:
+        """Header fields needed to build a Jira issue summary."""
+        with connect(self.db_path) as conn:
+            return conn.execute(
+                """SELECT invoice_id, file_name, vendor_name, validation_score,
+                          validation_status, document_type, total_cents
+                   FROM invoices WHERE invoice_id = ?""",
+                (invoice_id,),
+            ).fetchone()
+
+    # -- action items (email_ai.py's document-intelligence pass) -------
+    def action_items_for(self, invoice_id: int) -> List[sqlite3.Row]:
+        """The follow-up actions email_ai.py found in this document, in extraction order."""
+        with connect(self.db_path) as conn:
+            return conn.execute(
+                "SELECT action_item_id, line_no, task, owner, deadline_text, evidence_quote, "
+                "is_done FROM invoice_action_items WHERE invoice_id = ? ORDER BY line_no",
+                (invoice_id,),
+            ).fetchall()
+
+    def set_action_item_done(self, action_item_id: int, is_done: bool) -> bool:
+        """Lets a person check off an action item in the dashboard. Returns whether it changed."""
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE invoice_action_items SET is_done = ? WHERE action_item_id = ?",
+                (1 if is_done else 0, action_item_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
     # -- the post-approval hand-off ------------------------------------
     # What a document needs once a person has accepted it. Depends on what the document IS,
     # not on how confidently it was read: an invoice still has to be paid, a receipt only
@@ -1083,17 +1291,41 @@ class StorageManager:
         task_type, reason = self.FOLLOWUP_BY_TYPE[row["document_type"]]
         result = self.open_task(invoice_id, task_type, reason)
         result["task_type"] = task_type
+        result["reason"] = reason
         return result
+
+    def auto_approve(self, invoice_id: int) -> Optional[Dict[str, Any]]:
+        """The score-1.0 path: no human review, no Review/Approve task. approval_status goes
+        straight to Approved. reviewed_at stays NULL -- nobody reviewed it, and NULL is how
+        the dashboard tells this apart from a human decision.
+
+        Still hands off to the same post-approval work a human approval would: an invoice
+        still has to be paid, a receipt only has to be filed. Any Review/Approve task left
+        open from an earlier run is closed first, so the document does not sit in the
+        dashboard queue after the decision has already been made.
+        """
+        with connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE invoices SET approval_status = 'Approved' "
+                "WHERE invoice_id = ? AND approval_status = 'Pending'",
+                (invoice_id,))
+            conn.commit()
+            row = conn.execute(
+                "SELECT approval_status FROM invoices WHERE invoice_id = ?",
+                (invoice_id,),
+            ).fetchone()
+        if row and row["approval_status"] == "Approved":
+            for task_type in APPROVAL_TASK_TYPES:
+                self.resolve_tasks(invoice_id, state="Done", task_type=task_type)
+        return self.open_followup_task(invoice_id)
 
     # -- the outbox ----------------------------------------------------
     def queue_outbound(self, invoice_id: int, channel: str, payload: str,
                        task_id: Optional[int] = None) -> int:
-        """Records that something should reach an external system. Sends nothing.
+        """Records that something should reach an external system.
 
-        Rows are written Pending and stay there. No Teams, Jira or Planner call is made
-        anywhere in this codebase. This is the honest shape of where the project is: the
-        decision to notify is made and recorded, the transport is not built. A real
-        integration would read this table and fill in external_ref.
+        Jira rows may be marked Sent or Failed by task_dispatch.py when configured.
+        Teams and Planner rows stay Pending until a transport is built.
         """
         if channel not in VALID_OUTBOUND_CHANNELS:
             raise ValueError(f"channel must be one of {VALID_OUTBOUND_CHANNELS}, got {channel!r}")
@@ -1106,6 +1338,26 @@ class StorageManager:
             conn.commit()
         return outbox_id
 
+    def mark_outbound_sent(self, outbox_id: int, external_ref: str) -> bool:
+        """Marks an outbox row as successfully dispatched."""
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE outbound_messages SET state = 'Sent', sent_at = datetime('now'), "
+                "external_ref = ? WHERE outbox_id = ?",
+                (external_ref, outbox_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def mark_outbound_failed(self, outbox_id: int, error: str) -> bool:
+        """Records a failed dispatch attempt without aborting the pipeline."""
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE outbound_messages SET state = 'Failed', error = ? WHERE outbox_id = ?",
+                (error, outbox_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def pending_outbound(self) -> List[sqlite3.Row]:
         """The dispatch queue: what would be sent if the integrations existed."""
@@ -1119,22 +1371,40 @@ class StorageManager:
                 ORDER BY o.created_at, o.outbox_id
             """).fetchall()
 
-    def open_tasks(self) -> List[sqlite3.Row]:
-        """The work queue: every live task with the invoice it belongs to."""
+    def open_tasks(self, task_types: Optional[Iterable[str]] = None) -> List[sqlite3.Row]:
+        """The work queue: every live task with the invoice it belongs to.
+
+        Pass task_types to restrict to those kinds. The dashboard queue asks for
+        APPROVAL_TASK_TYPES so Payment/File follow-ups (handed to Jira) stay out of it.
+        """
+        if task_types is not None:
+            task_types = tuple(task_types)
+            unknown = [t for t in task_types if t not in VALID_TASK_TYPES]
+            if unknown:
+                raise ValueError(
+                    f"task_type must be one of {VALID_TASK_TYPES}, got {unknown[0]!r}"
+                )
+            if not task_types:
+                return []
+
         placeholders = ",".join("?" for _ in OPEN_TASK_STATES)
-        with connect(self.db_path) as conn:
-            return conn.execute(
-                f"""
+        sql = f"""
                 SELECT t.task_id, t.task_type, t.reason, t.assignee, t.state, t.created_at,
+                       t.external_ref,
                        i.invoice_id, i.file_name, i.vendor_name, i.total_cents,
                        i.validation_status, i.approval_status, i.document_type
                 FROM tasks t
                 JOIN invoices i ON i.invoice_id = t.invoice_id
                 WHERE t.state IN ({placeholders})
-                ORDER BY t.created_at, t.task_id
-                """,
-                OPEN_TASK_STATES,
-            ).fetchall()
+                """
+        params: List[Any] = list(OPEN_TASK_STATES)
+        if task_types is not None:
+            type_placeholders = ",".join("?" for _ in task_types)
+            sql += f" AND t.task_type IN ({type_placeholders})"
+            params.extend(task_types)
+        sql += " ORDER BY t.created_at, t.task_id"
+        with connect(self.db_path) as conn:
+            return conn.execute(sql, params).fetchall()
 
     # -- email AI analysis ---------------------------------------------
     #
