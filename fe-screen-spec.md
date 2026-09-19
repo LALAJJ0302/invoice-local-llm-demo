@@ -26,15 +26,15 @@ Three tabs. The counts live in the tab labels, so every number is visible withou
 there is no separate metric strip to duplicate them.
 
 ```
-รออนุมัติ 1 · 1,500  │  ระบบอนุมัติเอง 2  │  แจ้งเตือน 17
+Awaiting approval  1 · 1,500   │   Approved by the system  2   │   Notifications  17
 └── default tab
 ```
 
 | Tab | Contains | Source |
 |---|---|---|
-| **รออนุมัติ** | Documents a person must decide on | `invoices` where `approval_status = 'Pending'` |
-| **ระบบอนุมัติเอง** | Documents the system approved with no human involved | `approval_status = 'Approved' AND reviewed_at IS NULL` |
-| **แจ้งเตือน** | Notifications recorded and never sent | `outbound_messages` where `state = 'Pending'` |
+| **Awaiting approval** | Documents a person must decide on | `invoices` where `approval_status = 'Pending'` |
+| **Approved by the system** | Documents the system approved with no human involved | `approval_status = 'Approved' AND reviewed_at IS NULL` |
+| **Notifications** | Notifications recorded and never sent | `outbound_messages` where `state = 'Pending'` |
 
 **Why the second tab exists at all.** The system currently approves 2 of 3 documents by itself.
 The report argues in §7.2 that auto-approval at a score of 1.00 is not yet safe, because every
