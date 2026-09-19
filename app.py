@@ -303,14 +303,25 @@ st.markdown("""
    exist because the cards, strips and chips are built out of st.markdown and need them by
    name. approval-screen-components.html is the source of truth for every value here. */
 :root {
-  --ground:#F6F6F7;  --surface:#FFFFFF;  --surface-sunk:#FBFBFC;
-  --border-subtle:#EDEDEF;  --border:#E1E1E4;  --border-hover:#C9C9CF;
-  --text:#1C1C1F;  --text-strong:#3F3F46;  --text-muted:#6E6E76;
-  --text-faint:#A1A1A8;  --text-disabled:#C2C2C8;
-  --accent:#5B5BD6;  --accent-hover:#4F4FC9;  --accent-text:#3E3EA8;  --accent-wash:#EEEEFB;
-  --caution:#A65A1E;  --caution-text:#8A4A18;  --caution-wash:#FDFCFB;
-  --positive:#3D9A50;  --positive-wash:#EAF5EC;
-  --control-fill:#F1F1F3;  --row-hover:#FAFAFB;
+  /* The neutrals carry a navy tint rather than no hue at all. #F6F6F7 and #FFFFFF sat 1.08:1
+     apart and both read as an absence of colour, which is what made the page look empty. The
+     tinted ground reads 1.13:1 against the same white card and points at the accent below.
+     fe-theme-v2-spec.md §4 carries the full before-and-after with the measured contrast. */
+  --ground:#E8EDF7;  --surface:#FFFFFF;  --surface-sunk:#F7F8FC;
+  --border-subtle:#E6E9F2;  --border:#D8DCE8;  --border-hover:#B9C0D1;
+  --text:#161A23;  --text-strong:#3A4152;  --text-muted:#5F667A;
+  --text-faint:#98A0B3;  --text-disabled:#BBC2D0;
+  --accent:#5B5BD6;  --accent-hover:#4F4FC9;  --accent-text:#3E3EA8;  --accent-wash:#ECECFA;
+  --navy:#243352;  --navy-wash:#E8ECF5;
+  /* Risk is the one hue outside the indigo-to-navy family, and it stays. A caution band in
+     blue reads as information rather than as a warning. --caution-wash was #FDFCFB, which is
+     99% white: on a tinted ground it would have read as a lighter patch than its surroundings
+     and inverted the signal. See fe-theme-v2-spec.md §0.3. */
+  --caution:#A65A1E;  --caution-text:#8A4A18;  --caution-wash:#FAF0E2;
+  /* --positive fills dots and one SVG stroke, never text, so 3.54:1 is judged against WCAG
+     1.4.11's 3:1 for non-text components. --positive-text is the one that carries words. */
+  --positive:#3D9A50;  --positive-text:#2B7038;  --positive-wash:#E9F2EC;
+  --control-fill:#EBEEF5;  --row-hover:#F7F8FC;
 }
 
 /* A column of money that does not line up is a functional defect, not a preference. */
@@ -354,7 +365,7 @@ st.markdown("""
 .signal-strip.clear { background:var(--surface-sunk); }
 .verdict { font-size:12px; font-weight:500; border-radius:20px; padding:3px 10px; flex:none; }
 .verdict-look { color:var(--caution-text); background:#F6E8DC; }
-.verdict-clear { color:#2F7A3F; background:var(--positive-wash); }
+.verdict-clear { color:var(--positive-text); background:var(--positive-wash); }
 .signal { color: var(--caution-text); font-size:14px; }
 .signal-detail { font-size:13px; color:var(--text-muted); }
 
@@ -384,7 +395,8 @@ st.markdown("""
            border-left:3px solid var(--border-hover); border-radius:10px;
            box-shadow:0 1px 2px rgba(24,24,28,0.04); padding:14px 16px;
            display:flex; flex-direction:column; gap:6px; }
-.ov-strip > .ov-tile:first-child { border-left-color:var(--accent); background:var(--surface); }
+.ov-strip > .ov-tile:nth-child(1) { border-left-color:var(--accent); background:var(--surface); }
+.ov-strip > .ov-tile:nth-child(2) { border-left-color:var(--positive); }
 .ov-label { font-size:12px; color:var(--text-muted); }
 .ov-value { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; }
 .ov-number { font-family:'IBM Plex Mono',monospace; font-size:26px; font-weight:500;
@@ -397,8 +409,31 @@ st.markdown("""
 .sec-icon { width:24px; height:24px; border-radius:7px; background:var(--control-fill);
             color:var(--text-muted); display:inline-flex; align-items:center;
             justify-content:center; flex:none; }
-[class*="st-key-sechead-"] { margin:18px 0 8px !important; padding-bottom:5px !important;
-                             border-bottom:1px solid var(--border); }
+/* Each section carries an identity: a 3px rule on the header band and on the panel below it,
+   and a tinted icon chip. The hook is the st-key-* class this file chooses itself by passing
+   key= to the container, so none of it depends on a Streamlit internal.
+
+   Identity is a rule and a chip, never a fill. Risk is the only thing on this screen that gets
+   a filled band, and that is what stops four section colours from competing with it.
+   fe-theme-v2-spec.md §4. */
+[class*="st-key-sechead-"] { margin:20px 0 10px !important; padding:8px 14px !important;
+                             background:var(--navy-wash);
+                             border:1px solid var(--border-subtle);
+                             border-left:3px solid var(--border-hover);
+                             border-radius:6px; }
+[class*="st-key-sechead-awaiting"] { border-left-color:var(--accent); }
+[class*="st-key-sechead-auto"] { border-left-color:var(--positive); }
+[class*="st-key-sechead-awaiting"] .sec-icon { background:var(--accent-wash); color:var(--accent-text); }
+[class*="st-key-sechead-auto"] .sec-icon { background:var(--positive-wash); color:var(--positive-text); }
+
+/* The Outbox header is amber only when something actually failed. A permanently amber header
+   would claim a problem on the days nothing has, which is most days, and a warning that is
+   always on is not a warning. The -failed suffix comes from overview_body, not from CSS.
+   These two rules must stay after the plain outbox ones: [class*=] matches both. */
+[class*="st-key-sechead-outbox-failed"] { border-left-color:var(--caution); }
+[class*="st-key-sechead-outbox-failed"] .sec-icon { background:var(--caution-wash); color:var(--caution-text); }
+
+[class*="st-key-doc-ov-"] { border-left:3px solid var(--accent) !important; }
 [class*="st-key-open-"] { display:flex; justify-content:flex-end; }
 /* Row actions sit at the panel's right edge, like the one on the document card. */
 [class*="st-key-ovauto-"] [data-testid="stColumn"]:last-child,
@@ -435,7 +470,9 @@ st.markdown("""
 .ai-quote { font-size:12.5px; color:var(--text-muted); font-style:italic; }
 .note-when { font-size:12px; color:var(--text-muted); margin:0; }
 
-.tab-note { font-size:13px; line-height:1.6; color:var(--text-muted); max-width:860px; margin:0 0 14px; }
+.tab-note { font-size:13px; line-height:1.6; color:var(--text-muted); max-width:860px;
+            margin:0 0 14px; padding:11px 14px; background:var(--surface-sunk);
+            border:1px solid var(--border-subtle); border-radius:10px; }
 .tab-warn { font-size:13px; line-height:1.6; color:var(--caution-text); background:var(--caution-wash);
             border:1px solid var(--border-subtle); border-radius:10px; padding:11px 14px; margin:0 0 14px; }
 .tab-note code, .tab-warn code { font-family:'IBM Plex Mono',monospace; font-size:12px; }
@@ -458,6 +495,12 @@ st.markdown("""
 [class*="st-key-ovpanel-"] { background:var(--surface); border:1px solid var(--border);
   border-radius:12px; box-shadow:0 1px 2px rgba(24,24,28,0.04); overflow:hidden;
   padding:0 !important; }
+/* The section's identity rule. These must stay after the shorthand above: both selectors have
+   the same specificity, so the later `border` would otherwise repaint this edge. */
+[class*="st-key-ovpanel-auto"] { border-left:3px solid var(--positive); }
+[class*="st-key-ovpanel-out"] { border-left:3px solid var(--border-hover); }
+[class*="st-key-ovpanel-out-failed"] { border-left-color:var(--caution); }
+[class*="st-key-ovpanel-hist"] { border-left:3px solid var(--border-hover); }
 [class*="st-key-ovauto-"], [class*="st-key-ovout-"], [class*="st-key-ovhist-"] {
   padding:4px 10px 4px 4px !important; border-bottom:1px solid var(--border-subtle); }
 [class*="st-key-ovpanel-"] > div > div:last-child [class*="st-key-ov"] { border-bottom:none; }
@@ -1060,7 +1103,9 @@ def section_head(title, note, *, opens: str | None = None, key: str = "") -> Non
     with st.container(key=f"sechead-{key}"):
         head, action = st.columns([8, 1], vertical_alignment="center")
         del opens  # OV-4 is not buildable on st.tabs. See fe-backlog.md.
-        icon = SECTION_ICONS.get(key, "")
+        # "outbox-failed" is still the outbox icon. The suffix exists to drive the
+        # header colour from CSS, not to name a different section.
+        icon = SECTION_ICONS.get(key.split("-")[0], "")
         mark = (f"<span class='sec-icon'><svg width='15' height='15' viewBox='0 0 16 16' "
                 f"fill='none'>{icon}</svg></span>" if icon else "")
         head.markdown(f"<div class='sec-head'>{mark}<span class='sec-title'>{title}</span>"
@@ -1164,13 +1209,17 @@ def overview_body(pending, auto, outbox, history):
         pushable = jira_rows[jira_rows["state"].isin(["Pending", "Failed"])]
         frozen = len(outbox[outbox["channel"] != "Jira"])
         sent = int((outbox["state"] == "Sent").sum())
+    # The section turns amber only when a row has actually failed, not merely because the
+    # Outbox has rows in it. See fe-theme-v2-spec.md §4.
+    any_failed = not pushable.empty and bool((pushable["state"] == "Failed").any())
     section_head("Outbox", f"{len(pushable)} ready to push, {frozen} with no transport, "
-                           f"{sent} sent", opens=TAB_OUTBOX, key="outbox")
+                           f"{sent} sent", opens=TAB_OUTBOX,
+                 key="outbox-failed" if any_failed else "outbox")
     if pushable.empty:
         st.markdown("<p class='ov-more'>Nothing is waiting to go out.</p>", unsafe_allow_html=True)
     else:
         ready = jira_ready()
-        with st.container(key="ovpanel-out", gap=None):
+        with st.container(key="ovpanel-out-failed" if any_failed else "ovpanel-out", gap=None):
          for _, r in pushable.head(5).iterrows():
             # The channel is Jira on every row in this list, so the slot that holds an amount
             # elsewhere holds the state instead: Pending or Failed is the thing worth reading.

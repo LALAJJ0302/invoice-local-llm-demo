@@ -10,10 +10,10 @@
 base = "light"
 
 primaryColor = "#5B5BD6"            # accent. Replaces Streamlit's red on tabs and buttons.
-backgroundColor = "#F6F6F7"         # ground
+backgroundColor = "#E8EDF7"         # ground. Navy-tinted paper, see fe-theme-v2-spec.md §4
 secondaryBackgroundColor = "#FFFFFF" # surface
-textColor = "#1C1C1F"               # text
-borderColor = "#E1E1E4"             # border
+textColor = "#161A23"               # text
+borderColor = "#D8DCE8"             # border
 linkColor = "#5B5BD6"               # accent
 
 # Streamlit's default is 16 and every size in the design was drawn against a 14px body.
@@ -37,4 +37,4 @@ codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono
 headingFontSizes = ["1.5rem", "1.25rem", "1.0625rem", "1rem", "0.9375rem", "0.875rem"]
 
 [theme.sidebar]
-backgroundColor = "#FBFBFC"         # surface sunk
+backgroundColor = "#F7F8FC"         # surface sunk
