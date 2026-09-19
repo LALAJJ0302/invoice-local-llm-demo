@@ -258,6 +258,53 @@ st.markdown("""
    meant to stop on. */
 .signal { color: var(--caution-text); }
 
+/* The document card. The only selectors here are st-key-* prefixes, which this file chooses
+   itself by passing key= to the container. Streamlit's own class names are build hashes and
+   its data-testid attributes are internal; both change without notice. */
+[class*="st-key-doc-"] {
+  padding: 0 !important;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(24,24,28,0.05);
+}
+[class*="st-key-doc-"]:hover { border-color: var(--border-hover); box-shadow: 0 2px 6px rgba(24,24,28,0.07); }
+[class*="st-key-doc-"] .stMarkdown p { margin: 0; }
+
+.card-head { display:grid; grid-template-columns:44px 1fr auto; gap:16px; align-items:start; padding:22px 24px 20px; }
+.doc-icon { width:44px; height:44px; border-radius:10px; background:var(--control-fill);
+            border:1px solid var(--border-subtle); display:flex; align-items:center; justify-content:center; }
+.card-id { display:flex; flex-direction:column; gap:7px; min-width:0; }
+.card-title { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.vendor { font-size:17px; font-weight:600; letter-spacing:-0.01em; color:var(--text); }
+.card-meta { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-muted); }
+.card-head .amount { font-family:'IBM Plex Mono',monospace; font-size:22px; font-weight:500;
+                     text-align:right; white-space:nowrap; color:var(--text); }
+
+.chip { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--text-strong);
+        background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:3px 9px; margin-right:8px; }
+.dot { width:6px; height:6px; border-radius:50%; flex:none; }
+
+/* The sentence comes from review_signals.py. Nothing in this file writes signal copy. */
+.signal-strip { display:flex; align-items:center; gap:10px; padding:13px 24px;
+                border-top:1px solid var(--border-subtle); background:var(--caution-wash); }
+.signal-strip .dot { width:8px; height:8px; }
+.signal { color: var(--caution-text); font-size:14px; }
+
+[class*="st-key-foot-"] { padding:13px 24px !important; border-top:1px solid var(--border-subtle); }
+.chips { display:flex; align-items:center; flex-wrap:wrap; row-gap:6px; }
+.chips.decided { justify-content:flex-end; font-size:12.5px; color:var(--text-muted); }
+/* The action sits at the card's right edge, not at the left of whatever column it landed in. */
+[class*="st-key-rev-"] { display:flex; justify-content:flex-end; }
+.queue-count { font-size:13px; color:var(--text-muted); }
+
+.empty { display:flex; flex-direction:column; align-items:center; gap:10px; padding:44px 28px;
+         background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+.empty-mark { width:42px; height:42px; border-radius:50%; background:var(--positive-wash);
+              display:flex; align-items:center; justify-content:center; }
+.empty-title { font-size:15px; font-weight:600; color:var(--text); }
+.empty-note { font-size:13px; color:var(--text-muted); }
+
 /* Focus has to be visible on every control, not just the ones Streamlit decides to mark.
    :focus-visible rather than :focus so a mouse click does not leave a ring behind. */
 :is(button, input, select, textarea, a, [role="tab"], [tabindex]):focus-visible {
@@ -396,35 +443,161 @@ def review_dialog(row):
         st.rerun()
 
 
-def document_rows(frame, *, actionable: bool):
-    """One row per document. Six columns, not eleven.
+DOC_ICON = (
+    "<svg width='20' height='20' viewBox='0 0 16 16' fill='none'>"
+    "<path d='M4 2.2h5l3 3v8.6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3.2a1 1 0 0 1 1-1Z' "
+    "stroke='var(--text-strong)' stroke-width='1.3' stroke-linejoin='round'/>"
+    "<path d='M8.7 2.2v3.2H12' stroke='var(--text-strong)' stroke-width='1.3' "
+    "stroke-linejoin='round'/><path d='M5.4 8.6h5.2M5.4 10.8h3.4' stroke='var(--text-muted)' "
+    "stroke-width='1.3' stroke-linecap='round'/></svg>"
+)
 
-    Deliberately excluded: file name, ingestion time, run_id, the raw validation score and the
-    invoice date. All are available and none of them changes a decision.
+
+def waiting_days(row) -> int | None:
+    """Days since the document arrived, measured from the covering email.
+
+    Not from `invoice_date`: an invoice issued on the 10th and emailed on the 7th of the next
+    month has been waiting for us since the 7th, not since the 10th. Falls back to the time the
+    pipeline read the file, for a document dropped straight into `inbox/` with no email.
     """
-    if frame.empty:
-        st.caption("Nothing here." if not actionable else "Nothing is waiting for you.")
-        return
+    arrived = row.get("email_received_at") or row.get("system_processed_at")
+    if not arrived or pd.isna(arrived):
+        return None
+    try:
+        return max((pd.Timestamp.today().normalize() - pd.Timestamp(arrived).normalize()).days, 0)
+    except (ValueError, TypeError):
+        return None
 
-    header = st.columns([3, 2, 2, 1.5, 4, 1.5])
-    for column, label in zip(header, ("Vendor", "Amount", "Document", "Type", "", "")):
-        column.caption(label)
 
-    for _, row in frame.iterrows():
-        vendor, amount, number, doc_type, signal_cell, action = st.columns([3, 2, 2, 1.5, 4, 1.5])
-        vendor.write(row["vendor_name"] or "-")
-        amount.markdown(
-            f"<div class='amount' style='text-align:right'>"
-            f"{money(row['total_amount'], row['currency'])}</div>",
+def chip(text: str, dot: str | None) -> str:
+    mark = f"<span class='dot' style='background:{dot}'></span>" if dot else ""
+    return f"<span class='chip'>{mark}{text}</span>"
+
+
+def provenance(row) -> str:
+    """Where the vendor name and the total came from, as two chips.
+
+    `fallback` means our own code recovered the value after the model failed to. That is worth
+    saying on the card rather than only inside the dialog, because it changes how much the
+    extracted fields are worth.
+    """
+    out = []
+    for column, read, inferred in (
+        ("vendor_source", "Vendor read from the document", "Vendor name was inferred"),
+        ("total_source", "Total read from the document", "Total was recovered by our code"),
+    ):
+        from_model = row.get(column) == "model"
+        out.append(chip(read if from_model else inferred,
+                        "var(--positive)" if from_model else "var(--caution)"))
+    return "".join(out)
+
+
+def document_card(row, *, actionable: bool):
+    """One card per document, replacing the six-column row.
+
+    A card rather than a row because the real queue holds one document, and one row in a wide
+    table reads as a loading error. See approval-screen-components.html C4.
+
+    The action stays an `st.button` rather than markup inside the card: a string cannot carry a
+    widget. The card is markdown, the action is a widget, and the CSS makes the seam invisible.
+    """
+    waited = waiting_days(row)
+    meta = [row["invoice_number"] or "-"]
+    if row.get("invoice_date") and not pd.isna(row["invoice_date"]):
+        meta.append(f"issued {row['invoice_date']}")
+    if waited is not None:
+        meta.append(f"waiting {waited}d")
+
+    signal = risk_signal(row)
+    signal_html = (
+        f"<div class='signal-strip'><span class='dot' style='background:var(--caution)'></span>"
+        f"<span class='signal'>{signal}</span></div>" if signal else ""
+    )
+
+    with st.container(border=True, key=f"doc-{row['id']}", gap=None):
+        st.markdown(
+            f"<div class='card-head'>"
+            f"<div class='doc-icon'>{DOC_ICON}</div>"
+            f"<div class='card-id'>"
+            f"<div class='card-title'><span class='vendor'>{row['vendor_name'] or '-'}</span>"
+            f"{chip(row['document_type'], 'var(--text-faint)')}</div>"
+            f"<div class='card-meta'>{' · '.join(meta)}</div>"
+            f"</div>"
+            f"<div class='amount'>{money(row['total_amount'], row['currency'])}</div>"
+            f"</div>{signal_html}",
             unsafe_allow_html=True,
         )
-        number.write(row["invoice_number"] or "-")
-        doc_type.write(row["document_type"])
-        signal = risk_signal(row)
-        if signal:
-            signal_cell.markdown(f"<span class='signal'>{signal}</span>", unsafe_allow_html=True)
-        if action.button("Open", key=f"open-{row['id']}", use_container_width=True):
-            review_dialog(row)
+        with st.container(key=f"foot-{row['id']}", gap=None):
+            chips, action = st.columns([3, 1.1], vertical_alignment="center")
+            chips.markdown(f"<div class='chips'>{provenance(row)}</div>", unsafe_allow_html=True)
+            if actionable:
+                if action.button("Review document", type="primary", key=f"rev-{row['id']}"):
+                    review_dialog(row)
+            else:
+                action.markdown("<div class='chips decided'>Decided by the system</div>",
+                                unsafe_allow_html=True)
+
+
+def queue_controls(frame):
+    """Vendor filter and sort order. Returns the frame the cards are built from.
+
+    Sort by amount groups by currency first and orders within each group. Ordering USD against
+    AUD by magnitude is the same arithmetic this project watches the model for, and it would be
+    invisible at the size of the current queue.
+    """
+    count, vendor_col, order_col, _ = st.columns([1.1, 1.7, 1.7, 4], vertical_alignment="center")
+    count.markdown(
+        f"<div class='queue-count'>{len(frame)} document{'' if len(frame) == 1 else 's'}</div>",
+        unsafe_allow_html=True)
+    vendors = ["All vendors"] + sorted(v for v in frame["vendor_name"].dropna().unique())
+    chosen = vendor_col.selectbox("Vendor", vendors, label_visibility="collapsed")
+    order = order_col.selectbox("Order", ["Oldest first", "Largest amount first"],
+                                label_visibility="collapsed")
+
+    if chosen != "All vendors":
+        frame = frame[frame["vendor_name"] == chosen]
+    if order == "Oldest first":
+        return frame.sort_values("email_received_at", na_position="last")
+    return frame.sort_values(["currency", "total_amount"], ascending=[True, False])
+
+
+def empty_queue():
+    """C8. Every sentence here is a query result, not a constant.
+
+    `reviewed_at` is null on every row in this database, so there is no last decision by a
+    person to report. The line says what the system did instead, which is the true statement.
+    """
+    decided = load_data()
+    decided = decided[(decided["approval_status"] == "Approved") & (decided["reviewed_at"].isna())]
+    latest = decided["system_processed_at"].max() if not decided.empty else None
+    when = f" The last {len(decided)} it cleared on its own at {str(latest)[11:16]}." if latest else ""
+    st.markdown(
+        f"<div class='empty'>"
+        f"<div class='empty-mark'><svg width='20' height='20' viewBox='0 0 16 16' fill='none'>"
+        f"<path d='m3.6 8.3 2.9 2.9 5.9-6.1' stroke='var(--positive)' stroke-width='1.6' "
+        f"stroke-linecap='round' stroke-linejoin='round'/></svg></div>"
+        f"<div class='empty-title'>Nothing is waiting for you</div>"
+        f"<div class='empty-note'>Everything the pipeline read today has been decided.{when}</div>"
+        f"</div>", unsafe_allow_html=True)
+
+
+def document_rows(frame, *, actionable: bool):
+    """The queue, as cards.
+
+    Deliberately excluded from the card: file name, ingestion time, run_id and the raw
+    validation score. All are available and none of them changes a decision.
+    """
+    if frame.empty:
+        if actionable:
+            empty_queue()
+        else:
+            st.caption("Nothing here.")
+        return
+
+    if actionable:
+        frame = queue_controls(frame)
+    for _, row in frame.iterrows():
+        document_card(row, actionable=actionable)
 
 
 df = load_data()
@@ -437,14 +610,30 @@ pending = df[df["approval_status"] == "Pending"]
 auto = df[(df["approval_status"] == "Approved") & (df["reviewed_at"].isna())]
 notifications = load_pending_notifications()
 
-pending_value = pending["total_amount"].sum() if not pending.empty else 0
+def pending_label(frame) -> str:
+    """The Awaiting approval tab label, with its amount only when an amount means something.
+
+    Until 2026-09-19 this read `{count} · {sum}` unconditionally. With one document pending
+    that was correct and invisible; with three it showed `3 · 6,500`, which is USD 1,500 plus
+    USD 2,350 plus AUD 2,650 added as though they were the same unit. That is the arithmetic
+    this project exists to catch a model doing, and the screen was doing it.
+
+    So the amount appears only while every pending document shares a currency, and it carries
+    that currency's code. Otherwise the count stands alone.
+    """
+    if frame.empty:
+        return "Awaiting approval  0"
+    currencies = set(frame["currency"].dropna())
+    if len(currencies) != 1:
+        return f"Awaiting approval  {len(frame)}"
+    return f"Awaiting approval  {len(frame)} · {currencies.pop()} {frame['total_amount'].sum():,.0f}"
 
 st.title("Invoice approvals")
 
 # The counts live on the tab labels. Every number is therefore visible without a click, and
 # there is no separate metric strip duplicating them.
 awaiting_tab, auto_tab, outbox_tab = st.tabs([
-    f"Awaiting approval  {len(pending)} · {pending_value:,.0f}",
+    pending_label(pending),
     f"Approved by the system  {len(auto)}",
     f"Notifications  {len(notifications)}",
 ])

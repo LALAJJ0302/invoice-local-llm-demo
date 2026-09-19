@@ -21,6 +21,24 @@ group B onward can be judged until group A puts the tokens on screen.
 
 ---
 
+## Where this stands, 2026-09-19
+
+**Groups A and B are done.** Two commits: the theme layer, then the cards. FE-5 is closed
+without being built, for a reason recorded in its row below. The queue tab now renders document
+cards with the risk strip, the empty state and working filter and sort controls.
+
+One defect surfaced while verifying group B and was fixed in the same change. The
+`Awaiting approval` tab label read `{count} · {sum}` unconditionally. With one document pending
+that was correct and invisible. With three it showed `3 · 6,500`, which is USD 1,500 plus USD
+2,350 plus AUD 2,650 added as though they were one unit: the arithmetic this project exists to
+catch a model doing, on our own screen. The amount now appears only while every pending document
+shares a currency, and it carries that currency's code.
+
+**Next: group C, the review dialog.** It is the only group blocked on outside work, because
+FE-9 needs a design round.
+
+---
+
 ## Order of work
 
 Groups run in order. Inside a group, items can be done in any order.
@@ -39,10 +57,10 @@ Nothing else can be judged until this works.
 
 | id | Work | Done when |
 |---|---|---|
-| FE-1 | Replace the two-line placeholder stylesheet in [app.py:232-239](app.py#L232-L239) with the real one | All 22 tokens exist as CSS custom properties, IBM Plex Sans and Mono load, and the page still renders with 0 exceptions under `AppTest` |
-| FE-2 | Remove Streamlit's red accent | No red anywhere in a screenshot of the running app; the active tab is a 2px `#5B5BD6` underline with a wash-filled count chip, per C2 |
-| FE-3 | Primary, secondary and disabled buttons per C6 | Tabbing through the page shows a `0 0 0 3px rgba(91,91,214,.16)` focus ring on every focusable control |
-| FE-3b | Fix the one token that fails accessibility, see below | Every colour pair carrying information measures 4.5:1 or better, verified by the same script that found it |
+| ~~FE-1~~ ✅ | Replace the two-line placeholder stylesheet in [app.py:232-239](app.py#L232-L239) with the real one | All 22 tokens exist as CSS custom properties, IBM Plex Sans and Mono load, and the page still renders with 0 exceptions under `AppTest` |
+| ~~FE-2~~ ✅ | Remove Streamlit's red accent | No red anywhere in a screenshot of the running app; the active tab is a 2px `#5B5BD6` underline with a wash-filled count chip, per C2 |
+| ~~FE-3~~ ✅ | Primary, secondary and disabled buttons per C6 | Tabbing through the page shows a `0 0 0 3px rgba(91,91,214,.16)` focus ring on every focusable control |
+| ~~FE-3b~~ ✅ | Fix the one token that fails accessibility, see below | Every colour pair carrying information measures 4.5:1 or better, verified by the same script that found it |
 
 ### FE-3b, stated properly because it is a defect and not a preference
 
@@ -68,11 +86,11 @@ Designed. `approval-screen-design-v2.html` is the target.
 
 | id | Work | Done when |
 |---|---|---|
-| FE-4 | Queue rows become document cards, per C4 | The one pending document renders as a card, not a table row, and the vendor name does not push the amount out of alignment |
-| FE-5 | Three summary tiles, per C3 | Three and no more. The first tile shows one currency symbol only while every pending document shares a currency, and shows a count alone the moment two currencies are pending |
-| FE-6 | Risk strip, per C5, reading `review_signals.py` | The sentence on screen is byte-identical to the matching entry in `SIGNALS`; changing the copy in that file changes the screen |
-| FE-7 | Empty state, per C8 | With `approval_status = 'Pending'` returning nothing, the tab reads as finished rather than broken |
-| FE-8 | Filter and sort row | `Oldest first` reorders the queue for real. A control that does nothing is worse than no control |
+| ~~FE-4~~ ✅ | Queue rows become document cards, per C4 | The one pending document renders as a card, not a table row, and the vendor name does not push the amount out of alignment |
+| ~~FE-5~~ ❌ | Three summary tiles, per C3 | **Not built, closed 2026-09-19.** `fe-screen-spec.md` §2 had already ruled out a metric strip by name: the counts live on the tab labels so every number is visible without a click. Two of the three tiles repeated a tab label exactly. The third, oldest wait, is on the card as `waiting 12d`, and with the queue sorted oldest first the answer is the top card. The brief asked for tiles without telling the designer the spec had refused them, which is an error in the brief, not in the design |
+| ~~FE-6~~ ✅ | Risk strip, per C5, reading `review_signals.py` | The sentence on screen is byte-identical to the matching entry in `SIGNALS`; changing the copy in that file changes the screen |
+| ~~FE-7~~ ✅ | Empty state, per C8 | With `approval_status = 'Pending'` returning nothing, the tab reads as finished rather than broken |
+| ~~FE-8~~ ✅ | Filter and sort row | `Oldest first` reorders the queue for real. A control that does nothing is worse than no control |
 
 **Not in this group: the weight rail.** It was designed, then removed. The quantity it encoded
 was money summed across USD and AUD, which is the same class of error the validation gate exists
@@ -141,7 +159,7 @@ Numbers, and each one is checked by something that already exists in the repo.
 |---|---|---|
 | Accessibility | Every colour pair carrying information at 4.5:1 or better, WCAG 2.1 AA | The contrast script that produced the numbers in FE-3b |
 | Rendering | The page raises 0 exceptions on load | `streamlit.testing.v1.AppTest`, already used to verify the old dashboard |
-| Signal freshness | The risk sentence is computed from the invoice's current columns on every render | `tests/test_review_signals.py`, 271 tests currently green |
+| Signal freshness | The risk sentence is computed from the invoice's current columns on every render, and `app.py` contains none of the six sentences | `tests/test_review_signals.py` and `tests/test_app_signal_copy.py`; run `./.venv/bin/python -m pytest tests/ -q` for the current count rather than quoting one here |
 | Viewport | Composed at 1440 wide, and composed holding exactly one document | Screenshot at 1440x960 |
 | Fidelity to data | No number on screen that cannot be traced to a column or a stated derivation | The four corrections in `design-handoff` `uploads/v2/03-CORRECTIONS.md` are the precedent |
 
