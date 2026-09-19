@@ -295,6 +295,11 @@ CREATE TABLE thread_analysis (
 
 CREATE INDEX ix_thread_analysis_run ON thread_analysis(run_id);
 
+-- Named for the half of the project it belongs to. A separate invoice_action_items table
+-- holds the actions found inside an invoice document, and the two are different things with
+-- the same shape: this one hangs off an email or a thread, that one off an invoice. An
+-- unprefixed `action_items` would not say which, and both were briefly called that.
+--
 -- One table, two parents. ActionItem is a single Pydantic class used for both
 -- EmailAnalysis.action_items and ThreadSummary.outstanding_actions, so the row shape is
 -- identical and only the owner differs. That is why this is not the nullable foreign key
@@ -306,7 +311,7 @@ CREATE INDEX ix_thread_analysis_run ON thread_analysis(run_id);
 -- them, the way save_invoice does with line_items, so a state column would reset a person's
 -- finished work to Open every time a model was re-run. This is a record of what the model
 -- said, and lifecycle belongs with tasks and the outbox.
-CREATE TABLE action_items (
+CREATE TABLE email_action_items (
     action_id          INTEGER PRIMARY KEY AUTOINCREMENT,
     analysis_id        INTEGER REFERENCES email_analysis(analysis_id) ON DELETE CASCADE,
     thread_analysis_id INTEGER REFERENCES thread_analysis(thread_analysis_id) ON DELETE CASCADE,
@@ -326,11 +331,11 @@ CREATE TABLE action_items (
     CHECK (deadline_date IS NULL OR deadline_text IS NOT NULL)
 );
 
-CREATE UNIQUE INDEX ux_action_items_email ON action_items(analysis_id, item_no)
+CREATE UNIQUE INDEX ux_email_action_items_analysis ON email_action_items(analysis_id, item_no)
     WHERE analysis_id IS NOT NULL;
-CREATE UNIQUE INDEX ux_action_items_thread ON action_items(thread_analysis_id, item_no)
+CREATE UNIQUE INDEX ux_email_action_items_thread ON email_action_items(thread_analysis_id, item_no)
     WHERE thread_analysis_id IS NOT NULL;
-CREATE INDEX ix_action_items_owner ON action_items(owner);
+CREATE INDEX ix_email_action_items_owner ON email_action_items(owner);
 
 -- latest_decisions is list[str], so one row per string. decision_no preserves the order a
 -- list has and rows do not, the same job line_items.line_no does. Storing the list as a
@@ -1142,7 +1147,7 @@ class StorageManager:
 
     @staticmethod
     def _action_rows(items: Optional[Iterable[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-        """Turns ActionItem dicts into action_items rows, normalising the deadline."""
+        """Turns ActionItem dicts into email_action_items rows, normalising the deadline."""
         rows: List[Dict[str, Any]] = []
         for item_no, item in enumerate(items or [], start=1):
             deadline_text = absent_string(item.get("deadline_text"))
@@ -1157,22 +1162,22 @@ class StorageManager:
         return rows
 
     @staticmethod
-    def _write_action_items(conn: sqlite3.Connection, rows: List[Dict[str, Any]],
+    def _write_email_action_items(conn: sqlite3.Connection, rows: List[Dict[str, Any]],
                             *, analysis_id: Optional[int] = None,
                             thread_analysis_id: Optional[int] = None) -> None:
         """Replaces a parent's action items wholesale.
 
         Delete and re-insert rather than merge, the way save_invoice handles line_items: a
         re-run is a new answer to the same question, and merging would leave items behind
-        that the model no longer returns. This is also why action_items carries no state
+        that the model no longer returns. This is also why email_action_items carries no state
         column, since a state would be reset here on every re-run.
         """
         column = "analysis_id" if analysis_id is not None else "thread_analysis_id"
         parent = analysis_id if analysis_id is not None else thread_analysis_id
-        conn.execute(f"DELETE FROM action_items WHERE {column} = ?", (parent,))
+        conn.execute(f"DELETE FROM email_action_items WHERE {column} = ?", (parent,))
         conn.executemany(
             f"""
-            INSERT INTO action_items (
+            INSERT INTO email_action_items (
                 {column}, item_no, task, owner, deadline_text, deadline_date, evidence_quote
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
@@ -1229,7 +1234,7 @@ class StorageManager:
                 ),
             )
             analysis_id = int(cursor.fetchone()["analysis_id"])
-            self._write_action_items(conn, rows, analysis_id=analysis_id)
+            self._write_email_action_items(conn, rows, analysis_id=analysis_id)
             conn.commit()
 
         return {
@@ -1302,7 +1307,7 @@ class StorageManager:
             )
             thread_analysis_id = int(cursor.fetchone()["thread_analysis_id"])
 
-            self._write_action_items(conn, rows, thread_analysis_id=thread_analysis_id)
+            self._write_email_action_items(conn, rows, thread_analysis_id=thread_analysis_id)
             conn.execute(
                 "DELETE FROM thread_decisions WHERE thread_analysis_id = ?",
                 (thread_analysis_id,),
@@ -1323,7 +1328,7 @@ class StorageManager:
         }
 
     @staticmethod
-    def _read_action_items(conn: sqlite3.Connection, *, analysis_id: Optional[int] = None,
+    def _read_email_action_items(conn: sqlite3.Connection, *, analysis_id: Optional[int] = None,
                            thread_analysis_id: Optional[int] = None) -> List[Dict[str, Any]]:
         column = "analysis_id" if analysis_id is not None else "thread_analysis_id"
         parent = analysis_id if analysis_id is not None else thread_analysis_id
@@ -1331,7 +1336,7 @@ class StorageManager:
             dict(r) for r in conn.execute(
                 f"""
                 SELECT item_no, task, owner, deadline_text, deadline_date, evidence_quote
-                FROM action_items WHERE {column} = ? ORDER BY item_no
+                FROM email_action_items WHERE {column} = ? ORDER BY item_no
                 """,
                 (parent,),
             )
@@ -1361,7 +1366,7 @@ class StorageManager:
             if row is None:
                 return None
             result = dict(row)
-            result["action_items"] = self._read_action_items(
+            result["action_items"] = self._read_email_action_items(
                 conn, analysis_id=result["analysis_id"])
             return result
 
@@ -1380,7 +1385,7 @@ class StorageManager:
             if row is None:
                 return None
             result = dict(row)
-            result["outstanding_actions"] = self._read_action_items(
+            result["outstanding_actions"] = self._read_email_action_items(
                 conn, thread_analysis_id=result["thread_analysis_id"])
             result["latest_decisions"] = [
                 r["decision"] for r in conn.execute(

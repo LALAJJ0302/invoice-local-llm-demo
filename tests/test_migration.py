@@ -408,7 +408,7 @@ class TestChain:
                 tables = {}
                 for table in ("processing_runs", "invoices", "line_items",
                               "email_messages", "tasks", "outbound_messages",
-                              "email_analysis", "thread_analysis", "action_items",
+                              "email_analysis", "thread_analysis", "email_action_items",
                               "thread_decisions"):
                     tables[table] = [
                         (r["name"], r["type"], r["notnull"], r["dflt_value"])
@@ -636,7 +636,7 @@ class TestEmailAnalysisTables:
         m011.migrate(before_011)
         with connect(before_011) as conn:
             for table in ("email_analysis", "thread_analysis",
-                          "action_items", "thread_decisions"):
+                          "email_action_items", "thread_decisions"):
                 assert conn.execute(f"SELECT COUNT(*) c FROM {table}").fetchone()["c"] == 0
 
     def test_touches_no_existing_row(self, before_011):

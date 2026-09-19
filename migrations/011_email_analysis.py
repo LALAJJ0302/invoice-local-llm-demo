@@ -6,7 +6,7 @@ Four tables, nothing existing touched. The design and the reasoning behind every
 are in `email-analysis-schema-spec.md`; this docstring records only what a person running the
 migration needs to know.
 
-`email_analysis` and `thread_analysis` hold JJ's two records. `action_items` and
+`email_analysis` and `thread_analysis` hold JJ's two records. `email_action_items` and
 `thread_decisions` hold the two fields he confirmed are lists rather than blocks of text.
 Storing a list as a joined string was the `line_items` mistake and it cost a migration to
 undo, so `latest_decisions` becomes one row per decision with an ordinal that preserves the
@@ -14,7 +14,7 @@ order a list has and rows do not.
 
 Three choices that look odd and are deliberate:
 
-- `action_items` has two nullable parent keys and an exactly-one CHECK, because `ActionItem`
+- `email_action_items` has two nullable parent keys and an exactly-one CHECK, because `ActionItem`
   is one Pydantic class serving both an email's action items and a thread's outstanding
   actions. Identical row shape, different owner. That is normalisation, not the flat table.
 - `attempt_count` is checked only for `>= 1`. `email_ai.py` already caps it at
@@ -43,7 +43,8 @@ from storage import DDL, connect, table_exists  # noqa: E402
 FROM_VERSION = 10
 TARGET_VERSION = 11
 
-NEW_TABLES = ("email_analysis", "thread_analysis", "action_items", "thread_decisions")
+NEW_TABLES = ("email_analysis", "thread_analysis", "email_action_items",
+               "thread_decisions")
 
 
 def ddl_tail():

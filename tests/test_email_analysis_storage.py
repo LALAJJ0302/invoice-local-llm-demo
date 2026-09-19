@@ -163,7 +163,7 @@ class TestEmailAnalysis:
 
         with connect(store.db_path) as conn:
             assert conn.execute("SELECT COUNT(*) FROM email_analysis").fetchone()[0] == 1
-            assert conn.execute("SELECT COUNT(*) FROM action_items").fetchone()[0] == 1
+            assert conn.execute("SELECT COUNT(*) FROM email_action_items").fetchone()[0] == 1
         assert store.email_analysis_for("<a@mail>")["category"] == "Meeting"
 
     def test_two_runs_over_the_same_email_are_two_rows(self, store, mailbox):
@@ -193,7 +193,7 @@ class TestEmailAnalysis:
             conn.execute("DELETE FROM email_messages WHERE message_id = '<a@mail>'")
             conn.commit()
             assert conn.execute("SELECT COUNT(*) FROM email_analysis").fetchone()[0] == 0
-            assert conn.execute("SELECT COUNT(*) FROM action_items").fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM email_action_items").fetchone()[0] == 0
 
     def test_no_action_items_is_fine(self, store, mailbox):
         result = store.save_email_analysis(email_record(mailbox, actions=[]))
@@ -245,7 +245,7 @@ class TestThreadAnalysis:
             conn.execute("DELETE FROM thread_analysis")
             conn.commit()
             assert conn.execute("SELECT COUNT(*) FROM thread_decisions").fetchone()[0] == 0
-            assert conn.execute("SELECT COUNT(*) FROM action_items").fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM email_action_items").fetchone()[0] == 0
 
     def test_an_email_and_a_thread_action_coexist(self, store, mailbox):
         """The two parents share one table, so this is the case that proves the CHECK is
@@ -254,7 +254,7 @@ class TestThreadAnalysis:
         store.save_thread_analysis(thread_record(mailbox), thread_source="subject")
         with connect(store.db_path) as conn:
             counts = conn.execute(
-                "SELECT COUNT(analysis_id) e, COUNT(thread_analysis_id) t FROM action_items"
+                "SELECT COUNT(analysis_id) e, COUNT(thread_analysis_id) t FROM email_action_items"
             ).fetchone()
         assert (counts["e"], counts["t"]) == (1, 1)
 
@@ -299,14 +299,14 @@ class TestConstraints:
         with connect(store.db_path) as conn:
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(
-                    "INSERT INTO action_items (analysis_id, thread_analysis_id, item_no, "
+                    "INSERT INTO email_action_items (analysis_id, thread_analysis_id, item_no, "
                     "task, evidence_quote) VALUES (1, 1, 1, 't', 'q')")
 
     def test_an_action_item_with_neither_parent_is_rejected(self, store, mailbox):
         with connect(store.db_path) as conn:
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(
-                    "INSERT INTO action_items (item_no, task, evidence_quote) "
+                    "INSERT INTO email_action_items (item_no, task, evidence_quote) "
                     "VALUES (1, 't', 'q')")
 
     def test_a_normalised_date_without_wording_is_rejected(self, store, mailbox):
@@ -315,7 +315,7 @@ class TestConstraints:
         with connect(store.db_path) as conn:
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(
-                    "UPDATE action_items SET deadline_text = NULL, "
+                    "UPDATE email_action_items SET deadline_text = NULL, "
                     "deadline_date = '2026-09-30'")
 
     def test_two_items_cannot_share_an_ordinal_under_one_parent(self, store, mailbox):
@@ -324,7 +324,7 @@ class TestConstraints:
             analysis_id = conn.execute("SELECT analysis_id FROM email_analysis").fetchone()[0]
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(
-                    "INSERT INTO action_items (analysis_id, item_no, task, evidence_quote) "
+                    "INSERT INTO email_action_items (analysis_id, item_no, task, evidence_quote) "
                     "VALUES (?, 1, 't', 'q')", (analysis_id,))
 
 

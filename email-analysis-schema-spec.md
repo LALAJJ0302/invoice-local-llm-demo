@@ -12,7 +12,7 @@ This version keeps the reasoning from v1 that still holds (§1, §2), replaces t
 tables with the settled ones (§4), and adds the migration plan, the storage API and the tests
 (§5 to §8).
 
-**Both decisions in §9 were taken as recommended.** One `action_items` table, and the
+**Both decisions in §9 were taken as recommended.** One `email_action_items` table, and the
 `processing_runs` rebuild. Luke's answer in §9 is still outstanding and does not block the
 schema, only what `thread_source` can say.
 
@@ -172,7 +172,7 @@ the columns does not touch his file.
 
 ## 4. The tables
 
-Four. `email_analysis` and `thread_analysis` are the two records; `action_items` and
+Four. `email_analysis` and `thread_analysis` are the two records; `email_action_items` and
 `thread_decisions` hold the two lists JJ confirmed are lists.
 
 ### 4.1 `email_analysis`
@@ -224,7 +224,7 @@ is itself optional. A thread analysed from text that was never in the mailbox ha
 point at. Storage resolves it when it is there and leaves NULL when it is not, rather than
 refusing the row.
 
-### 4.3 `action_items`, and the decision Neo has to make
+### 4.3 `email_action_items`, and the decision Neo has to make
 
 JJ's `ActionItem` is one Pydantic class used in two places: `EmailAnalysis.action_items` and
 `ThreadSummary.outstanding_actions`. Same four fields either way.
@@ -236,7 +236,7 @@ a UNION.
 **Option 2, one table with two nullable parent keys and an exactly-one CHECK.** Recommended.
 
 ```sql
-CREATE TABLE action_items (
+CREATE TABLE email_action_items (
     action_id          INTEGER PRIMARY KEY AUTOINCREMENT,
     analysis_id        INTEGER REFERENCES email_analysis(analysis_id) ON DELETE CASCADE,
     thread_analysis_id INTEGER REFERENCES thread_analysis(thread_analysis_id) ON DELETE CASCADE,
@@ -253,11 +253,11 @@ CREATE TABLE action_items (
     CHECK (deadline_date IS NULL OR deadline_text IS NOT NULL)
 );
 
-CREATE UNIQUE INDEX ux_action_items_email  ON action_items(analysis_id, item_no)
+CREATE UNIQUE INDEX ux_email_action_items_analysis ON email_action_items(analysis_id, item_no)
     WHERE analysis_id IS NOT NULL;
-CREATE UNIQUE INDEX ux_action_items_thread ON action_items(thread_analysis_id, item_no)
+CREATE UNIQUE INDEX ux_email_action_items_thread ON email_action_items(thread_analysis_id, item_no)
     WHERE thread_analysis_id IS NOT NULL;
-CREATE INDEX ix_action_items_owner ON action_items(owner);
+CREATE INDEX ix_email_action_items_owner ON email_action_items(owner);
 ```
 
 **This looks like the nullable foreign key §1 rejects, and the difference is worth stating.**
@@ -272,7 +272,7 @@ If you disagree, Option 1 is the safe call and costs a second CREATE TABLE.
 on action items. Dropped, for a reason found while writing the upsert: re-running an analysis
 deletes the children and re-inserts them, the way `save_invoice` does with `line_items`. A `state`
 column would be silently reset to `Open` on every re-run, so a person's completed work would
-disappear because a model was re-run. `action_items` is a record of what the model said, and it is
+disappear because a model was re-run. `email_action_items` is a record of what the model said, and it is
 reproducible from the run. Lifecycle belongs with `tasks` and the outbox, once §9 is decided.
 
 ### 4.4 `thread_decisions`
@@ -433,7 +433,7 @@ work should share the outbox and that is still right, but it needs `invoice_id` 
 exactly-one CHECK, which is a third migration and a decision about whether email actions notify
 anyone at all. Recording it here so it is not rediscovered later.
 
-**For Neo. Answered 2026-09-17, both as recommended.** §4.3 is one `action_items` table with two
+**For Neo. Answered 2026-09-17, both as recommended.** §4.3 is one `email_action_items` table with two
 parents. §3.1 is option B, the `processing_runs` rebuild.
 
 ---

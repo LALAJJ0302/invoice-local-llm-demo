@@ -46,8 +46,8 @@ erDiagram
     invoices ||--o{ tasks : "requires"
     invoices ||--o{ outbound_messages : "notifies"
     tasks    ||--o{ outbound_messages : "dispatches"
-    email_analysis  ||--o{ action_items : "asks for"
-    thread_analysis ||--o{ action_items : "leaves outstanding"
+    email_analysis  ||--o{ email_action_items : "asks for"
+    thread_analysis ||--o{ email_action_items : "leaves outstanding"
     thread_analysis ||--o{ thread_decisions : "records"
 
     email_messages {
@@ -122,7 +122,7 @@ erDiagram
         text summary
         text validation_status
     }
-    action_items {
+    email_action_items {
         int  action_id PK
         int  analysis_id FK
         int  thread_analysis_id FK
@@ -150,7 +150,7 @@ straight into `inbox/` is the documented way to test without Gmail.
 
 The four tables at the bottom hold the email AI module's output and were added by migration 011.
 They touch the invoice pipeline at exactly one point, `processing_runs`, so the two halves of the
-project can be compared per model without being coupled. `action_items` has two parents because
+project can be compared per model without being coupled. `email_action_items` has two parents because
 `ActionItem` is a single class in `email_ai.py` serving both an email's action items and a thread's
 outstanding actions: identical rows, different owner. See §5.13.
 
@@ -318,7 +318,7 @@ One row per thread per run. Holds what `ThreadAnalysisRecord` carries.
 | `summary` | TEXT | yes | |
 | `validation_status` / `validation_reason` / `attempt_count` / `processed_at` | | | As §4.7. |
 
-### 4.9 `action_items`
+### 4.9 `email_action_items`
 
 One row per action the model found, under either parent. Same four fields either way, because
 `ActionItem` is one class in `email_ai.py`.
@@ -554,7 +554,13 @@ The database write commits before `shutil.move`. If the move fails, the file sta
 the next run upserts onto the same row. The old order archived the file first and could leave a file
 with no record.
 
-### 5.13 One `action_items` table with two parents, not two tables
+### 5.13 One `email_action_items` table with two parents, not two tables
+
+**On the name.** This table was called `action_items` until 19 September 2026, when a parallel
+branch turned out to have created a table of the same name holding the actions found inside an
+invoice document. Same name, different parent, different columns. Both were renamed for what
+they hang off, `email_action_items` and `invoice_action_items`, while neither had reached `main`
+and the change was still a text edit rather than a migration.
 
 `ActionItem` is a single Pydantic class in `email_ai.py` serving both `EmailAnalysis.action_items`
 and `ThreadSummary.outstanding_actions`. Same four fields, different owner.
@@ -656,7 +662,7 @@ better report line than a normaliser that guesses and is usually right.
 | 8 | `migrations/008_email_body.py` | Added `email_messages.body_text` and `body_source`, for retrieval. Additive. | **Applied** |
 | 9 | `migrations/009_attachment_names.py` | Added `email_messages.attachment_names`, so a file in `inbox/` can be traced to its message. Additive. | **Applied** |
 | 10 | `migrations/010_run_kind_and_threads.py` | Rebuilt `processing_runs` for a nullable `threshold` and a `run_kind`; added `thread_id` and `thread_source` to `email_messages`. | **Applied** |
-| 11 | `migrations/011_email_analysis.py` | Added `email_analysis`, `thread_analysis`, `action_items`, `thread_decisions`. Additive. | **Applied** |
+| 11 | `migrations/011_email_analysis.py` | Added `email_analysis`, `thread_analysis`, `email_action_items`, `thread_decisions`. Additive. | **Applied** |
 
 Every migration backs the database up first, refuses to run out of order, is idempotent, and prints
 a before/after report that proves no money moved.
@@ -766,7 +772,7 @@ Both are placeholders that make the shape right without pretending the integrati
 item the model found in an email has nowhere to go.
 
 The outbox is the right place for it: notification should have one path, not two, and the argument
-for separate `tasks` and `action_items` tables was never an argument for separate queues. Doing it
+for separate `tasks` and `email_action_items` tables was never an argument for separate queues. Doing it
 needs `invoice_id` nullable with an exactly-one CHECK, which is another migration, and first a
 decision about whether email actions notify anyone at all. **Recorded here so it is not
 rediscovered later.**
