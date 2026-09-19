@@ -224,17 +224,47 @@ def follow_up_for(document_type: str) -> str:
 # =====================================================================
 # Presentation
 #
-# Structure only. Colour, type and spacing come from the design brief and land as one
-# stylesheet, so this file decides what appears and in what order, never how it looks.
-# See fe-screen-spec.md and approval-screen-design-brief.md.
+# Structure only: this file decides what appears and in what order, never how it looks.
+#
+# Colour, type, radius and font come from .streamlit/config.toml, not from here. Streamlit
+# 1.62.0 exposes 277 theme options and most of the token layer is expressible in them, which
+# is a supported interface. The CSS below reaches into Streamlit's own markup and is therefore
+# the part that breaks on upgrade, so it carries only what configuration cannot express.
+#
+# See fe-theme-spec.md, and approval-screen-components.html for the tokens.
 # =====================================================================
 
 st.markdown("""
 <style>
-/* Placeholder until the design lands. Two rules, both functional rather than decorative:
-   money that does not line up is a defect, and the one signal colour is the only colour. */
+/* The tokens. config.toml already sets the half-dozen Streamlit itself understands; these
+   exist because the cards, strips and chips are built out of st.markdown and need them by
+   name. approval-screen-components.html is the source of truth for every value here. */
+:root {
+  --ground:#F6F6F7;  --surface:#FFFFFF;  --surface-sunk:#FBFBFC;
+  --border-subtle:#EDEDEF;  --border:#E1E1E4;  --border-hover:#C9C9CF;
+  --text:#1C1C1F;  --text-strong:#3F3F46;  --text-muted:#6E6E76;
+  --text-faint:#A1A1A8;  --text-disabled:#C2C2C8;
+  --accent:#5B5BD6;  --accent-hover:#4F4FC9;  --accent-text:#3E3EA8;  --accent-wash:#EEEEFB;
+  --caution:#A65A1E;  --caution-text:#8A4A18;  --caution-wash:#FDFCFB;
+  --positive:#3D9A50;  --positive-wash:#EAF5EC;
+  --control-fill:#F1F1F3;  --row-hover:#FAFAFB;
+}
+
+/* A column of money that does not line up is a functional defect, not a preference. */
 [data-testid="stTable"] td, .amount { font-variant-numeric: tabular-nums; }
-.signal { color: #A65A1E; }
+
+/* The risk sentence. --caution-text rather than --caution: the lighter ochre measures 5.12:1
+   on white and the darker one 6.67:1, and this is the one sentence on the screen a person is
+   meant to stop on. */
+.signal { color: var(--caution-text); }
+
+/* Focus has to be visible on every control, not just the ones Streamlit decides to mark.
+   :focus-visible rather than :focus so a mouse click does not leave a ring behind. */
+:is(button, input, select, textarea, a, [role="tab"], [tabindex]):focus-visible {
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(91,91,214,0.16) !important;
+  border-radius: 8px;
+}
 </style>
 """, unsafe_allow_html=True)
 

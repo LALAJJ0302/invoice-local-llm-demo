@@ -1,184 +1,231 @@
 # Design brief: the approval screen
 
-**For:** Claude Design. **From:** Neo, 2026-09-19.
-**Requirements:** `fe-screen-spec.md` is the source of truth for what appears. This document
-covers only how it should look, and what it must not look like.
+**For:** Claude Design. **From:** Neo. **Version 2, 2026-09-19.**
+**Requirements:** `fe-screen-spec.md` is the source of truth for what appears on the screen.
+This document covers only how it should look.
+
+---
+
+## Why there is a version 2
+
+Version 1 of this brief was written almost entirely as a list of prohibitions. No colour, no
+cards, no shadows, no icons, no rounded corners, one chromatic colour in the whole interface.
+The design that came back obeyed every rule and had nothing in it. Beige on beige, zero icons,
+zero radius, one hairline weight used for every separator on the screen, and a single row of
+data floating in an empty 1440px canvas.
+
+That result was correct and lifeless, and the brief caused it. There is a difference between
+restraint and absence. Linear is restrained: it carries a lot of craft and spends very little
+colour. Version 1 produced absence: there was no craft to spend.
+
+So this version inverts the method. It says what the screen must have, with named references
+for each. The forbidden list still exists, but it is four items long instead of eight, and it
+is the last thing in the document rather than the spine of it.
 
 ---
 
 ## What this screen is
 
 An internal approval screen for a senior finance approver. They open it to accept or refuse
-documents a local AI pipeline has read out of incoming email. Pressing approve closes the open
-tasks and creates a Jira task for someone else, immediately.
+documents a local AI pipeline has read out of incoming email. Approving creates a Jira task for
+someone else, immediately, so the decision is consequential.
 
-It is a working tool used by the same few people every day, not a landing page, not a product
-marketing surface, and not a consumer app.
+It is a working tool used by the same few people every day. Not a landing page, not a marketing
+surface, not a consumer app, and not a design case study.
 
 ---
 
-## The design system, and why each choice was made
+## The target, in the client's words
 
-Every default was chosen against something true about this product rather than taken from a
-framework. That is the whole point: the defaults are what make generated interfaces look
-generated.
+> Lively, attractive, user friendly. Not so much information that the user feels overloaded.
 
-### Colour: paper and ink, with one colour reserved for doubt
+Those four words are the brief. Everything below is an attempt to make them concrete enough to
+design against.
 
-This product reads documents and asks a person whether to trust what was read. Its argument is
-evidence. So the palette is paper and ink, and **exactly one chromatic colour exists in the
-entire interface: the caution colour on the risk signal.**
+**Lively** does not mean colourful. It means the screen looks like software that is running:
+surfaces sit at different depths, rows respond to the pointer, the primary action is obviously
+the primary action, and data has visible weight. Version 1 looked like a printout because none
+of that was present.
+
+**Not overloaded** is the harder half, and it is a real constraint rather than a preference.
+The queue usually holds one document. One. A layout that needs twenty rows to look composed
+will fail on this data every single day.
+
+---
+
+## References, and what to take from each
+
+Four products, each named for one specific thing. Open them. They are the standard.
+
+### Linear, `linear.app`
+
+The homepage carries a screenshot of the real application. Take two things from it.
+
+**Status is a dot, not a pill.** Colour appears on that screen only as coloured dots roughly 6
+to 8 pixels across: amber for In Progress, green on a label, amber on another. Nothing is
+filled with colour. Nothing has a coloured background. The text around them is grey.
+
+**The grey scale has many steps.** Borders, dividers, disabled text, secondary text and primary
+text are all different greys. Version 1 had exactly one non-text grey and used it for every
+separator, which is why nothing on it had hierarchy.
+
+### Plausible, `plausible.io/plausible.io`
+
+A live dashboard, public, no login. Take the row treatment.
+
+**Weight lives inside the row.** In the Sources and Top Pages lists, a pale tinted bar runs
+inside each row, behind the text, sized to the value. The row is still a row. It gains weight
+without gaining a column. Our queue table currently gives every row identical weight, which is
+a large part of why it reads as flat.
+
+Also take the summary strip: a handful of numbers across the top, each with a small delta.
+Note how few of them there are and copy that restraint.
+
+### Attio, `attio.com`
+
+Take the light application shell. White working surface, a dense and useful left sidebar, a
+near black primary button, one blue accent used on exactly one control. It is proof that a
+light interface can look current without being colourful.
+
+### Ramp, `ramp.com/bill-pay`
+
+Our exact domain: accounts payable, invoice approval, an AI agent reading bills. Take the
+accent discipline. The entire site is black, white and grey with one acid colour that appears
+only on the primary call to action.
+
+### The anti-reference
+
+`stripe.com/billing`, the marketing page, is full-bleed purple and orange gradient. Stripe's
+actual dashboard is not. Do not take visual direction from any product's marketing page,
+including the ones above. Take it from screenshots of the working product.
+
+---
+
+## What the screen must have
+
+This is the part version 1 was missing. Every item is something the returned design contained
+zero of.
+
+**Depth.** A tinted page ground with white working surfaces on it, so a panel reads as a panel.
+Subtle shadow is permitted now, at the weight Attio and Plausible use it: a hairline border plus
+a shadow you would not notice if it were removed, not a drop shadow announcing elevation.
+
+**Rounded corners.** Everything: surfaces, buttons, inputs, tags, the tinted row bar. Pick a
+radius and apply it consistently. Version 1 was square everywhere and read as a Word document.
+
+**Icons, on every row and every nav item.** Functional ones that help a person tell rows apart
+at a glance, at the size and weight Linear and Attio use. This is a reversal from version 1,
+which banned them.
+
+**An application shell.** A persistent left sidebar with the sections in it, a top bar carrying
+the screen title and the account. Right now the design is a bare page with a heading on it and
+nothing says this is software.
+
+**Drawn interaction states.** Hover on a row, focus ring on every focusable control, a filled
+primary button that is visibly primary, a quieter secondary beside it, and a disabled state.
+Show them in the artboard rather than describing them.
+
+**Weight that follows the data.** Per Plausible. The amount, the risk, or both.
+
+**A designed empty state.** The queue is empty most of the time. It must read as finished, not
+broken, and it must be a designed composition rather than a sentence in the middle of nothing.
+
+---
+
+## Not overloaded: the rules that keep it calm
+
+**The screen must look composed holding one document.** This is the hard requirement and the
+one version 1 failed outright. Design the one-item case first and let it scale up, not the
+other way round. If the layout is a wide table, one row in it will always look like a loading
+error. Consider giving each pending document real presence instead of one thin line.
+
+**One primary action visible at a time.** Approving is consequential. There should never be two
+things on screen competing to be the obvious next click.
+
+**Progressive disclosure.** Everything that is evidence rather than decision belongs behind an
+expansion. The approver needs the vendor, the amount, the document and the risk to decide
+whether to open it. Everything else is detail for after they open it.
+
+**At most three numbers in the summary strip.** Plausible shows six and it is a metrics product.
+This is an approval queue. Three is the ceiling.
+
+---
+
+## Starting palette
+
+**Superseded 2026-09-19 by `approval-screen-components.html`.** The eleven tokens below were
+the starting point and the returned design kept all of them, but it also used eleven more that
+nobody wrote down: a darker ochre for caution text, an accent hover, an accent text colour, a
+border hover, three washes and four greys. The component sheet is now the source of truth for
+the palette and documents all twenty-two. This table is kept because it is what was asked for.
+
+A starting point, not a cage. If you can do better, do better, and say what you changed and why.
 
 | Token | Value | Use |
 |---|---|---|
-| `ground` | `#FAF9F6` | page background, warm paper rather than blue-white |
-| `surface` | `#FFFFFF` | the dialog, and nothing else |
-| `ink` | `#1A1917` | primary text, warm near-black, never `#000000` |
-| `ink-muted` | `#6B6862` | labels, secondary text |
-| `hairline` | `#E3DFD7` | every separator |
-| `caution` | `#A65A1E` | the risk signal only |
+| `bg` | `#F6F6F7` | page ground |
+| `surface` | `#FFFFFF` | panels, cards, the dialog |
+| `border-subtle` | `#EDEDEF` | dividers inside a surface |
+| `border` | `#E1E1E4` | the edge of a surface, input outlines |
+| `text-faint` | `#A1A1A8` | placeholder, disabled |
+| `text-muted` | `#6E6E76` | labels, secondary text |
+| `text` | `#1C1C1F` | primary text |
+| `accent` | `#5B5BD6` | primary button, active tab, links, focus ring |
+| `accent-wash` | `#EEEEFB` | selected row, the tinted weight bar |
+| `caution` | `#A65A1E` | the risk signal, as a dot and as text |
+| `positive` | `#3D9A50` | a 6px dot on settled states, never a filled pill |
 
-**No green. No red. No blue. No status pills.** Approved and auto-approved states carry no
-colour at all; they are distinguished by position and by weight.
+Three chromatic colours exist: the accent for things a person can do, caution for doubt, and a
+single green dot for settled. That is a deliberate loosening of version 1's single-colour rule,
+which is what made it inert.
 
-This is Stephen Few's rule applied literally: *"differences in the visual salience of items on a
-dashboard should never be arbitrary... when everything is yelling, no voices stand out."* If the
-only coloured thing on the screen is a risk, the eye goes to risk. A green "Approved" pill would
-compete with it for no reason, because nobody needs their attention drawn to a document that is
-already fine.
+## Type
 
-Caution is ochre rather than red on purpose. Red means failure. A risk signal is not a failure,
-it is a note in the margin saying look at this one.
+Unchanged from version 1, because this part worked.
 
-### Type: two families, and figures that line up
+| Role | Family |
+|---|---|
+| Interface text | IBM Plex Sans |
+| Amounts, document numbers, dates, any value read out of a document | IBM Plex Mono |
 
-| Role | Family | Why |
-|---|---|---|
-| Interface text | **IBM Plex Sans** | Built for technical and enterprise work, has genuine character, and is not Inter |
-| Amounts, document numbers, dates, any value read out of a document | **IBM Plex Mono** | Monospace already signals "extracted value" throughout this project, and it makes a column of money align |
-| Page title only, optional | IBM Plex Serif | One place, or leave it in the sans |
-
-**Amounts must use tabular figures and must be right-aligned.** A column of money that does not
-line up is a functional defect, not a stylistic preference.
-
-The distinction between prose and extracted values is load-bearing here, not decorative. A
-vendor name the model read out of a PDF is a different kind of thing from a label the interface
-wrote, and the typeface should say so.
-
-### Layout: a ledger, not a deck of cards
-
-- **Rows separated by hairlines. No cards, no boxes, no shadows.** Few: *"apply visual
-  separators such as borders or fill colors with a gentle hand, making them just visible enough
-  to do the job and no more."*
-- The pending queue occupies the top left. It is the reason the screen exists.
-- Generous vertical rhythm; the screen holds three documents, not three hundred, so density is
-  not the problem here. Legibility is.
-- One accent element visible per row at most.
+Amounts use tabular figures and are right aligned. A column of money that does not line up is a
+functional defect. The split between prose and extracted values is load bearing: a vendor name
+the model read out of a PDF is a different kind of thing from a label the interface wrote, and
+the typeface should say so.
 
 ---
 
 ## Forbidden
 
-These are the defaults that identify a machine-made interface in 2026. None of them may appear.
+Four items. Everything not on this list is available.
 
-- Indigo-to-purple or purple-to-cyan gradients, anywhere, including behind headings
-- A row of three rounded cards, each with a thin-line icon, a heading and two lines of text
-- Glassmorphism, frosted panels, glowing borders, neon on dark
-- Emoji in headings or labels. The screen being replaced has nine of them and they are the
-  single loudest tell on it
-- Inter as the interface font
-- Drop shadows used to imply elevation on a flat internal tool
-- Weightless headline copy. "Enterprise AI Workflow Automation Dashboard" and its subtitle
-  "End-to-end Document Ingestion, Ollama Local Extraction & Real-time Analytics" are both being
-  deleted for exactly this reason, and the second one also is not true
-- Any decorative chart. A donut showing one category at 100% is being deleted
+- Gradients as backgrounds or behind headings, and purple to cyan in any form
+- Emoji anywhere in the interface
+- Glassmorphism, frosted panels, glowing borders, neon
+- Decorative charts, including any chart showing one category at 100 percent
 
 ---
 
-## Screens to produce
+## Deliverable
 
-### 1. The queue, default state
+**One screen: the queue, holding one document awaiting approval.** Done properly, at 1440 wide,
+light theme, desktop.
 
-Three tabs, counts on the labels, no separate metric strip:
+Not four artboards. No numbered plates, no annotation paragraphs in the margin, no palette
+swatch footer, no title treatment for the design itself. Version 1 returned a case study about
+a screen and the screen was less than half the pixels on it. Send the screen.
 
-```
-Awaiting approval  1 · 1,500     Approved by the system  2     Notifications  17
-```
-
-The queue holds one row. Use the real data, not placeholders:
-
-| Vendor | Amount | Document | Type | Signal |
-|---|---|---|---|---|
-| Apex Cloud Solutions Pty Ltd | USD 1,500.00 | INV-2026-001 | Invoice | No line items to check the total against |
-
-**Show what an empty queue looks like too.** With one document in it, this screen is empty most
-of the time, and an approval tool that looks broken when there is nothing to approve is a real
-failure. It should read as finished, not as missing.
-
-### 2. The second tab, approved by the system
-
-| Vendor | Amount | Document | Type |
-|---|---|---|---|
-| Synthetix AI Consulting | USD 2,350.00 | INV-2026-003 | Invoice |
-| NextGen Hardware Supplies | AUD 2,650.00 | INV-2026-002 | Invoice |
-
-These were approved with no human involvement, at a score of 1.00. The tab needs one line of
-framing that makes that fact plain without alarming anyone, because the project's own report
-argues this is its largest open risk.
-
-### 3. The third tab, notifications
-
-17 rows, recorded and never sent. **Each row must show its age**, because the oldest is from
-30 August and its text says "NeedsReview at score 0.25" while that document now reads Validated
-at 1.00. Showing the age turns a stale message into the honest point: an unsent queue decays.
-
-### 4. The dialog
-
-Opens from a queue row. Contains the only approve and reject buttons on the screen.
-
-```
-Apex Cloud Solutions Pty Ltd                          USD 1,500.00
-INV-2026-001 · Invoice
-
-⟨caution⟩ No line items to check the total against
-
-┌────────────────────────┬──────────────────────────────────┐
-│                        │  Date            2026-08-10      │
-│   the PDF itself       │  Currency        USD             │
-│   rendered inline      │  Total source    model           │
-│                        │  Line items      none            │
-└────────────────────────┴──────────────────────────────────┘
-
-▸ Covering email          billing@apexcloud.io
-▸ What the AI found       3 actions, each with the sentence it came from
-
-Approving creates a Jira task "Payment" immediately.
-
-        [ Approve ]                    [ Reject ]
-```
-
-Real content for the collapsed sections:
-
-- Email subject: "Reminder: Tax Invoice INV-2026-001 from Apex Cloud Solutions Pty Ltd"
-- Email body opens: "Hello, Please find attached tax invoice INV-2026-001. Amounts are in USD.
-  Payment terms are Net 15 days."
-- Action items, each shown above the quote it was read from:
-  - review the invoice — "Thank you for your business!"
-  - verify the vendor information — "Vendor: Apex Cloud Solutions Pty Ltd"
-  - check the payment terms — "Payment Terms: Net 15 days."
-
-**The evidence quote is the most important thing in this section and should be designed as
-such.** It is what lets a person tell a real action from an invented one. The first of the three
-above was read from "Thank you for your business!", which supports nothing, and a person should
-be able to see that at a glance.
+If one note is needed to explain a decision that is not visible, one short note is fine.
 
 ---
 
-## Constraints from the build
+## What it gets built in, for information
 
-Rendered in Streamlit 1.62.0, so `st.tabs`, `st.dialog`, `st.pdf` and `st.popover` are
-available. Styling reaches it through a single injected stylesheet, so the design should not
-depend on markup this project cannot produce. Light theme only; nobody asked for dark and a
-dark default is itself one of the tells.
+The screen renders in Streamlit 1.62.0 and styling reaches it as one injected stylesheet, so
+some of what is designed will need approximating in the build. That is the build's problem this
+round, not the design's. Design the screen that should exist.
 
-Desktop first, 1440 wide. It is an internal tool opened on a work machine.
+Two facts worth knowing anyway: the document panel shows the extracted text rather than a
+rendered PDF page, because no PDF embed survives this stack, so design for a monospace text
+block. And Streamlit paints its own accent on the active tab and the primary button, and it is
+red, so the design needs to say what replaces it.
