@@ -111,8 +111,10 @@ def section_head(key, title, note, rule, chip_bg="#F1F1F3", chip_fg="#6E6E76", *
         chip_bg, chip_fg = "#F1F1F3", "#6E6E76"
         frame = "margin:18px 0 8px; padding-bottom:5px; border-bottom:1px solid #E1E1E4;"
     else:
-        frame = ("margin:20px 0 10px; padding:5px 14px; background:#E8ECF5; "
-                 f"border:1px solid #EDEDEF; border-left:3px solid {rule}; border-radius:8px;")
+        # These four numbers are pinned to app.py by tests/test_artboard_matches_app.py.
+        # They drifted once, within an hour of the artboard being called a true picture.
+        frame = ("margin:20px 0 10px; padding:8px 14px; background:#E8ECF5; "
+                 f"border:1px solid #EDEDEF; border-left:3px solid {rule}; border-radius:6px;")
     return (f"<div style=\"display:flex; align-items:center; gap:10px; flex-wrap:wrap; {frame}\">"
             f"<span style=\"width:24px; height:24px; border-radius:7px; background:{chip_bg}; "
             f"color:{chip_fg}; display:inline-flex; align-items:center; justify-content:center; "
