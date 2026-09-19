@@ -1,19 +1,19 @@
 import os
+
 import pandas as pd
-import plotly.express as px
 import streamlit as st
 
 import task_dispatch
-from storage import APPROVAL_TASK_TYPES, DEFAULT_DB_PATH, StorageManager, connect
+from review_signals import risk_signal
+from storage import DEFAULT_DB_PATH, StorageManager, connect
 
 # =====================================================================
 # 1. Page Configuration
 # =====================================================================
 st.set_page_config(
-    page_title="AI Workflow Automation Platform",
-    page_icon="⚡",
+    page_title="Invoice approvals",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed",
 )
 
 DB_PATH = DEFAULT_DB_PATH
@@ -40,6 +40,7 @@ def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
             i.reviewed_at,
             i.validation_score,
             i.total_source,
+            i.vendor_source,
             i.document_type,
             i.reconciliation,
             i.invoice_number,
@@ -114,12 +115,6 @@ def set_action_item_done(action_item_id: int, is_done: bool):
     approval_status -- an action item is a claim about the document, not a workflow gate."""
     StorageManager(DB_PATH).set_action_item_done(action_item_id, is_done)
 
-def assign_task(task_id: int, assignee: str):
-    """A person claiming (or clearing, with an empty string) a task from the queue."""
-    store = StorageManager(DB_PATH)
-    store.assign_task(task_id, assignee or None)
-    task_dispatch.sync_jira_assignee(store, task_id, assignee or None)
-
 def record_decision(record_id: int, decision: str):
     """Records a human decision about an invoice.
 
@@ -168,350 +163,290 @@ def record_decision(record_id: int, decision: str):
                 approval_path="human",
             )
 
+def load_pending_notifications() -> pd.DataFrame:
+    """The outbox: what the pipeline would have sent, had anything been wired to send it.
 
-def load_open_tasks() -> pd.DataFrame:
-    """The approval queue: Review and Approve tasks still waiting for a person.
+    FR-6.2 requires every intended notification to be recorded rather than printed. 17 rows have
+    been recorded since 30 August and no interface has ever displayed one.
 
-    Payment/File follow-ups are created after approval (including auto-approval) and
-    dispatched to Jira; they are not shown here.
+    `created_at` is selected because the payload decays. The oldest row still reads "NeedsReview
+    at score 0.25" for a document that now reads Validated at 1.00: the message was written when
+    it was true and nothing rewrites it. Showing the age turns a stale sentence into the honest
+    point, which is that a queue nobody drains stops describing the present.
     """
-    rows = StorageManager(DB_PATH).open_tasks(task_types=APPROVAL_TASK_TYPES)
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame([{
-        "Task": r["task_id"],
-        "Type": r["task_type"],
-        "Doc Type": r["document_type"],
-        "Invoice": r["invoice_id"],
-        "File": r["file_name"],
-        "Vendor": r["vendor_name"],
-        "Amount": None if r["total_cents"] is None else r["total_cents"] / 100.0,
-        "Data Quality": r["validation_status"],
-        "Approval": r["approval_status"],
-        "Assignee": r["assignee"] or "",
-        "Jira": r["external_ref"] or "",
-        "Why": r["reason"],
-        "Opened": r["created_at"],
-    } for r in rows])
-
-# =====================================================================
-# 2. Main Dashboard UI
-# =====================================================================
-st.title("⚡ Enterprise AI Workflow Automation Dashboard")
-st.caption("End-to-end Document Ingestion, Ollama Local Extraction & Real-time Analytics")
-
-df = load_data()
-
-if df.empty:
-    st.warning("⚠️ No records found in SQLite database. Run `email_listener.py` or `main.py` first.")
-    st.stop()
-
-# =====================================================================
-# 3. KPI Metrics
-# =====================================================================
-total_docs = len(df)
-validated_docs = len(df[df["validation_status"] == "Validated"])
-needs_review_docs = len(df[df["validation_status"] == "NeedsReview"])
-auto_rate = (validated_docs / total_docs) * 100 if total_docs > 0 else 0
-total_spend = df[df["total_amount"] > 0]["total_amount"].sum()
-avg_validation = df["validation_score"].mean()
-derived_totals = int((df["total_source"] == "fallback").sum())
-approved_docs = len(df[df["approval_status"] == "Approved"])
-pending_docs = len(df[df["approval_status"] == "Pending"])
-open_tasks_df = load_open_tasks()
-
-col1, col2, col3, col4, col5 = st.columns(5)
-with col1:
-    st.metric(label="📥 Total Documents", value=total_docs)
-with col2:
-    st.metric(label="✅ Automation Pass Rate", value=f"{auto_rate:.1f}%", delta=f"{validated_docs} Validated")
-with col3:
-    st.metric(label="💰 Total Tracked Spend", value=f"${total_spend:,.2f}")
-with col4:
-    st.metric(label="🎯 Avg Validation Score", value=f"{avg_validation:.2f}")
-with col5:
-    st.metric(label="📌 Open Tasks", value=len(open_tasks_df),
-              delta=f"{approved_docs} approved, {pending_docs} pending", delta_color="off")
-
-st.caption(
-    "**Data Quality** is what the pipeline judged. **Approval** is what a person decided. "
-    "They are independent: a document can be `NeedsReview` and `Approved` at once, meaning "
-    "the extractor was not confident and a reviewer accepted it anyway."
-)
-
-if derived_totals:
-    st.caption(
-        f"⚠️ {derived_totals} of {total_docs} totals were derived from line items rather than "
-        "extracted by the model. They are marked `fallback` in the Source column."
+    conn = connect(DB_PATH)
+    df = pd.read_sql_query(
+        """
+        SELECT o.outbox_id, o.channel, o.payload, o.created_at,
+               i.vendor_name, i.invoice_number
+        FROM outbound_messages o
+        JOIN invoices i ON i.invoice_id = o.invoice_id
+        WHERE o.state = 'Pending'
+        ORDER BY o.created_at DESC
+        """,
+        conn,
     )
+    conn.close()
+    return df
 
-st.divider()
+
+def load_email_for(invoice_row) -> dict:
+    """The message that delivered a document, for the dialog's collapsed section."""
+    return {
+        "sender": invoice_row.get("email_sender"),
+        "subject": invoice_row.get("email_subject"),
+        "received_at": invoice_row.get("email_received_at"),
+        "body": _email_body(invoice_row.get("email_id")),
+    }
+
+
+def _email_body(email_id) -> str:
+    if email_id is None or pd.isna(email_id):
+        return ""
+    conn = connect(DB_PATH)
+    row = conn.execute(
+        "SELECT body_text FROM email_messages WHERE email_id = ?", (int(email_id),)
+    ).fetchone()
+    conn.close()
+    return (row["body_text"] if row else "") or ""
+
+
+def follow_up_for(document_type: str) -> str:
+    """What approving this document will create in Jira, named before the button is pressed.
+
+    Mirrors storage.open_followup_task. The screen states the consequence because
+    record_decision dispatches to Jira immediately, with no confirmation step, and an approver
+    pressing a button should know it creates work for someone else in another system.
+    """
+    return {"Invoice": "Payment", "Receipt": "File"}.get(document_type, "Review")
+
 
 # =====================================================================
-# 4. Analytics & Visualizations
+# Presentation
+#
+# Structure only. Colour, type and spacing come from the design brief and land as one
+# stylesheet, so this file decides what appears and in what order, never how it looks.
+# See fe-screen-spec.md and approval-screen-design-brief.md.
 # =====================================================================
-chart_col1, chart_col2 = st.columns(2)
 
-with chart_col1:
-    st.subheader("📊 Validation Status Breakdown")
-    status_summary = df["validation_status"].value_counts().reset_index()
-    status_summary.columns = ["Status", "Count"]
-    fig_status = px.pie(
-        status_summary, 
-        names="Status", 
-        values="Count", 
-        color="Status",
-        color_discrete_map={"Validated": "#10B981", "NeedsReview": "#F59E0B"},
-        hole=0.45
-    )
-    fig_status.update_layout(margin=dict(t=10, b=10, l=10, r=10))
-    st.plotly_chart(fig_status, use_container_width=True)
+st.markdown("""
+<style>
+/* Placeholder until the design lands. Two rules, both functional rather than decorative:
+   money that does not line up is a defect, and the one signal colour is the only colour. */
+[data-testid="stTable"] td, .amount { font-variant-numeric: tabular-nums; }
+.signal { color: #A65A1E; }
+</style>
+""", unsafe_allow_html=True)
 
-with chart_col2:
-    st.subheader("🏢 Spend by Vendor")
-    vendor_df = df[df["total_amount"] > 0].groupby("vendor_name")["total_amount"].sum().reset_index()
-    vendor_df = vendor_df.sort_values(by="total_amount", ascending=True)
-    if not vendor_df.empty:
-        fig_vendor = px.bar(
-            vendor_df,
-            x="total_amount",
-            y="vendor_name",
-            orientation="h",
-            color="total_amount",
-            color_continuous_scale="Blues"
+
+def money(amount, currency) -> str:
+    if amount is None or pd.isna(amount):
+        return "-"
+    return f"{currency or ''} {amount:,.2f}".strip()
+
+
+def render_document(path, height: int = 420):
+    """Show the text the model actually read, and offer the file itself.
+
+    **Not the rendered page, and three approaches were tried before settling here.**
+    `st.pdf` exists in Streamlit 1.62.0 but raises unless the separate `streamlit-pdf` component
+    is installed, and version 2.0.1 of that component fails on import against this Streamlit.
+    Embedding the file as a `data:` URI renders nothing, because Streamlit sandboxes the iframe
+    `st.html` produces. Rasterising the first page would work and costs a binary dependency that
+    every teammate would have to install.
+
+    So the panel shows the extracted text. That is a downgrade for layout and an upgrade for the
+    job: the question an approver is answering is whether the model read the document correctly,
+    and this is character for character what the model was given. A rendered page would show
+    what the document looks like; this shows what the pipeline saw.
+
+    The original is one click away for anyone who needs the layout.
+    """
+    if not path or not os.path.exists(path):
+        st.caption("The archived file is no longer on disk.")
+        return
+
+    with open(path, "rb") as handle:
+        data = handle.read()
+
+    try:
+        from pypdf import PdfReader
+        text = "\n".join((page.extract_text() or "") for page in PdfReader(path).pages)
+    except Exception:                                   # noqa: BLE001
+        text = ""
+
+    st.caption("What the model read")
+    if text.strip():
+        st.text_area(
+            "document text", value=text, height=height,
+            label_visibility="collapsed", disabled=True,
         )
-        fig_vendor.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
-        st.plotly_chart(fig_vendor, use_container_width=True)
     else:
-        st.info("No spend data available yet.")
+        st.caption("No text layer. This document would need OCR, which the pipeline does not do.")
 
-st.divider()
-
-# =====================================================================
-# 4b. Task Queue
-# =====================================================================
-st.subheader("📌 Task Queue")
-st.caption(
-    "Work still waiting for a person. `Review` means the extraction could not be trusted. "
-    "`Approve` means it was read cleanly but the money still needs a signature. A score of "
-    "1.00 with a verified amount is auto-approved and skips this queue; its Payment or File "
-    "follow-up goes to Jira. A task leaves the queue when someone approves or rejects the "
-    "invoice below."
-)
-
-if open_tasks_df.empty:
-    st.success("No open tasks. Every processed document has been decided.")
-else:
-    st.caption("Edit the **Assignee** column and press Enter to claim or reassign a task.")
-    edited_tasks_df = st.data_editor(
-        open_tasks_df,
-        use_container_width=True,
-        hide_index=True,
-        disabled=[c for c in open_tasks_df.columns if c not in ("Assignee",)],
-        column_config={
-            "Amount": st.column_config.NumberColumn(format="%.2f"),
-        },
-        key="task_queue_editor",
+    st.download_button(
+        "Download the original", data=data,
+        file_name=os.path.basename(path), mime="application/pdf",
     )
-    # Only the rows a person actually touched are written back, so an unrelated edit
-    # elsewhere in the grid cannot silently reassign every other task.
-    changed = edited_tasks_df[edited_tasks_df["Assignee"] != open_tasks_df["Assignee"]]
-    if not changed.empty:
-        for _, row in changed.iterrows():
-            assign_task(int(row["Task"]), row["Assignee"])
-        st.rerun()
 
-st.divider()
 
-# =====================================================================
-# 5. Explorer Table (Differentiating Dates clearly)
-# =====================================================================
-st.subheader("📋 Invoices & Receipts Explorer")
+@st.dialog("Review document", width="large")
+def review_dialog(row):
+    """The only place approve and reject exist.
 
-st.sidebar.header("Filters")
-status_filter = st.sidebar.multiselect(
-    "Filter Status:", 
-    options=["Validated", "NeedsReview"], 
-    default=["Validated", "NeedsReview"]
-)
-search_text = st.sidebar.text_input("Search Vendor / Invoice # / File:")
+    Not in the row, deliberately. Objective 4 of this project is to keep a person in the
+    approval path, and a person approving from the row decides on exactly the information the
+    machine had, which is the decision the machine already makes by itself at a score of 1.00.
+    The extra click buys a look at the document, the evidence quotes and the covering email.
 
-filtered_df = df[df["validation_status"].isin(status_filter)]
-if search_text:
-    filtered_df = filtered_df[
-        filtered_df["vendor_name"].str.contains(search_text, case=False, na=False) |
-        filtered_df["invoice_number"].str.contains(search_text, case=False, na=False) |
-        filtered_df["file_name"].str.contains(search_text, case=False, na=False)
-    ]
+    Ordered by the questions a person asks: what am I approving, is there a concern, let me
+    look, where did it come from, what happens if I approve.
+    """
+    st.subheader(row["vendor_name"] or "Unknown vendor")
+    st.markdown(
+        f"<span class='amount'><strong>{money(row['total_amount'], row['currency'])}</strong>"
+        f"</span> &nbsp; {row['invoice_number'] or '-'} &middot; {row['document_type']}",
+        unsafe_allow_html=True,
+    )
 
-# Display Table with renamed, unambiguous columns
-table_display = filtered_df[[
-    "id",
-    "file_name",
-    "document_type",
-    "category",                # email_ai.py's business category, distinct from Doc Type
-    "validation_status",      # the gate's verdict, not the model's and not a person's
-    "validation_score",
-    "approval_status",        # human decision
-    "total_source",
-    "reconciliation",
-    "vendor_name",
-    "invoice_number",
-    "invoice_date",           # Document Date
-    "total_amount",
-    "currency",
-    "system_processed_at"     # Ingestion Execution Time
-]].copy()
+    signal = risk_signal(row)
+    if signal:
+        st.markdown(f"<p class='signal'>{signal}</p>", unsafe_allow_html=True)
 
-table_display.columns = [
-    "ID", "File Name", "Doc Type", "Category", "Data Quality", "Validation Score", "Approval",
-    "Total Source", "Reconciliation",
-    "Vendor Name", "Invoice #", "Invoice Date (Doc)",
-    "Total Amount", "Currency", "Processed At (System)"
-]
+    left, right = st.columns([3, 2])
+    with left:
+        render_document(row.get("archive_path"))
+    with right:
+        for label, value in (
+            ("Date", row.get("invoice_date")),
+            ("Currency", row.get("currency")),
+            ("Total source", row.get("total_source")),
+            ("Vendor source", row.get("vendor_source")),
+        ):
+            st.markdown(f"**{label}** &nbsp; `{value or '-'}`")
+        items = load_line_items(int(row["id"]))
+        st.markdown(f"**Line items** &nbsp; `{len(items) or 'none'}`")
+        if not items.empty:
+            st.dataframe(items, hide_index=True, use_container_width=True)
 
-st.dataframe(
-    table_display.style.format({
-        "Validation Score": "{:.2f}",
-        "Total Amount": "{:,.2f}"
-    }),
-    use_container_width=True,
-    hide_index=True
-)
+    email = load_email_for(row)
+    if email["sender"]:
+        with st.expander(f"Covering email · {email['sender']}"):
+            st.markdown(f"**Subject** {email['subject'] or '-'}")
+            st.markdown(f"**Received** `{email['received_at'] or '-'}`")
+            if email["body"]:
+                st.text(email["body"])
 
-# =====================================================================
-# 6. Detail Inspector & Human-in-the-loop Approval
-# =====================================================================
-st.subheader("🔍 Document Detail Inspector")
-selected_id = st.selectbox(
-    "Select an ID to inspect or manually approve:",
-    options=filtered_df["id"].tolist() if not filtered_df.empty else []
-)
-
-if selected_id:
-    row = df[df["id"] == selected_id].iloc[0]
-    col_left, col_right = st.columns([1, 1])
-
-    with col_left:
-        st.markdown(f"**File Name:** `{row['file_name']}`")
-        st.markdown(f"**Vendor:** `{row['vendor_name']}`")
-        st.markdown(f"**Invoice #:** `{row['invoice_number']}`")
-        st.markdown(f"**Invoice Date (on Document):** `{row['invoice_date']}`")
-        st.markdown(f"**System Ingestion Time:** `{row['system_processed_at']}`")
-        total = row["total_amount"]
-        total_text = "not extracted" if pd.isna(total) else f"{row['currency']} {total:,.2f}"
-        st.markdown(f"**Total Amount:** `{total_text}`")
-        st.markdown(f"**Document Type:** `{row['document_type']}`")
-        category_text = row["category"] if pd.notna(row["category"]) else "not categorised"
-        st.markdown(f"**Category:** `{category_text}`")
-        st.markdown(f"**Total Source:** `{row['total_source']}`")
-        st.markdown(f"**Reconciliation:** `{row['reconciliation']}`")
-
-        if row["reconciliation"] == "short":
-            st.error("The stated total is **less** than the line items add up to. Tax and "
-                     "shipping can only increase a total, so one of the two numbers is wrong.")
-        elif row["reconciliation"] == "plausible":
-            st.info("The total is higher than the line items, which tax or shipping would "
-                    "explain. Normal on a real invoice.")
-        elif row["reconciliation"] == "unknown":
-            st.warning("No line items to check the total against.")
-
-        if row["total_source"] == "fallback":
-            st.info("This total was derived from the line items, not read from the document.")
-
-        st.divider()
-        st.markdown("**Summary:**")
-        if pd.notna(row["summary"]) and row["summary"]:
-            st.markdown(f"> {row['summary']}")
-        else:
-            st.caption("Not summarised (email_ai.py's document-intelligence pass did not "
-                       "run or did not return one; the invoice itself is unaffected).")
-
-        with st.expander("📧 Original Source"):
-            if pd.notna(row["email_id"]):
-                st.markdown(f"**From:** `{row['email_sender']}`")
-                st.markdown(f"**Subject:** `{row['email_subject']}`")
-                st.markdown(f"**Received:** `{row['email_received_at']}`")
-            else:
-                st.caption("Not delivered by email: this file was dropped straight into "
-                           "inbox/, which is the documented way to test without Gmail.")
-            if pd.notna(row["archive_path"]) and row["archive_path"]:
-                st.markdown(f"**Archived file:** `{row['archive_path']}`")
-                if os.path.exists(row["archive_path"]):
-                    with open(row["archive_path"], "rb") as f:
-                        st.download_button(
-                            "Download original file", data=f.read(),
-                            file_name=row["file_name"], key=f"download_{selected_id}")
-                else:
-                    st.caption("The archived file is no longer on disk.")
-
-        st.divider()
-        st.markdown(f"**Data Quality (pipeline):** `{row['validation_status']}` "
-                    f"at score `{row['validation_score']:.2f}`")
-        st.markdown(f"**Approval (human):** `{row['approval_status']}`")
-        if row["reviewed_at"]:
-            st.markdown(f"**Reviewed At:** `{row['reviewed_at']}`")
-        elif row["approval_status"] == "Approved":
-            st.caption("✅ Approved automatically — validation score was 1.00, no human "
-                       "review needed.")
-
-        if row["validation_status"] == "NeedsReview":
-            st.warning("⚠️ The pipeline was not confident about this document. Check it before approving.")
-
-        decision_col1, decision_col2 = st.columns(2)
-        with decision_col1:
-            if st.button("✅ Approve", use_container_width=True,
-                         disabled=row["approval_status"] == "Approved"):
-                record_decision(selected_id, "Approved")
-                st.rerun()
-        with decision_col2:
-            if st.button("❌ Reject", use_container_width=True,
-                         disabled=row["approval_status"] == "Rejected"):
-                record_decision(selected_id, "Rejected")
-                st.rerun()
-
-        st.caption("Approving records a human decision. It does not change the pipeline's "
-                   "Data Quality verdict or the validation score, which stay as evidence.")
-
-    with col_right:
-        items_df = load_line_items(int(selected_id))
-        if items_df.empty:
-            st.info("No line items extracted.")
-        else:
-            st.markdown("**Extracted Line Items:**")
-            st.dataframe(
-                items_df.style.format({
-                    "Qty": "{:g}",
-                    "Unit Price": "{:,.2f}",
-                    "Line Total": "{:,.2f}",
-                }),
-                use_container_width=True,
-                hide_index=True,
+    actions = load_action_items(int(row["id"]))
+    if not actions.empty:
+        with st.expander(f"What the AI found · {len(actions)} actions"):
+            st.caption(
+                "Each action is shown above the sentence it was read from. The quote is what "
+                "separates a real action from an invented one."
             )
-            st.caption("Rows marked as a summary row are excluded from any line item total.")
+            for _, item in actions.iterrows():
+                st.checkbox(
+                    item["Action"], value=bool(item["is_done"]),
+                    key=f"act-{item['action_item_id']}",
+                    on_change=set_action_item_done,
+                    args=(int(item["action_item_id"]), not bool(item["is_done"])),
+                )
+                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*“{item['Evidence']}”*")
 
     st.divider()
-    st.markdown("**✅ Action Items**")
-    st.caption(
-        "Follow-up actions email_ai.py found in the document text, each with the exact "
-        "quote it was read from -- check the quote before trusting the action. Checking a "
-        "box here is a personal to-do; it does not change Data Quality or Approval above."
+    st.markdown(
+        f"Approving creates a Jira task **{follow_up_for(row['document_type'])}** immediately."
     )
-    action_items_df = load_action_items(int(selected_id))
-    if action_items_df.empty:
-        st.info("No action items extracted.")
+    approve, reject = st.columns(2)
+    if approve.button("Approve", use_container_width=True):
+        record_decision(int(row["id"]), "Approved")
+        st.rerun()
+    if reject.button("Reject", use_container_width=True):
+        record_decision(int(row["id"]), "Rejected")
+        st.rerun()
+
+
+def document_rows(frame, *, actionable: bool):
+    """One row per document. Six columns, not eleven.
+
+    Deliberately excluded: file name, ingestion time, run_id, the raw validation score and the
+    invoice date. All are available and none of them changes a decision.
+    """
+    if frame.empty:
+        st.caption("Nothing here." if not actionable else "Nothing is waiting for you.")
+        return
+
+    header = st.columns([3, 2, 2, 1.5, 4, 1.5])
+    for column, label in zip(header, ("Vendor", "Amount", "Document", "Type", "", "")):
+        column.caption(label)
+
+    for _, row in frame.iterrows():
+        vendor, amount, number, doc_type, signal_cell, action = st.columns([3, 2, 2, 1.5, 4, 1.5])
+        vendor.write(row["vendor_name"] or "-")
+        amount.markdown(
+            f"<div class='amount' style='text-align:right'>"
+            f"{money(row['total_amount'], row['currency'])}</div>",
+            unsafe_allow_html=True,
+        )
+        number.write(row["invoice_number"] or "-")
+        doc_type.write(row["document_type"])
+        signal = risk_signal(row)
+        if signal:
+            signal_cell.markdown(f"<span class='signal'>{signal}</span>", unsafe_allow_html=True)
+        if action.button("Open", key=f"open-{row['id']}", use_container_width=True):
+            review_dialog(row)
+
+
+df = load_data()
+if df.empty:
+    st.title("Invoice approvals")
+    st.write("No documents have been processed yet. Run `main.py` over a document in `inbox/`.")
+    st.stop()
+
+pending = df[df["approval_status"] == "Pending"]
+auto = df[(df["approval_status"] == "Approved") & (df["reviewed_at"].isna())]
+notifications = load_pending_notifications()
+
+pending_value = pending["total_amount"].sum() if not pending.empty else 0
+
+st.title("Invoice approvals")
+
+# The counts live on the tab labels. Every number is therefore visible without a click, and
+# there is no separate metric strip duplicating them.
+awaiting_tab, auto_tab, outbox_tab = st.tabs([
+    f"Awaiting approval  {len(pending)} · {pending_value:,.0f}",
+    f"Approved by the system  {len(auto)}",
+    f"Notifications  {len(notifications)}",
+])
+
+with awaiting_tab:
+    document_rows(pending, actionable=True)
+
+with auto_tab:
+    st.caption(
+        "These were approved at a validation score of 1.00 with no person involved. Every check "
+        "behind that score reads the document itself, so a duplicate, an unknown vendor and a "
+        "well-formatted forgery all score the same."
+    )
+    document_rows(auto, actionable=False)
+
+with outbox_tab:
+    if notifications.empty:
+        st.caption("Nothing queued.")
     else:
-        for _, item in action_items_df.iterrows():
-            label = item["Action"]
-            if pd.notna(item["Owner"]) and item["Owner"]:
-                label += f" — owner: {item['Owner']}"
-            if pd.notna(item["Deadline"]) and item["Deadline"]:
-                label += f" ({item['Deadline']})"
-            checked = st.checkbox(
-                label, value=bool(item["is_done"]),
-                key=f"action_item_{item['action_item_id']}")
-            if checked != bool(item["is_done"]):
-                set_action_item_done(int(item["action_item_id"]), checked)
-                st.rerun()
-            if pd.notna(item["Evidence"]) and item["Evidence"]:
-                st.caption(f"↳ “{item['Evidence']}”")
+        st.caption(
+            "Recorded, never sent. Nothing in this project is wired to Teams or Jira for these, "
+            "so the queue is real and the sending is not. The text was written when it was true "
+            "and nothing rewrites it, which is why the age matters."
+        )
+        st.dataframe(
+            notifications[["created_at", "channel", "vendor_name", "invoice_number", "payload"]],
+            hide_index=True, use_container_width=True,
+            column_config={
+                "created_at": "Queued",
+                "channel": "Channel",
+                "vendor_name": "Vendor",
+                "invoice_number": "Document",
+                "payload": "Message",
+            },
+        )

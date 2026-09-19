@@ -122,12 +122,28 @@ Ordered by the questions a person asks:
 
 | Element | Source | Verified |
 |---|---|---|
-| PDF | `invoices.archive_path` via `st.pdf` | all 3 files present on disk |
+| The document's text | `invoices.archive_path`, extracted with `pypdf` | all 3 files present on disk |
 | Extracted fields | `invoices` | 3 rows |
 | Line items | `line_items` | 4 rows |
 | Covering email | `email_messages` joined on `invoices.email_id` | sender, subject and body all populated |
 | AI category and summary | `invoices.category`, `invoices.summary` | 3 of 3 populated |
 | Action items with quotes | `invoice_action_items` | 9 rows, each with `evidence_quote` |
+
+**The panel shows the document's extracted text, not the rendered page, and three approaches
+were tried first.** `st.pdf` exists in Streamlit 1.62.0 but raises unless the separate
+`streamlit-pdf` component is installed, and version 2.0.1 of that component fails on import
+against this Streamlit. Embedding the file as a `data:` URI renders an empty frame, because
+Streamlit sandboxes the iframe `st.html` produces. Rasterising the first page works and costs a
+binary dependency every teammate would have to install.
+
+**The text turned out to be the better artefact anyway.** The question an approver is answering
+is whether the model read the document correctly, and the text panel is character for character
+what the model was given. It earned its place on the first document it was pointed at: invoice 1
+shows "Dedicated Cloud Compute", "High Performance SSD Storage" and "Managed Database Service"
+with quantities and prices, while the panel beside it reads `Line items: none`. The model missed
+line items a person can see in one glance. A rendered page would have shown what the document
+looks like; this shows what the pipeline saw, and the gap between them is the thing worth
+catching. The original is one click away for anyone who needs the layout.
 
 **Step 5 is new and the current screen has nothing like it.** Approving fires
 `dispatch_task_to_jira` with no confirmation step. A senior approver should know the button
@@ -183,6 +199,13 @@ signal and the pending count should draw the eye. Everything else is neutral.
   problem: the real queue holds one document.
 - **Approving an email.** Rejected for V1 in grooming. `email_analysis` has no approval column
   and the Jira hand-off is keyed on `invoice_id` throughout, so it needs backend work.
+- **The task queue and assignee editing.** The three tabs leave no place for the Task Queue, so
+  the editable Assignee column goes with it in V1. The argument for dropping it is that
+  Payment and File tasks are dispatched to Jira the moment a document is approved, and Jira is
+  where they are assigned and worked; a second place to assign the same task invites the two to
+  disagree. The argument against is that it works today and syncs back to Jira
+  (`task_dispatch.sync_jira_assignee`). **Recorded as a deliberate removal, not an oversight.**
+
 - **A done state for email action items.** `email_action_items` deliberately has no such column,
   because a re-run deletes and re-inserts the children and would reset a person's finished work.
   Invoice action items have `is_done`; email ones cannot until that is solved.
