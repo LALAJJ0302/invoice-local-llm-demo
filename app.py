@@ -553,7 +553,14 @@ def review_dialog(row):
         with st.expander(f"What the AI found · {len(actions)} actions"):
             st.caption(
                 "Each action is shown above the sentence it was read from. The quote is what "
-                "separates a real action from an invented one."
+                "separates a real action from an invented one, and it is worth reading: the "
+                "model tends to produce generic actions and then attach whatever sentence it "
+                "happened to be near."
+            )
+            st.caption(
+                "**Tick one when you have dealt with it.** It saves immediately and is a note "
+                "to whoever opens this document next. Nothing downstream reads it: it does not "
+                "affect the validation score, the approval, or the Jira task."
             )
             for _, item in actions.iterrows():
                 st.checkbox(
@@ -568,12 +575,16 @@ def review_dialog(row):
     st.markdown(
         f"Approving creates a Jira task **{follow_up_for(row['document_type'])}** immediately."
     )
-    approve, reject = st.columns(2)
-    if approve.button("Approve", use_container_width=True):
-        record_decision(int(row["id"]), "Approved")
-        st.rerun()
-    if reject.button("Reject", use_container_width=True):
+    # Two identical full-width buttons made Reject look as inviting as Approve, and both of
+    # them look like the third button on the screen rather than the decision the dialog exists
+    # for. approval-screen-design-v2.html fills Approve and leaves Reject quiet, both sitting at
+    # the right edge under the line that says what approving will do.
+    _spacer, reject, approve = st.columns([4, 1.1, 1.2], vertical_alignment="center")
+    if reject.button("Reject", key=f"reject-{row['id']}", width="stretch"):
         record_decision(int(row["id"]), "Rejected")
+        st.rerun()
+    if approve.button("Approve", type="primary", key=f"approve-{row['id']}", width="stretch"):
+        record_decision(int(row["id"]), "Approved")
         st.rerun()
 
 
@@ -1055,10 +1066,13 @@ def overview_body(pending, auto, outbox, history):
                      opens=TAB_AUTO, key="auto")
         with st.container(key="ovpanel-auto", gap=None):
           for _, r in auto.iterrows():
+            # The score belongs on the row. This section exists to show what was approved
+            # without a person, and the number behind that decision was only in the caption.
+            score = "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}"
             record_row(key=f"ovauto-{r['id']}", dot="var(--positive)",
                        left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
                        value=money(r["total_amount"], r["currency"]),
-                       right=str(r["system_processed_at"])[11:16],
+                       right=f"score {score} · {str(r['system_processed_at'])[11:16]}",
                        action="Open", on_action=lambda row=r: review_dialog(row))
 
     if outbox.empty:
@@ -1092,10 +1106,12 @@ def overview_body(pending, auto, outbox, history):
         st.markdown("<p class='ov-more'>Nobody has decided anything yet.</p>",
                     unsafe_allow_html=True)
     else:
-        decided = load_data().set_index("id")
+        decided = load_data()
         with st.container(key="ovpanel-hist", gap=None):
          for _, r in history.head(5).iterrows():
-            full = decided.loc[r["invoice_id"]] if r["invoice_id"] in decided.index else None
+            # Not set_index("id"): review_dialog reads row["id"], and an index is not a column.
+            match = decided[decided["id"] == r["invoice_id"]]
+            full = match.iloc[0] if not match.empty else None
             record_row(key=f"ovhist-{r['invoice_id']}",
                        dot="var(--caution)" if r["approval_status"] == "Rejected"
                            else "var(--positive)",

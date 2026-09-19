@@ -169,3 +169,38 @@ def test_the_signal_explanation_comes_from_the_module():
     rendered = " ".join(m.value for m in at.markdown if m.value)
     assert risk_detail(flagged[0]) in rendered
     assert not any(d in pathlib.Path(APP).read_text(encoding="utf-8") for d in DETAIL.values())
+
+
+def test_a_history_row_carries_what_the_dialog_reads():
+    """Regression, 2026-09-20. Opening a History row raised KeyError: 'id'.
+
+    The lookup used `load_data().set_index("id")`, which moves the id out of the row and into
+    the index, and `review_dialog` reads `row["id"]` on every path that records a decision. The
+    tests all passed: none of them opened a History row, because the only Open button any test
+    pressed was a section header's.
+    """
+    import app
+    decided = app.load_data()
+    history = app.load_history()
+    if history.empty or decided.empty:
+        return
+    for _, h in history.iterrows():
+        match = decided[decided["id"] == h["invoice_id"]]
+        assert not match.empty, f"history row {h['invoice_number']} has no invoice behind it"
+        row = match.iloc[0]
+        # Exactly what review_dialog reads before it renders anything.
+        for column in ("id", "vendor_name", "invoice_number", "document_type", "total_amount",
+                       "currency", "archive_path"):
+            assert column in row.index, f"{column} is missing from the row the dialog receives"
+
+
+def test_every_open_button_can_be_pressed():
+    """The bug above was invisible because no test pressed the buttons that carry rows."""
+    at = run()
+    labels = ["Open", "Open the document"]
+    for index, button in enumerate(b for b in at.button if b.label in labels):
+        after = at.button[[b.label for b in at.button].index(button.label)].click().run()
+        assert not after.exception, (
+            f"pressing {button.label!r} raised: {[str(e.value) for e in after.exception]}")
+        if index > 6:
+            break
