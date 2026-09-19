@@ -126,20 +126,25 @@ def test_the_tab_bar_no_longer_says_notifications():
     assert not re.search(r"\bNotifications\s+\d", rendered), "a tab is still labelled Notifications"
 
 
-def test_a_section_header_opens_its_tab():
-    """OV-4. Streamlit 1.62.0 takes a key on st.tabs, so a section can select one.
+def test_no_control_claims_to_open_a_tab():
+    """OV-4 was removed on 2026-09-20 because it never worked, and this keeps it removed.
 
-    Asserted rather than clicked through by hand: the button writes the tab's own label, counts
-    and all, and a label that drifts from the tab it names would leave a dead control.
+    `st.tabs` in Streamlit 1.62.0 takes a `key` and a `default`, and neither selects a tab from
+    code. The key records what the user picked; writing it changes the session value and the
+    frontend keeps its own selection. Measured in a real browser, which is the only place it can
+    be measured: aria-selected stayed on Overview before and after the button was pressed, with
+    both the key and the default tried.
+
+    The first version of this test asserted that the session key had been written, saw that it
+    had, and passed for two commits while the button did nothing. Asserting the mechanism
+    instead of the outcome is how a dead control survives a green suite.
+
+    `st.segmented_control` can be driven this way, measured the same way. Swapping the tab bar
+    for one is the fix, and it is a change to the page's navigation rather than a patch.
     """
     at = run()
-    # "Open tab" is the section header's control. "Open" is a row's, and it opens the dialog,
-    # not a tab. The labels were both "Open" until 2026-09-20 and this test caught the rename.
-    opens = [b for b in at.button if b.label == "Open tab"]
-    assert opens, "no section header offers a way into its tab"
-    after = opens[0].click().run()
-    assert not after.exception, [str(e.value) for e in after.exception]
-    assert after.session_state["nav"], "pressing Open did not select a tab"
+    dead = [b for b in at.button if b.label in ("Open tab", "Open the tab")]
+    assert not dead, "a control is offering to open a tab, which st.tabs cannot do"
 
 
 def test_the_card_carries_everything_the_approved_design_carries():

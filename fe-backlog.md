@@ -151,7 +151,7 @@ Specified in `fe-tabs-spec.md`. All four are done.
 
 ## Overview page, prioritised 2026-09-20, finished the same day
 
-**Done: OV-1 to OV-8. Declined: OV-9, OV-10, OV-11.** Spec: `fe-overview-spec.md`. Each declined
+**Done: OV-1, 2, 3, 5, 6, 7, 8. Reopened: OV-4. Declined: OV-9, OV-10, OV-11.** Spec: `fe-overview-spec.md`. Each declined
 item was argued rather than dropped, and the reasoning stays below.
 
 The page is built and the tab bar is final, so the next block of work is finishing one page
@@ -176,7 +176,7 @@ recorded decision in `fe-queue-spec.md` §4 and is now due.
 
 | id | Work | Done when |
 |---|---|---|
-| ~~OV-4~~ ✅ | Each section header can open its tab | Every section on Overview reaches the tab it summarises in one click |
+| **OV-4** ⚠️ | Each section header can open its tab | **Reopened 2026-09-20. Built, shipped, and it never worked.** `st.tabs` takes `key` and `default` and neither selects a tab from code: the key records what the user picked, and writing it moves the session value while the frontend keeps its own selection. Measured in a browser, `aria-selected` stayed on Overview with both tried. The control is removed rather than left dead. `st.segmented_control` can be driven from code, measured the same way, so the fix is to swap the tab bar for one. That is a change to the page's navigation and wants Neo's eyes before it lands |
 
 **Researched rather than guessed.** Plausible puts an expand control at the top right of every
 panel and the panel opens to its full view. That is the pattern this needs and the reference

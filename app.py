@@ -349,9 +349,12 @@ st.markdown("""
 .dot { width:6px; height:6px; border-radius:50%; flex:none; }
 
 /* The sentence comes from review_signals.py. Nothing in this file writes signal copy. */
-.signal-strip { display:flex; align-items:center; gap:10px; padding:13px 24px;
+.signal-strip { display:flex; align-items:center; gap:12px; padding:12px 24px; flex-wrap:wrap;
                 border-top:1px solid var(--border-subtle); background:var(--caution-wash); }
-.signal-strip .dot { width:8px; height:8px; }
+.signal-strip.clear { background:var(--surface-sunk); }
+.verdict { font-size:12px; font-weight:500; border-radius:20px; padding:3px 10px; flex:none; }
+.verdict-look { color:var(--caution-text); background:#F6E8DC; }
+.verdict-clear { color:#2F7A3F; background:var(--positive-wash); }
 .signal { color: var(--caution-text); font-size:14px; }
 .signal-detail { font-size:13px; color:var(--text-muted); }
 
@@ -728,10 +731,23 @@ def document_card(row, *, actionable: bool, context: str = "queue"):
 
     signal = risk_signal(row)
     detail = risk_detail(row)
+    # The verdict leads, then what was found, then why. A person reading the old strip got the
+    # finding and had to work out for themselves whether it meant open the document or not.
+    #
+    # It says "our check", not "the AI". The sentence is computed by review_signals.py from the
+    # invoice's stored columns, deterministically, and it is a judgement about the model's
+    # output rather than anything the model said. Calling it the AI's words would be the exact
+    # overclaim this project exists to avoid.
     signal_html = (
-        f"<div class='signal-strip'><span class='dot' style='background:var(--caution)'></span>"
+        f"<div class='signal-strip'>"
+        f"<span class='verdict verdict-look'>Worth a careful look</span>"
         f"<span class='signal'>{signal}</span>"
-        f"<span class='signal-detail'>{detail or ''}</span></div>" if signal else ""
+        f"<span class='signal-detail'>{detail or ''}</span></div>"
+        if signal else
+        f"<div class='signal-strip clear'>"
+        f"<span class='verdict verdict-clear'>Nothing flagged</span>"
+        f"<span class='signal-detail'>Our checks read the document itself, so this says the "
+        f"numbers hang together, not that the document is genuine.</span></div>"
     )
 
     with st.container(border=True, key=f"doc-{context}-{row['id']}", gap=None):
@@ -1043,14 +1059,13 @@ def section_head(title, note, *, opens: str | None = None, key: str = "") -> Non
     # so it goes on the container rather than on the markdown inside it.
     with st.container(key=f"sechead-{key}"):
         head, action = st.columns([8, 1], vertical_alignment="center")
+        del opens  # OV-4 is not buildable on st.tabs. See fe-backlog.md.
         icon = SECTION_ICONS.get(key, "")
         mark = (f"<span class='sec-icon'><svg width='15' height='15' viewBox='0 0 16 16' "
                 f"fill='none'>{icon}</svg></span>" if icon else "")
         head.markdown(f"<div class='sec-head'>{mark}<span class='sec-title'>{title}</span>"
                       f"<span class='sec-note'>{note}</span></div>", unsafe_allow_html=True)
-        if opens and action.button("Open tab", key=f"open-{key}", width="stretch"):
-            st.session_state["nav"] = opens
-            st.rerun()
+        del action
 
 
 def record_row(*, key, dot, left, doc, value, right, action, on_action,

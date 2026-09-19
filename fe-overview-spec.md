@@ -25,6 +25,13 @@ Neo's answer to all three was to build other actions instead, which is P3 and OV
 
 ## 2. The finding that makes OV-4 possible
 
+> **Wrong, corrected 2026-09-20.** This section claimed the measurement below proved a section
+> header could open a tab. It proved only that the session value changes. The rendered tab does
+> not follow it, with either `key` or `default`, measured in a browser where `aria-selected`
+> stayed on Overview. The control was removed. `st.segmented_control` can be driven this way and
+> is the fix, as a deliberate change to the page's navigation. See `fe-backlog.md`, OV-4.
+
+
 `st.tabs` in Streamlit 1.62.0 takes `key`, `default` and `on_change`. Setting the session key to
 a tab's label and calling `st.rerun()` switches tabs. Measured, not assumed:
 
