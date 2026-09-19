@@ -143,7 +143,7 @@ Specified in `fe-tabs-spec.md`. All four are done.
 |---|---|---|
 | ~~FE-16~~ ✅ | `Notifications` becomes `Outbox` | No tab is labelled Notifications. The table is a transactional outbox and the word says so |
 | ~~FE-17~~ ✅ | History tab | `reviewed_at IS NOT NULL`. It is the only place a rejection can be seen |
-| ~~FE-18~~ ✅ | Overview tab, first and default | Four tiles whose counts equal the four tab labels, asserted in a test rather than compared by eye |
+| ~~FE-18~~ ✅ | Overview tab, first and default | A page, not a grid of counters. Three tiles, then one section per tab in the order a person asks about them, each carrying its own rows. Rebuilt 2026-09-20 after the first attempt shipped as four boxes with numbers in them, which answered nothing |
 | ~~FE-19~~ ✅ | Push to Jira | On Jira rows only, disabled with the reason on screen while `JIRA_ENABLED` is unset |
 | ~~FE-20~~ ➖ | Stop writing Teams rows | **No work needed.** `queue_outbound` is called from one place, `task_dispatch.py`, and it passes `Jira`. The newest Teams row is 2026-09-08 and the pipeline has run since without producing one |
 

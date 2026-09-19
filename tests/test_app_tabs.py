@@ -55,24 +55,46 @@ def test_push_appears_only_for_rows_that_have_a_transport():
     assert len([b for b in at.button if b.label == "Push to Jira"]) == len(pushable)
 
 
-def test_overview_counts_equal_the_tab_labels():
-    """Overview duplicates by design. The point of it is that the duplicate agrees."""
+def test_overview_agrees_with_the_tab_labels():
+    """Overview duplicates by design. The point of it is that the duplicate agrees.
+
+    Rewritten 2026-09-20 with the page. It used to read four counters out of a 2x2 grid; the
+    page now leads with three tiles and reports the outbox split in a section heading, so that
+    is what is checked.
+    """
     import app
-    pending = app.load_data()
-    pending = pending[pending["approval_status"] == "Pending"]
-    auto = app.load_data()
-    auto = auto[(auto["approval_status"] == "Approved") & (auto["reviewed_at"].isna())]
+    df = app.load_data()
+    pending = df[df["approval_status"] == "Pending"]
+    auto = df[(df["approval_status"] == "Approved") & (df["reviewed_at"].isna())]
     outbox = app.load_outbox()
-    history = app.load_history()
 
     at = run()
     rendered = " ".join(m.value for m in at.markdown if m.value)
-    # The counts Overview actually prints, read out of the tiles rather than searched for
-    # anywhere on the page: a loose substring match would pass on a coincidence.
-    shown = [int(n) for n in re.findall(r"<span class='ov-count'>(\d+)</span>", rendered)]
-    assert shown == [len(pending), len(auto), len(outbox), len(history)], (
-        f"Overview shows {shown}, the tabs count "
-        f"{[len(pending), len(auto), len(outbox), len(history)]}")
+
+    tiles = [int(n) for n in re.findall(r"<span class='ov-number'>(\d+)</span>", rendered)]
+    assert tiles[:2] == [len(pending), len(auto)], (
+        f"the tiles show {tiles[:2]}, the tabs count {[len(pending), len(auto)]}")
+
+    jira = outbox[outbox["channel"] == "Jira"]
+    pushable = len(jira[jira["state"].isin(["Pending", "Failed"])])
+    frozen = len(outbox[outbox["channel"] != "Jira"])
+    sent = int((outbox["state"] == "Sent").sum())
+    assert f"{pushable} ready to push, {frozen} with no transport, {sent} sent" in rendered
+
+
+def test_overview_shows_the_waiting_documents_and_not_only_a_count():
+    """The complaint that produced the page: four boxes with numbers in them answered nothing."""
+    import app
+    df = app.load_data()
+    pending = df[df["approval_status"] == "Pending"]
+    at = run()
+    rendered = " ".join(m.value for m in at.markdown if m.value)
+    if pending.empty:
+        assert "Nothing is waiting for you" in rendered
+    else:
+        top = pending.sort_values("email_received_at", na_position="last").iloc[0]
+        assert str(top["vendor_name"]) in rendered, (
+            "Overview reports a count but does not show the document behind it")
 
 
 def test_history_holds_only_decisions_a_person_made():

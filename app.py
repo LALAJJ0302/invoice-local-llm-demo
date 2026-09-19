@@ -363,15 +363,41 @@ st.markdown("""
 
 /* Overview. Four tiles, one per tab, built from C3 in approval-screen-components.html, which
    was drawn for the queue screen and rejected there as duplication of the tab labels. */
-.ov-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
-.ov-tile { background:var(--surface); border:1px solid var(--border); border-radius:12px;
-           box-shadow:0 1px 2px rgba(24,24,28,0.04); padding:18px 20px;
-           display:flex; flex-direction:column; gap:8px; }
-.ov-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
-.ov-title { font-size:13.5px; font-weight:600; color:var(--text); }
-.ov-count { font-family:'IBM Plex Mono',monospace; font-size:26px; font-weight:500; color:var(--text); }
-.ov-detail { font-size:13px; color:var(--text-strong); }
-.ov-note { font-size:12px; color:var(--text-muted); }
+/* Overview is a page, not a grid of counters. Three tiles across the top, then one section
+   per tab in the order a person asks about them, each carrying its own rows. */
+.ov-strip { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:26px; }
+.ov-tile { background:var(--surface); border:1px solid var(--border); border-radius:10px;
+           box-shadow:0 1px 2px rgba(24,24,28,0.04); padding:16px 18px;
+           display:flex; flex-direction:column; gap:7px; }
+.ov-label { font-size:12px; color:var(--text-muted); }
+.ov-value { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; }
+.ov-number { font-family:'IBM Plex Mono',monospace; font-size:26px; font-weight:500;
+             letter-spacing:-0.01em; color:var(--text); }
+.ov-note { font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--text-muted);
+           font-variant-numeric:tabular-nums; }
+
+.sec-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+            margin:26px 0 12px; padding-bottom:9px; border-bottom:1px solid var(--border); }
+.sec-title { font-size:14px; font-weight:600; color:var(--text); }
+.sec-note { font-size:12.5px; color:var(--text-muted); }
+
+.dense-panel { background:var(--surface); border:1px solid var(--border); border-radius:12px;
+               box-shadow:0 1px 2px rgba(24,24,28,0.04); overflow:hidden; }
+.dense { display:grid; grid-template-columns:auto 1fr auto auto auto; align-items:center;
+         gap:16px; padding:13px 18px; border-bottom:1px solid var(--border-subtle); }
+.dense:last-child { border-bottom:none; }
+.dense-left { font-size:13.5px; color:var(--text); }
+.dense-doc { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-muted); }
+.dense-amount { font-family:'IBM Plex Mono',monospace; font-size:13px;
+                font-variant-numeric:tabular-nums; min-width:112px; text-align:right; color:var(--text); }
+.dense-right { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-muted);
+               min-width:44px; text-align:right; }
+
+.ov-line { display:flex; align-items:center; gap:10px; margin:14px 0 0;
+           font-size:13px; color:var(--text-strong); }
+.ov-more { font-size:13px; color:var(--text-muted); margin:10px 0 0; }
+.ov-foot { font-size:12.5px; color:var(--text-muted); margin:26px 0 0;
+           padding-top:14px; border-top:1px solid var(--border-subtle); }
 
 .tab-note { font-size:13px; line-height:1.6; color:var(--text-muted); max-width:860px; margin:0 0 14px; }
 .tab-warn { font-size:13px; line-height:1.6; color:var(--caution-text); background:var(--caution-wash);
@@ -587,7 +613,7 @@ def provenance(row) -> str:
     return "".join(out)
 
 
-def document_card(row, *, actionable: bool):
+def document_card(row, *, actionable: bool, context: str = "queue"):
     """One card per document, replacing the six-column row.
 
     A card rather than a row because the real queue holds one document, and one row in a wide
@@ -609,7 +635,7 @@ def document_card(row, *, actionable: bool):
         f"<span class='signal'>{signal}</span></div>" if signal else ""
     )
 
-    with st.container(border=True, key=f"doc-{row['id']}", gap=None):
+    with st.container(border=True, key=f"doc-{context}-{row['id']}", gap=None):
         st.markdown(
             f"<div class='card-head'>"
             f"<div class='doc-icon'>{DOC_ICON}</div>"
@@ -622,11 +648,11 @@ def document_card(row, *, actionable: bool):
             f"</div>{signal_html}",
             unsafe_allow_html=True,
         )
-        with st.container(key=f"foot-{row['id']}", gap=None):
+        with st.container(key=f"foot-{context}-{row['id']}", gap=None):
             chips, action = st.columns([3, 1.1], vertical_alignment="center")
             chips.markdown(f"<div class='chips'>{provenance(row)}</div>", unsafe_allow_html=True)
             if actionable:
-                if action.button("Review document", type="primary", key=f"rev-{row['id']}"):
+                if action.button("Review document", type="primary", key=f"rev-{context}-{row['id']}"):
                     review_dialog(row)
             else:
                 action.markdown("<div class='chips decided'>Decided by the system</div>",
@@ -676,7 +702,8 @@ def empty_queue():
         f"</div>", unsafe_allow_html=True)
 
 
-def document_rows(frame, *, actionable: bool):
+def document_rows(frame, *, actionable: bool, context: str = "queue",
+                  controls: bool = True, limit: int | None = None):
     """The queue, as cards.
 
     Deliberately excluded from the card: file name, ingestion time, run_id and the raw
@@ -689,10 +716,14 @@ def document_rows(frame, *, actionable: bool):
             st.caption("Nothing here.")
         return
 
-    if actionable:
+    if actionable and controls:
         frame = queue_controls(frame)
-    for _, row in frame.iterrows():
-        document_card(row, actionable=actionable)
+    shown = frame if limit is None else frame.head(limit)
+    for _, row in shown.iterrows():
+        document_card(row, actionable=actionable, context=context)
+    if limit is not None and len(frame) > limit:
+        st.markdown(f"<p class='ov-more'>{len(frame) - limit} more in the tab above.</p>",
+                    unsafe_allow_html=True)
 
 
 df = load_data()
@@ -848,61 +879,115 @@ def history_body(frame):
                 f"</div>", unsafe_allow_html=True)
 
 
-def overview_tile(title, count, detail, *, href_note=""):
-    return (f"<div class='ov-tile'><div class='ov-head'><span class='ov-title'>{title}</span>"
-            f"<span class='ov-count'>{count}</span></div>"
-            f"<div class='ov-detail'>{detail}</div>"
-            f"<div class='ov-note'>{href_note}</div></div>")
+def tile(label, value, note) -> str:
+    return (f"<div class='ov-tile'><span class='ov-label'>{label}</span>"
+            f"<div class='ov-value'><span class='ov-number'>{value}</span>"
+            f"<span class='ov-note'>{note}</span></div></div>")
+
+
+def section_head(title, note) -> str:
+    return (f"<div class='sec-head'><span class='sec-title'>{title}</span>"
+            f"<span class='sec-note'>{note}</span></div>")
+
+
+def dense_rows(rows) -> str:
+    """C7. One line per record, for the sections that summarise rather than ask for a decision.
+
+    Each row carries its own currency symbol and no total is drawn beneath them, because the
+    documents in these sections do not share one.
+    """
+    out = []
+    for dot, left, doc, amount, right in rows:
+        out.append(f"<div class='dense'><span class='dot' style='background:{dot}'></span>"
+                   f"<span class='dense-left'>{left}</span>"
+                   f"<span class='dense-doc'>{doc}</span>"
+                   f"<span class='dense-amount'>{amount}</span>"
+                   f"<span class='dense-right'>{right}</span></div>")
+    return f"<div class='dense-panel'>{''.join(out)}</div>"
 
 
 def overview_body(pending, auto, outbox, history):
-    """One section per tab. Every number here is the number on that tab's label.
+    """The whole screen on one page, in the order a person asks about it.
 
-    It duplicates by design, which is what an overview is. `fe-screen-spec.md` §2 rejected a
-    metric strip on the queue screen for duplicating the tab labels above it; here the
-    duplication is the whole purpose rather than a strip competing for the same glance.
+    Built as a page rather than a grid of counters. A count alone answers nothing: the questions
+    are what is waiting, what the system decided without asking, what is stuck on its way out,
+    and what has been decided. Each section carries its own rows.
+
+    The summary strip belongs here rather than on the queue tab, where it was cut on 2026-09-19
+    for repeating the tab labels directly above it. On this page it repeats nothing.
     """
     waiting_total = single_currency_total(pending)
-    oldest = pending.sort_values("email_received_at", na_position="last").head(1)
-    if pending.empty:
-        waiting_detail = "Nothing is waiting for you."
-    else:
-        top = oldest.iloc[0]
-        days = waiting_days(top)
-        waiting_detail = (f"Oldest is {top['vendor_name'] or '-'}, "
-                          f"{money(top['total_amount'], top['currency'])}"
-                          + (f", waiting {days}d." if days is not None else "."))
-
-    auto_when = auto["system_processed_at"].max() if not auto.empty else None
-    auto_detail = ("No document has been cleared without a person." if auto.empty else
-                   f"Cleared with no person involved, most recently at {str(auto_when)[11:16]}.")
-
-    jira_rows = outbox[outbox["channel"] == "Jira"] if not outbox.empty else outbox
-    pushable = len(jira_rows[jira_rows["state"].isin(["Pending", "Failed"])]) if not outbox.empty else 0
-    sent = int((outbox["state"] == "Sent").sum()) if not outbox.empty else 0
-    frozen = len(outbox[outbox["channel"] != "Jira"]) if not outbox.empty else 0
-    outbox_detail = (f"{pushable} ready to push, {frozen} recorded for a channel with no "
-                     f"transport, {sent} sent.")
-
-    approved = int((history["approval_status"] == "Approved").sum()) if not history.empty else 0
-    rejected = int((history["approval_status"] == "Rejected").sum()) if not history.empty else 0
-    last = history["reviewed_at"].max() if not history.empty else None
-    history_detail = ("No decision by a person yet." if history.empty else
-                      f"{approved} approved, {rejected} rejected. Last on {str(last)[:16]}.")
+    oldest_days, oldest_since = None, ""
+    if not pending.empty:
+        oldest = pending.sort_values("email_received_at", na_position="last").iloc[0]
+        oldest_days = waiting_days(oldest)
+        arrived = oldest.get("email_received_at")
+        if arrived and not pd.isna(arrived):
+            oldest_since = f"since {pd.Timestamp(arrived).strftime('%d %b').lstrip('0')}"
 
     st.markdown(
-        "<div class='ov-grid'>"
-        + overview_tile("Awaiting approval", len(pending), waiting_detail,
-                        href_note=f"Total {waiting_total}" if waiting_total else
-                                  ("More than one currency, so no total is shown."
-                                   if len(pending) > 1 else ""))
-        + overview_tile("Approved by the system", len(auto), auto_detail,
-                        href_note="Every check behind the score reads the document itself.")
-        + overview_tile("Outbox", len(outbox), outbox_detail,
-                        href_note="Nothing has reached an external system.")
-        + overview_tile("History", len(history), history_detail,
-                        href_note="Decisions made by a person, including rejections.")
+        "<div class='ov-strip'>"
+        + tile("Waiting for you", len(pending), waiting_total or
+               ("more than one currency" if len(pending) > 1 else "nothing waiting"))
+        + tile("Approved by the system", len(auto), "no person involved")
+        + tile("Oldest wait", f"{oldest_days}d" if oldest_days is not None else "none",
+               oldest_since or "the queue is empty")
         + "</div>", unsafe_allow_html=True)
+
+    st.markdown(section_head("Awaiting approval", "a person has to decide on each of these"),
+                unsafe_allow_html=True)
+    document_rows(pending, actionable=True, context="ov", controls=False, limit=3)
+
+    if not pending.empty or not auto.empty:
+        cleared = "" if auto.empty else f" {len(auto)} were cleared by the system on its own."
+        st.markdown(
+            f"<div class='ov-line'><span class='dot' style='background:var(--positive)'></span>"
+            f"That is everything waiting.{cleared}</div>", unsafe_allow_html=True)
+
+    if not auto.empty:
+        st.markdown(section_head("Approved by the system",
+                                 "at a validation score of 1.00, with nobody asked"),
+                    unsafe_allow_html=True)
+        st.markdown(dense_rows([
+            ("var(--positive)", r["vendor_name"] or "-", r["invoice_number"] or "-",
+             money(r["total_amount"], r["currency"]), str(r["system_processed_at"])[11:16])
+            for _, r in auto.iterrows()]), unsafe_allow_html=True)
+
+    if outbox.empty:
+        pushable, frozen, sent = outbox, 0, 0
+    else:
+        jira_rows = outbox[outbox["channel"] == "Jira"]
+        pushable = jira_rows[jira_rows["state"].isin(["Pending", "Failed"])]
+        frozen = len(outbox[outbox["channel"] != "Jira"])
+        sent = int((outbox["state"] == "Sent").sum())
+    st.markdown(section_head("Outbox", f"{len(pushable)} ready to push, {frozen} with no "
+                                       f"transport, {sent} sent"), unsafe_allow_html=True)
+    if pushable.empty:
+        st.markdown("<p class='ov-more'>Nothing is waiting to go out.</p>", unsafe_allow_html=True)
+    else:
+        st.markdown(dense_rows([
+            # The channel is Jira on every row in this list, so the slot that holds an amount
+            # elsewhere holds the state instead: Pending or Failed is the thing worth reading.
+            ("var(--caution)" if r["state"] == "Failed" else "var(--text-muted)",
+             r["vendor_name"] or "-", r["invoice_number"] or "-", r["state"],
+             str(r["created_at"])[:16])
+            for _, r in pushable.head(5).iterrows()]), unsafe_allow_html=True)
+
+    st.markdown(section_head("History", "decisions a person made, including rejections"),
+                unsafe_allow_html=True)
+    if history.empty:
+        st.markdown("<p class='ov-more'>Nobody has decided anything yet.</p>",
+                    unsafe_allow_html=True)
+    else:
+        st.markdown(dense_rows([
+            ("var(--caution)" if r["approval_status"] == "Rejected" else "var(--positive)",
+             f"{r['approval_status']} · {r['vendor_name'] or '-'}", r["invoice_number"] or "-",
+             money(r["total_amount"], r["currency"]), str(r["reviewed_at"])[:16])
+            for _, r in history.head(5).iterrows()]), unsafe_allow_html=True)
+
+    st.markdown(
+        "<p class='ov-foot'>Approving opens a Jira task for someone else, so the decision is "
+        "made inside the document, not from this page.</p>", unsafe_allow_html=True)
 
 
 st.title("Invoice approvals")
