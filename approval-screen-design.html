@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice approvals, visual design</title>
+<!--
+  Returned from Claude Design, 2026-09-19, against design-handoff/00-PROMPT.md.
+  Unpacked from the self-extracting bundle "Invoice approvals.html" so the file is one
+  readable, diffable document instead of 556KB of base64. Two changes, both mechanical:
+  the 26 bundled woff2 subsets became a Google Fonts link, and the bundler's React runtime
+  is gone because nothing here needs it. The design markup itself is untouched.
+
+  This is the design, not the build. app.py still carries its placeholder stylesheet.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500&display=swap">
+<style>
+body { margin:0; background:#F1EFEA; }
+  a { color:#1A1917; text-decoration:underline; text-underline-offset:2px; }
+  a:hover { color:#A65A1E; }
+</style>
+</head>
+<body>
+
+<section style="display:flex; flex-direction:column; gap:96px; padding:72px 64px 140px; background:#F1EFEA; font-family:'IBM Plex Sans',system-ui,sans-serif; color:#1A1917;">
+
+  <header style="display:flex; flex-direction:column; gap:18px; max-width:980px;">
+    <div style="display:flex; align-items:baseline; gap:16px;">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.08em; color:#6B6862;">1a</span>
+      <h1 style="margin:0; font-family:'IBM Plex Serif',Georgia,serif; font-weight:500; font-size:40px; letter-spacing:-0.01em;">Invoice approvals — visual design</h1>
+    </div>
+    <p style="margin:0; font-size:16px; line-height:1.6; color:#6B6862; text-wrap:pretty;">Four artboards, 1440 wide. Paper and ink, one chromatic colour reserved for the risk signal. <strong style="color:#1A1917; font-weight:500;">The Streamlit accent is replaced by ink</strong>: the active tab underline is a 2px ink rule and the approve button is ink-filled. Nothing in the interface is coloured except doubt.</p>
+  </header>
+
+  <!-- ARTBOARD 1 — QUEUE -->
+  <div style="display:flex; flex-direction:column; gap:14px; width:1440px;">
+    <div style="display:flex; align-items:baseline; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.06em; color:#6B6862;"><span style="color:#1A1917;">01</span><span>THE QUEUE · DEFAULT TAB</span></div>
+    <div style="width:1440px; background:#FAF9F6; border:1px solid #E3DFD7; padding:56px 96px 120px; box-sizing:border-box;">
+
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:44px;">
+        <h2 style="margin:0; font-family:'IBM Plex Serif',Georgia,serif; font-weight:500; font-size:34px; letter-spacing:-0.01em;">Invoice approvals</h2>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#6B6862;">2026-09-19 04:13</span>
+      </div>
+
+      <nav style="display:flex; gap:40px; border-bottom:1px solid #E3DFD7; margin-bottom:8px;">
+        <div style="display:flex; align-items:baseline; gap:10px; padding:0 0 14px; border-bottom:2px solid #1A1917; margin-bottom:-1px;">
+          <span style="font-size:15px; font-weight:500;">Awaiting approval</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:15px;">1</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#6B6862; font-variant-numeric:tabular-nums;">USD 1,500.00</span>
+        </div>
+        <div style="display:flex; align-items:baseline; gap:10px; padding:0 0 14px;">
+          <span style="font-size:15px; color:#6B6862;">Approved by the system</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:15px; color:#6B6862;">2</span>
+        </div>
+        <div style="display:flex; align-items:baseline; gap:10px; padding:0 0 14px;">
+          <span style="font-size:15px; color:#6B6862;">Notifications</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:15px; color:#6B6862;">17</span>
+        </div>
+      </nav>
+
+      <div style="display:grid; grid-template-columns:300px 160px 150px 110px 1fr 110px; align-items:baseline; padding:22px 0 12px; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; color:#6B6862;">
+        <div>Vendor</div><div style="text-align:right; padding-right:32px;">Amount</div><div>Document</div><div>Type</div><div>Signal</div><div></div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:300px 160px 150px 110px 1fr 110px; align-items:center; gap:0; padding:26px 0; border-top:1px solid #E3DFD7; border-bottom:1px solid #E3DFD7;">
+        <div style="font-size:16px; padding-right:24px; line-height:1.35;">Apex Cloud Solutions Pty Ltd</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:16px; text-align:right; font-variant-numeric:tabular-nums; padding-right:32px;">USD 1,500.00</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:15px; color:#1A1917;">INV-2026-001</div>
+        <div style="font-size:15px; color:#6B6862;">Invoice</div>
+        <div style="display:flex; align-items:center; gap:12px; padding-right:32px;">
+          <span style="width:3px; height:18px; background:#A65A1E; flex:none;"></span>
+          <span style="font-size:15px; color:#A65A1E; white-space:nowrap;">No line items to check the total against</span>
+        </div>
+        <div style="display:flex; justify-content:flex-end;">
+          <button style="font-family:'IBM Plex Sans',sans-serif; font-size:14px; color:#1A1917; background:transparent; border:1px solid #1A1917; padding:9px 22px; cursor:pointer;" style-hover="background:#1A1917; color:#FAF9F6;">Open</button>
+        </div>
+      </div>
+
+      <p style="margin:20px 0 0; font-size:13px; color:#6B6862; max-width:760px; line-height:1.6;">One document waiting. Approving opens a Jira task for someone else, so the decision is made in the dialog, not from this row.</p>
+    </div>
+    <p style="margin:0; max-width:1440px; font-size:14px; line-height:1.6; color:#6B6862; text-wrap:pretty;"><strong style="color:#1A1917; font-weight:500;">Density.</strong> The row is a hairline-separated ledger line, not a card: at three documents it breathes at 26px padding, and at three hundred the same grid takes 12px padding and keeps every column position, because nothing here is sized to the content. The signal column is the only one that grows; it is given the remaining width so a full sentence never wraps. Vendor is capped at 300px, which fits <span style="font-family:'IBM Plex Mono',monospace; font-size:13px;">Apex Cloud Solutions Pty Ltd</span> on one line and wraps to two rather than pushing the money out of alignment.</p>
+  </div>
+
+  <!-- ARTBOARD 2 — EMPTY -->
+  <div style="display:flex; flex-direction:column; gap:14px; width:1440px;">
+    <div style="display:flex; align-items:baseline; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.06em; color:#6B6862;"><span style="color:#1A1917;">02</span><span>THE QUEUE, EMPTY · THE STATE IT IS IN MOST OF THE TIME</span></div>
+    <div style="width:1440px; background:#FAF9F6; border:1px solid #E3DFD7; padding:56px 96px 120px; box-sizing:border-box;">
+
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:44px;">
+        <h2 style="margin:0; font-family:'IBM Plex Serif',Georgia,serif; font-weight:500; font-size:34px; letter-spacing:-0.01em;">Invoice approvals</h2>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#6B6862;">2026-09-19 04:31</span>
+      </div>
+
+      <nav style="display:flex; gap:40px; border-bottom:1px solid #E3DFD7; margin-bottom:8px;">
+        <div style="display:flex; align-items:baseline; gap:10px; padding:0 0 14px; border-bottom:2px solid #1A1917; margin-bottom:-1px;">
+          <span style="font-size:15px; font-weight:500;">Awaiting approval</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:15px;">0</span>
+        </div>
+        <div style="display:flex; align-items:baseline; gap:10px; padding:0 0 14px;">
+          <span style="font-size:15px; color:#6B6862;">Approved by the system</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:15px; color:#6B6862;">3</span>
+        </div>
+        <div style="display:flex; align-items:baseline; gap:10px; padding:0 0 14px;">
+          <span style="font-size:15px; color:#6B6862;">Notifications</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:15px; color:#6B6862;">18</span>
+        </div>
+      </nav>
+
+      <div style="display:grid; grid-template-columns:300px 160px 150px 110px 1fr 110px; align-items:baseline; padding:22px 0 12px; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; color:#E3DFD7;">
+        <div>Vendor</div><div style="text-align:right; padding-right:32px;">Amount</div><div>Document</div><div>Type</div><div>Signal</div><div></div>
+      </div>
+
+      <div style="border-top:1px solid #E3DFD7; padding:64px 0 0; display:flex; flex-direction:column; gap:14px;">
+        <p style="margin:0; font-family:'IBM Plex Serif',Georgia,serif; font-size:26px; font-weight:400;">Nothing is waiting for you.</p>
+        <p style="margin:0; font-size:15px; color:#6B6862; max-width:560px; line-height:1.6;">Every document that arrived has been decided. New ones appear here as the pipeline finishes reading them.</p>
+        <div style="display:flex; gap:40px; margin-top:26px; padding-top:22px; border-top:1px solid #E3DFD7; max-width:700px;">
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            <span style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; color:#6B6862;">Last decision</span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:15px;">2026-09-19 04:13</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            <span style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; color:#6B6862;">Document</span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:15px;">INV-2026-002</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            <span style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; color:#6B6862;">Decided by</span>
+            <span style="font-size:15px;">You</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p style="margin:0; max-width:1440px; font-size:14px; line-height:1.6; color:#6B6862; text-wrap:pretty;"><strong style="color:#1A1917; font-weight:500;">Empty reads as finished, not broken.</strong> The column headers stay, drawn in hairline, so the table is visibly the same table with nothing in it. The sentence is set in the serif at title weight — the only other place the serif appears — and the three facts under the rule are the receipt: the work is done, and here is when it was last done and by whom.</p>
+  </div>
+
+  <!-- ARTBOARD 3 — DIALOG -->
+  <div style="display:flex; flex-direction:column; gap:14px; width:1440px;">
+    <div style="display:flex; align-items:baseline; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.06em; color:#6B6862;"><span style="color:#1A1917;">03</span><span>THE REVIEW DIALOG · THE ONLY PLACE APPROVE AND REJECT EXIST</span></div>
+    <div style="position:relative; width:1440px; background:#FAF9F6; border:1px solid #E3DFD7; padding:56px 96px 72px; box-sizing:border-box;">
+
+      <div style="opacity:0.28;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:44px;">
+          <h2 style="margin:0; font-family:'IBM Plex Serif',Georgia,serif; font-weight:500; font-size:34px;">Invoice approvals</h2>
+        </div>
+        <nav style="display:flex; gap:40px; border-bottom:1px solid #E3DFD7;">
+          <div style="padding:0 0 14px; border-bottom:2px solid #1A1917; margin-bottom:-1px; font-size:15px; font-weight:500;">Awaiting approval 1</div>
+          <div style="padding:0 0 14px; font-size:15px; color:#6B6862;">Approved by the system 2</div>
+          <div style="padding:0 0 14px; font-size:15px; color:#6B6862;">Notifications 17</div>
+        </nav>
+        <div style="display:grid; grid-template-columns:300px 160px 1fr; padding:30px 0; border-bottom:1px solid #E3DFD7; font-size:16px;">
+          <div>Apex Cloud Solutions Pty Ltd</div>
+          <div style="font-family:'IBM Plex Mono',monospace; text-align:right; padding-right:32px;">USD 1,500.00</div>
+          <div style="font-family:'IBM Plex Mono',monospace;">INV-2026-001</div>
+        </div>
+      </div>
+
+      <div style="margin:-210px auto 0; position:relative; width:1120px; background:#FFFFFF; border:1px solid #1A1917; padding:44px 52px 40px; box-sizing:border-box;">
+
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:40px;">
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <h3 style="margin:0; font-size:24px; font-weight:500; letter-spacing:-0.01em;">Apex Cloud Solutions Pty Ltd</h3>
+            <div style="display:flex; align-items:baseline; gap:20px; font-family:'IBM Plex Mono',monospace; font-size:16px; font-variant-numeric:tabular-nums;">
+              <span>USD 1,500.00</span>
+              <span style="color:#6B6862;">INV-2026-001</span>
+              <span style="font-family:'IBM Plex Sans',sans-serif; font-size:15px; color:#6B6862;">Invoice</span>
+            </div>
+          </div>
+          <button style="background:transparent; border:none; font-family:'IBM Plex Mono',monospace; font-size:16px; color:#6B6862; cursor:pointer; padding:4px;" style-hover="color:#1A1917;">Close</button>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:12px; margin:22px 0 30px; padding:12px 0; border-top:1px solid #E3DFD7; border-bottom:1px solid #E3DFD7;">
+          <span style="width:3px; height:18px; background:#A65A1E; flex:none;"></span>
+          <span style="font-size:16px; color:#A65A1E;">No line items to check the total against</span>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 300px; gap:44px; align-items:start;">
+          <div style="display:flex; flex-direction:column; gap:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:baseline;">
+              <span style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; color:#6B6862;">What the model read</span>
+              <span style="font-size:12px; color:#6B6862;">character for character, the text the pipeline was given</span>
+            </div>
+            <pre style="margin:0; background:#FAF9F6; border:1px solid #E3DFD7; padding:22px 24px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; line-height:1.85; color:#1A1917; white-space:pre; overflow:hidden;">TAX INVOICE
+Vendor: Apex Cloud Solutions Pty Ltd
+Address: Level 14, 100 George St, Sydney NSW 2000
+Invoice Number: INV-2026-001
+Date of Issue: 2026-08-10
+Currency: USD</pre>
+            <div style="margin:-15px 0 0; border:1px solid #E3DFD7; border-top:none; background:#FAF9F6; padding:0 24px 22px;">
+              <div style="display:flex; gap:14px; padding-top:2px;">
+                <span style="width:3px; background:#A65A1E; flex:none; margin:2px 0;"></span>
+                <pre style="margin:0; font-family:'IBM Plex Mono',monospace; font-size:12.5px; line-height:1.85; color:#1A1917; white-space:pre;">Dedicated Cloud Compute - EC2 Instance   2   USD 450.00   USD 900.00
+High Performance SSD Storage (1TB)       3   USD 120.00   USD 360.00
+Managed Database Service (PostgreSQL)    1   USD 240.00   USD 240.00</pre>
+              </div>
+              <pre style="margin:0; padding-left:17px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; line-height:1.85; white-space:pre;">TOTAL: USD 1,500.00</pre>
+            </div>
+            <div style="display:flex; align-items:center; gap:16px; margin-top:6px;">
+              <button style="font-family:'IBM Plex Sans',sans-serif; font-size:14px; color:#1A1917; background:transparent; border:1px solid #E3DFD7; padding:9px 18px; cursor:pointer;" style-hover="border-color:#1A1917;">Download the original</button>
+              <span style="font-size:13px; color:#6B6862;">sample_invoice_1_INV-2026-001.pdf</span>
+            </div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:0; padding-top:26px;">
+            <div style="display:flex; justify-content:space-between; align-items:baseline; padding:11px 0; border-top:1px solid #E3DFD7;">
+              <span style="font-size:14px; color:#6B6862;">Date</span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:14px;">2026-08-10</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; padding:11px 0; border-top:1px solid #E3DFD7;">
+              <span style="font-size:14px; color:#6B6862;">Currency</span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:14px;">USD</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; padding:11px 0; border-top:1px solid #E3DFD7;">
+              <span style="font-size:14px; color:#6B6862;">Total source</span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:14px;">model</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; padding:11px 0; border-top:1px solid #E3DFD7;">
+              <span style="font-size:14px; color:#6B6862;">Vendor source</span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:14px;">model</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; padding:11px 0; border-top:1px solid #A65A1E; border-bottom:1px solid #A65A1E;">
+              <span style="font-size:14px; color:#A65A1E;">Line items</span>
+              <span style="font-family:'IBM Plex Mono',monospace; font-size:14px; color:#A65A1E;">none</span>
+            </div>
+            <p style="margin:10px 0 0; font-size:13px; line-height:1.55; color:#A65A1E; text-wrap:pretty;">Three are marked in the text beside this. The model did not read them, so nothing checks the total.</p>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; margin-top:30px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:15px 0; border-top:1px solid #E3DFD7; cursor:pointer;">
+            <span style="font-size:15px;">Covering email <span style="color:#6B6862;">· billing@apexcloud.io · 2026-09-07</span></span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:14px; color:#6B6862;">+</span>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:15px 0; border-top:1px solid #E3DFD7; cursor:pointer;">
+            <span style="font-size:15px;">What the AI found <span style="color:#6B6862;">· 3 actions, each above the sentence it was read from</span></span>
+            <span style="font-family:'IBM Plex Mono',monospace; font-size:14px; color:#6B6862;">+</span>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:40px; margin-top:34px; padding-top:24px; border-top:1px solid #1A1917;">
+          <p style="margin:0; font-size:15px; color:#1A1917;">Approving creates the Jira task <span style="font-family:'IBM Plex Mono',monospace;">Payment</span> immediately, and assigns it to someone else.</p>
+          <div style="display:flex; gap:12px; flex:none;">
+            <button style="font-family:'IBM Plex Sans',sans-serif; font-size:15px; color:#1A1917; background:transparent; border:1px solid #E3DFD7; padding:12px 26px; cursor:pointer;" style-hover="border-color:#1A1917;">Reject</button>
+            <button style="font-family:'IBM Plex Sans',sans-serif; font-size:15px; font-weight:500; color:#FAF9F6; background:#1A1917; border:1px solid #1A1917; padding:12px 30px; cursor:pointer;" style-hover="background:#000000;">Approve</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p style="margin:0; max-width:1440px; font-size:14px; line-height:1.6; color:#6B6862; text-wrap:pretty;"><strong style="color:#1A1917; font-weight:500;">The contradiction is drawn as one object.</strong> The three line items in the document text carry the caution rule on their left edge, and the field that says <span style="font-family:'IBM Plex Mono',monospace; font-size:13px;">none</span> is bracketed in the same ochre directly across from them. Same colour, same weight, four inches apart: the eye lands on both and the gap is the finding. <strong style="color:#1A1917; font-weight:500;">No shadow.</strong> The dialog sits on white with a 1px ink border over a dimmed ground — elevation without the drop shadow the forbidden list rules out. The approve button is the only filled element on the screen; ink, not red.</p>
+  </div>
+
+  <!-- ARTBOARD 4 — NOTIFICATIONS -->
+  <div style="display:flex; flex-direction:column; gap:14px; width:1440px;">
+    <div style="display:flex; align-items:baseline; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.06em; color:#6B6862;"><span style="color:#1A1917;">04</span><span>NOTIFICATIONS · A QUEUE NOTHING DRAINS</span></div>
+    <div style="width:1440px; background:#FAF9F6; border:1px solid #E3DFD7; padding:56px 96px 90px; box-sizing:border-box;">
+
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:44px;">
+        <h2 style="margin:0; font-family:'IBM Plex Serif',Georgia,serif; font-weight:500; font-size:34px; letter-spacing:-0.01em;">Invoice approvals</h2>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#6B6862;">2026-09-19 04:13</span>
+      </div>
+
+      <nav style="display:flex; gap:40px; border-bottom:1px solid #E3DFD7; margin-bottom:8px;">
+        <div style="display:flex; align-items:baseline; gap:10px; padding:0 0 14px;">
+          <span style="font-size:15px; color:#6B6862;">Awaiting approval</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:15px; color:#6B6862;">1</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#6B6862;">USD 1,500.00</span>
+        </div>
+        <div style="display:flex; align-items:baseline; gap:10px; padding:0 0 14px;">
+          <span style="font-size:15px; color:#6B6862;">Approved by the system</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:15px; color:#6B6862;">2</span>
+        </div>
+        <div style="display:flex; align-items:baseline; gap:10px; padding:0 0 14px; border-bottom:2px solid #1A1917; margin-bottom:-1px;">
+          <span style="font-size:15px; font-weight:500;">Notifications</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:15px;">17</span>
+        </div>
+      </nav>
+
+      <p style="margin:24px 0 0; max-width:820px; font-size:14px; line-height:1.65; color:#6B6862; text-wrap:pretty;">Recorded, never sent. The text was written when it was true and nothing rewrites it, which is why the age matters: the three oldest still say <span style="font-family:'IBM Plex Mono',monospace; font-size:13px;">NeedsReview at score 0.25</span> for documents that now read Validated.</p>
+
+      <div style="display:grid; grid-template-columns:168px 78px 236px 132px 1fr; padding:26px 0 10px; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; color:#6B6862;">
+        <div>Queued</div><div>Channel</div><div>Vendor</div><div>Document</div><div>Message</div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:168px 78px 236px 132px 1fr; font-size:14px; line-height:1.5; border-top:1px solid #E3DFD7;">
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#1A1917; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-19 04:13:29</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Jira</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">NextGen Hardware Supplies</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-002</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Payment: sample_invoice_2_INV-2026-002.pdf — NextGen Hardware Supplies. Approved invoice. Payment has not been scheduled.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-19 04:13:19</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Jira</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Synthetix AI Consulting</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-003</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Payment: sample_invoice_3_INV-2026-003.pdf — Synthetix AI Consulting. Approved invoice. Payment has not been scheduled.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-08 04:53:34</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">NextGen Hardware Supplies</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-002</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_2_INV-2026-002.pdf: Validated at score 1.00. Passed the validation gate. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-08 04:53:29</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Synthetix AI Consulting</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-003</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_3_INV-2026-003.pdf: Validated at score 1.00. Passed the validation gate. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-08 04:53:25</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Apex Cloud Solutions Pty Ltd</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-001</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_1_INV-2026-001.pdf: Validated at score 0.85. Passed the validation gate, with items not extracted. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-08 04:38:54</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">NextGen Hardware Supplies</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-002</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_2_INV-2026-002.pdf: Validated at score 1.00. Passed the validation gate. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-08 04:38:50</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Synthetix AI Consulting</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-003</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_3_INV-2026-003.pdf: Validated at score 1.00. Passed the validation gate. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-08 04:38:46</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Apex Cloud Solutions Pty Ltd</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-001</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_1_INV-2026-001.pdf: Validated at score 0.85. Passed the validation gate, with items not extracted. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-03 11:59:02</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">NextGen Hardware Supplies</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-002</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_2_INV-2026-002.pdf: Validated at score 1.00. Passed the validation gate. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-03 11:58:58</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Synthetix AI Consulting</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-003</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_3_INV-2026-003.pdf: Validated at score 1.00. Passed the validation gate. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-03 11:58:54</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Apex Cloud Solutions Pty Ltd</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-001</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_1_INV-2026-001.pdf: Validated at score 0.85. Passed the validation gate, with items not extracted. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-03 08:43:31</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">NextGen Hardware Supplies</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-002</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_2_INV-2026-002.pdf: Validated at score 1.00. Passed the validation gate. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-03 08:43:27</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Synthetix AI Consulting</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-003</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_3_INV-2026-003.pdf: Validated at score 1.00. Passed the validation gate. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-09-03 08:43:22</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Apex Cloud Solutions Pty Ltd</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-001</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_1_INV-2026-001.pdf: Validated at score 1.00. Passed the validation gate. Awaiting business approval.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-08-30 07:39:14</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">NextGen Hardware Supplies</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-002</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_2_INV-2026-002.pdf: NeedsReview at score 0.25. No total amount was extracted.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-08-30 07:39:10</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Synthetix AI Consulting</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-003</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_3_INV-2026-003.pdf: NeedsReview at score 0.25. No total amount was extracted.</div>
+
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">2026-08-30 07:39:07</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">Teams</div>
+        <div style="padding:11px 24px 11px 0; border-bottom:1px solid #E3DFD7;">Apex Cloud Solutions Pty Ltd</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; padding:11px 0; border-bottom:1px solid #E3DFD7;">INV-2026-001</div>
+        <div style="padding:11px 0; border-bottom:1px solid #E3DFD7; color:#6B6862;">sample_invoice_1_INV-2026-001.pdf: NeedsReview at score 0.25. No total amount was extracted.</div>
+
+      </div>
+
+      <p style="margin:18px 0 0; font-size:13px; color:#6B6862;">17 recorded · 0 sent · oldest 20 days</p>
+    </div>
+    <p style="margin:0; max-width:1440px; font-size:14px; line-height:1.6; color:#6B6862; text-wrap:pretty;"><strong style="color:#1A1917; font-weight:500;">Density, second answer.</strong> Seventeen rows at 11px padding and a 13px mono timestamp: dense enough to read the repetition as repetition, which is the point — the same three messages fired four times and never left. Message text sits in muted ink at body size so the timestamps, which are what the note is about, are the darkest thing in the column. No colour here at all: nothing in this tab is a risk to act on.</p>
+  </div>
+
+  <footer style="max-width:980px; display:flex; flex-direction:column; gap:10px; padding-top:20px; border-top:1px solid #E3DFD7;">
+    <span style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; color:#6B6862;">Palette</span>
+    <div style="display:flex; gap:28px; flex-wrap:wrap; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#6B6862;">
+      <div style="display:flex; align-items:center; gap:8px;"><span style="width:14px; height:14px; background:#FAF9F6; border:1px solid #E3DFD7;"></span>#FAF9F6 ground</div>
+      <div style="display:flex; align-items:center; gap:8px;"><span style="width:14px; height:14px; background:#FFFFFF; border:1px solid #E3DFD7;"></span>#FFFFFF surface</div>
+      <div style="display:flex; align-items:center; gap:8px;"><span style="width:14px; height:14px; background:#1A1917;"></span>#1A1917 ink</div>
+      <div style="display:flex; align-items:center; gap:8px;"><span style="width:14px; height:14px; background:#6B6862;"></span>#6B6862 ink-muted</div>
+      <div style="display:flex; align-items:center; gap:8px;"><span style="width:14px; height:14px; background:#E3DFD7;"></span>#E3DFD7 hairline</div>
+      <div style="display:flex; align-items:center; gap:8px;"><span style="width:14px; height:14px; background:#A65A1E;"></span>#A65A1E caution — risk signal only</div>
+    </div>
+  </footer>
+
+</section>
+
+</body>
+</html>

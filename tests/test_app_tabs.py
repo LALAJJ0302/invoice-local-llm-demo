@@ -133,7 +133,9 @@ def test_a_section_header_opens_its_tab():
     and all, and a label that drifts from the tab it names would leave a dead control.
     """
     at = run()
-    opens = [b for b in at.button if b.label == "Open"]
+    # "Open tab" is the section header's control. "Open" is a row's, and it opens the dialog,
+    # not a tab. The labels were both "Open" until 2026-09-20 and this test caught the rename.
+    opens = [b for b in at.button if b.label == "Open tab"]
     assert opens, "no section header offers a way into its tab"
     after = opens[0].click().run()
     assert not after.exception, [str(e.value) for e in after.exception]
@@ -197,10 +199,36 @@ def test_a_history_row_carries_what_the_dialog_reads():
 def test_every_open_button_can_be_pressed():
     """The bug above was invisible because no test pressed the buttons that carry rows."""
     at = run()
-    labels = ["Open", "Open the document"]
+    labels = ["Open", "Open the document", "Open tab"]
     for index, button in enumerate(b for b in at.button if b.label in labels):
         after = at.button[[b.label for b in at.button].index(button.label)].click().run()
         assert not after.exception, (
             f"pressing {button.label!r} raised: {[str(e.value) for e in after.exception]}")
         if index > 6:
             break
+
+
+def test_the_review_note_replaces_the_checkbox():
+    """Migration 013. The tick box wrote is_done, which nothing read. A note is read: it is
+    shown to whoever opens the document next."""
+    import app
+    from storage import StorageManager
+    df = app.load_data()
+    assert "review_note" in df.columns, "load_data does not carry the note to the screen"
+    assert "review_note_at" in df.columns
+
+    store = StorageManager(app.DB_PATH)
+    invoice_id = int(df.iloc[0]["id"])
+    before = df.iloc[0]["review_note"]
+    try:
+        store.set_review_note(invoice_id, "  spaces are stripped  ")
+        row = app.load_data().set_index("id").loc[invoice_id]
+        assert row["review_note"] == "spaces are stripped"
+        assert row["review_note_at"], "a note without a timestamp is a state nothing means"
+
+        store.set_review_note(invoice_id, "")
+        row = app.load_data().set_index("id").loc[invoice_id]
+        assert row["review_note"] is None and row["review_note_at"] is None, (
+            "clearing a note must clear its timestamp, so 'has a note' stays one condition")
+    finally:
+        store.set_review_note(invoice_id, "" if before is None or str(before) == "nan" else before)

@@ -52,6 +52,8 @@ def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
             i.email_id,
             i.category,
             i.summary,
+            i.review_note,
+            i.review_note_at,
             i.processed_at AS system_processed_at,
             e.sender AS email_sender,
             e.subject AS email_subject,
@@ -109,6 +111,11 @@ def load_action_items(invoice_id: int) -> pd.DataFrame:
     )
     conn.close()
     return df
+
+def save_review_note(invoice_id: int, note: str):
+    """The note an approver leaves for whoever opens this document next. Migration 013."""
+    StorageManager(DB_PATH).set_review_note(invoice_id, note)
+
 
 def set_action_item_done(action_item_id: int, is_done: bool):
     """A person checking off an action item. Does not touch validation_score or
@@ -355,7 +362,7 @@ st.markdown("""
 [class*="st-key-rev-"] { display:flex; justify-content:flex-end; }
 .queue-count { font-size:13px; color:var(--text-muted); }
 
-.empty { display:flex; flex-direction:column; align-items:center; gap:10px; padding:44px 28px;
+.empty { display:flex; flex-direction:column; align-items:center; gap:9px; padding:28px 24px;
          background:var(--surface); border:1px solid var(--border); border-radius:12px; }
 .empty-mark { width:42px; height:42px; border-radius:50%; background:var(--positive-wash);
               display:flex; align-items:center; justify-content:center; }
@@ -366,10 +373,15 @@ st.markdown("""
    was drawn for the queue screen and rejected there as duplication of the tab labels. */
 /* Overview is a page, not a grid of counters. Three tiles across the top, then one section
    per tab in the order a person asks about them, each carrying its own rows. */
-.ov-strip { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:26px; }
-.ov-tile { background:var(--surface); border:1px solid var(--border); border-radius:10px;
-           box-shadow:0 1px 2px rgba(24,24,28,0.04); padding:16px 18px;
-           display:flex; flex-direction:column; gap:7px; }
+.ov-strip { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:6px; }
+/* The tiles were three white boxes on a near-white page. The left rule gives each one an edge
+   to sit against, and the sunk surface separates them from the panels below, which are the
+   things that actually hold content. */
+.ov-tile { background:var(--surface-sunk); border:1px solid var(--border);
+           border-left:3px solid var(--border-hover); border-radius:10px;
+           box-shadow:0 1px 2px rgba(24,24,28,0.04); padding:14px 16px;
+           display:flex; flex-direction:column; gap:6px; }
+.ov-strip > .ov-tile:first-child { border-left-color:var(--accent); background:var(--surface); }
 .ov-label { font-size:12px; color:var(--text-muted); }
 .ov-value { display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; }
 .ov-number { font-family:'IBM Plex Mono',monospace; font-size:26px; font-weight:500;
@@ -377,18 +389,28 @@ st.markdown("""
 .ov-note { font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--text-muted);
            font-variant-numeric:tabular-nums; }
 
-.sec-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:0;
-            line-height:2.4; }
-[class*="st-key-sechead-"] { margin:26px 0 12px !important; padding-bottom:6px !important;
+.sec-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0;
+            line-height:2.2; }
+.sec-icon { width:24px; height:24px; border-radius:7px; background:var(--control-fill);
+            color:var(--text-muted); display:inline-flex; align-items:center;
+            justify-content:center; flex:none; }
+[class*="st-key-sechead-"] { margin:18px 0 8px !important; padding-bottom:5px !important;
                              border-bottom:1px solid var(--border); }
 [class*="st-key-open-"] { display:flex; justify-content:flex-end; }
+/* Row actions sit at the panel's right edge, like the one on the document card. */
+[class*="st-key-ovauto-"] [data-testid="stColumn"]:last-child,
+[class*="st-key-ovout-"] [data-testid="stColumn"]:last-child,
+[class*="st-key-ovhist-"] [data-testid="stColumn"]:last-child { display:flex; justify-content:flex-end; }
 .sec-title { font-size:14px; font-weight:600; color:var(--text); }
 .sec-note { font-size:12.5px; color:var(--text-muted); }
 
 .dense-panel { background:var(--surface); border:1px solid var(--border); border-radius:12px;
                box-shadow:0 1px 2px rgba(24,24,28,0.04); overflow:hidden; }
 .dense { display:grid; grid-template-columns:auto 1fr auto auto auto; align-items:center;
-         gap:16px; padding:13px 18px; border-bottom:1px solid var(--border-subtle); }
+         gap:16px; padding:11px 18px; border-bottom:1px solid var(--border-subtle);
+         border-radius:8px; }
+[class*="st-key-ovauto-"]:hover .dense, [class*="st-key-ovout-"]:hover .dense,
+[class*="st-key-ovhist-"]:hover .dense { background:var(--row-hover); }
 .dense:last-child { border-bottom:none; }
 .dense-left { font-size:13.5px; color:var(--text); }
 .dense-doc { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-muted); }
@@ -400,8 +422,15 @@ st.markdown("""
 .ov-line { display:flex; align-items:center; gap:10px; margin:14px 0 0;
            font-size:13px; color:var(--text-strong); }
 .ov-more { font-size:13px; color:var(--text-muted); margin:10px 0 0; }
-.ov-foot { font-size:12.5px; color:var(--text-muted); margin:26px 0 0;
-           padding-top:14px; border-top:1px solid var(--border-subtle); }
+.ov-foot { font-size:12.5px; color:var(--text-muted); margin:18px 0 0;
+           padding:12px 16px; border-radius:10px; background:var(--surface-sunk);
+           border:1px solid var(--border-subtle); }
+.ai-find { display:flex; flex-direction:column; gap:3px; padding:9px 12px; margin-bottom:6px;
+           background:var(--surface-sunk); border:1px solid var(--border-subtle);
+           border-radius:8px; }
+.ai-task { font-size:13.5px; color:var(--text); }
+.ai-quote { font-size:12.5px; color:var(--text-muted); font-style:italic; }
+.note-when { font-size:12px; color:var(--text-muted); margin:0; }
 
 .tab-note { font-size:13px; line-height:1.6; color:var(--text-muted); max-width:860px; margin:0 0 14px; }
 .tab-warn { font-size:13px; line-height:1.6; color:var(--caution-text); background:var(--caution-wash);
@@ -562,14 +591,32 @@ def review_dialog(row):
                 "to whoever opens this document next. Nothing downstream reads it: it does not "
                 "affect the validation score, the approval, or the Jira task."
             )
+            # These were checkboxes until 2026-09-20. Ticking one wrote
+            # invoice_action_items.is_done, which nothing in this codebase reads: not the
+            # validation score, not the approval, not the Jira task. It was a control whose
+            # only effect was to be ticked. The actions are still worth showing, because the
+            # quote beside each one is what exposes how generic they are.
             for _, item in actions.iterrows():
-                st.checkbox(
-                    item["Action"], value=bool(item["is_done"]),
-                    key=f"act-{item['action_item_id']}",
-                    on_change=set_action_item_done,
-                    args=(int(item["action_item_id"]), not bool(item["is_done"])),
-                )
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*“{item['Evidence']}”*")
+                st.markdown(
+                    f"<div class='ai-find'><span class='ai-task'>{item['Action']}</span>"
+                    f"<span class='ai-quote'>“{item['Evidence']}”</span></div>",
+                    unsafe_allow_html=True)
+
+    # What the checkbox should have been. A sentence is worth more to the next person than a
+    # tick, and unlike `is_done` this is read: it is shown to whoever opens the document after.
+    existing = row.get("review_note")
+    note = st.text_area(
+        "A note for whoever opens this next",
+        value="" if not existing or pd.isna(existing) else existing,
+        key=f"note-{row['id']}", height=80,
+        placeholder="Chased the vendor about the missing line items.")
+    left, right = st.columns([5, 1.2], vertical_alignment="center")
+    if row.get("review_note_at") and not pd.isna(row.get("review_note_at")):
+        left.markdown(f"<p class='note-when'>Last saved {row['review_note_at']}</p>",
+                      unsafe_allow_html=True)
+    if right.button("Save note", key=f"savenote-{row['id']}", width="stretch"):
+        save_review_note(int(row["id"]), note)
+        st.rerun()
 
     st.divider()
     st.markdown(
@@ -967,6 +1014,23 @@ def tile(label, value, note) -> str:
             f"<span class='ov-note'>{note}</span></div></div>")
 
 
+SECTION_ICONS = {
+    "awaiting": "<path d='M2.5 9.5h3l1 1.75h3l1-1.75h3' stroke='currentColor' stroke-width='1.4' "
+                "stroke-linecap='round' stroke-linejoin='round'/><path d='M3.6 3.2h8.8l1.1 6.3v2.8"
+                "a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V9.5l1.1-6.3Z' stroke='currentColor' "
+                "stroke-width='1.4' stroke-linejoin='round'/>",
+    "auto": "<path d='m3.6 8.3 2.9 2.9 5.9-6.1' stroke='currentColor' stroke-width='1.6' "
+            "stroke-linecap='round' stroke-linejoin='round'/>",
+    "outbox": "<path d='M2.6 8h3.2l1 1.8h2.4l1-1.8h3.2' stroke='currentColor' stroke-width='1.4' "
+              "stroke-linecap='round' stroke-linejoin='round'/><path d='M8 2.6v6.2M5.6 6.4 8 8.8l"
+              "2.4-2.4' stroke='currentColor' stroke-width='1.4' stroke-linecap='round' "
+              "stroke-linejoin='round'/>",
+    "history": "<circle cx='8' cy='8' r='5.4' stroke='currentColor' stroke-width='1.4'/>"
+               "<path d='M8 4.8V8l2.2 1.4' stroke='currentColor' stroke-width='1.4' "
+               "stroke-linecap='round' stroke-linejoin='round'/>",
+}
+
+
 def section_head(title, note, *, opens: str | None = None, key: str = "") -> None:
     """A section heading, and the control that opens the tab it summarises.
 
@@ -978,10 +1042,13 @@ def section_head(title, note, *, opens: str | None = None, key: str = "") -> Non
     # The rule under a heading belongs to the whole row, not to the column the text sits in,
     # so it goes on the container rather than on the markdown inside it.
     with st.container(key=f"sechead-{key}"):
-        head, action = st.columns([6, 1], vertical_alignment="center")
-        head.markdown(f"<div class='sec-head'><span class='sec-title'>{title}</span>"
+        head, action = st.columns([8, 1], vertical_alignment="center")
+        icon = SECTION_ICONS.get(key, "")
+        mark = (f"<span class='sec-icon'><svg width='15' height='15' viewBox='0 0 16 16' "
+                f"fill='none'>{icon}</svg></span>" if icon else "")
+        head.markdown(f"<div class='sec-head'>{mark}<span class='sec-title'>{title}</span>"
                       f"<span class='sec-note'>{note}</span></div>", unsafe_allow_html=True)
-        if opens and action.button("Open", key=f"open-{key}", type="tertiary"):
+        if opens and action.button("Open tab", key=f"open-{key}", width="stretch"):
             st.session_state["nav"] = opens
             st.rerun()
 

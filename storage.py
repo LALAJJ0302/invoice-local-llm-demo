@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
@@ -196,7 +196,13 @@ CREATE TABLE invoices (
     -- fail (Ollama unreachable, a validation error) independently of the main extraction,
     -- and a document should still be stored without it rather than not at all.
     category          TEXT,
-    summary           TEXT
+    summary           TEXT,
+    -- Added in migration 013. A sentence an approver leaves for whoever opens the document
+    -- next. It replaces the tick box on the action items, which wrote invoice_action_items
+    -- .is_done and was read by nothing at all. Nullable and cleared together: a note with no
+    -- timestamp, or a timestamp with no note, would be a state nothing in the screen means.
+    review_note       TEXT,
+    review_note_at    TEXT
 );
 
 CREATE UNIQUE INDEX ux_invoices_content ON invoices(content_sha256);
@@ -1252,6 +1258,27 @@ class StorageManager:
                 "is_done FROM invoice_action_items WHERE invoice_id = ? ORDER BY line_no",
                 (invoice_id,),
             ).fetchall()
+
+    def set_review_note(self, invoice_id: int, note: str) -> bool:
+        """A sentence an approver leaves for whoever opens the document next.
+
+        Replaces the checkbox on the action items, which wrote `is_done` and was read by
+        nothing. "Chased the vendor about the missing line items" is worth more to the next
+        person than three ticks. Migration 013.
+
+        An empty note clears the column and its timestamp rather than storing an empty string,
+        so "has a note" is one condition and not two.
+        """
+        note = (note or "").strip()
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE invoices SET review_note = ?, "
+                "review_note_at = CASE WHEN ? = '' THEN NULL ELSE datetime('now') END "
+                "WHERE invoice_id = ?",
+                (note or None, note, invoice_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def set_action_item_done(self, action_item_id: int, is_done: bool) -> bool:
         """Lets a person check off an action item in the dashboard. Returns whether it changed."""
