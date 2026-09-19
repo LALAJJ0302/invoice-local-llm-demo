@@ -41,6 +41,8 @@ m006 = load_migration("006_storage_completion.py")
 m007 = load_migration("007_post_approval.py")
 m008 = load_migration("008_email_body.py")
 m009 = load_migration("009_attachment_names.py")
+m010 = load_migration("010_run_kind_and_threads.py")
+m011 = load_migration("011_email_analysis.py")
 
 
 LEGACY_DDL = """
@@ -118,6 +120,8 @@ def migrated_db(legacy_db):
     assert m007.migrate(legacy_db) == 0
     assert m008.migrate(legacy_db) == 0
     assert m009.migrate(legacy_db) == 0
+    assert m010.migrate(legacy_db) == 0
+    assert m011.migrate(legacy_db) == 0
     return legacy_db
 
 
@@ -388,7 +392,7 @@ class TestChain:
         with connect(migrated_db) as conn:
             versions = [r["version"] for r in
                         conn.execute("SELECT version FROM schema_version ORDER BY version")]
-        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
     def test_migrated_matches_fresh(self, migrated_db, tmp_path):
         """A replayed migration chain and a fresh storage.DDL database must agree.
@@ -403,7 +407,9 @@ class TestChain:
             with connect(path) as conn:
                 tables = {}
                 for table in ("processing_runs", "invoices", "line_items",
-                              "email_messages", "tasks", "outbound_messages"):
+                              "email_messages", "tasks", "outbound_messages",
+                              "email_analysis", "thread_analysis", "email_action_items",
+                              "thread_decisions"):
                     tables[table] = [
                         (r["name"], r["type"], r["notnull"], r["dflt_value"])
                         for r in conn.execute(f"PRAGMA table_info({table})")
@@ -446,7 +452,8 @@ class TestChain:
     def test_rerunning_the_whole_sequence_is_a_clean_no_op(self, migrated_db):
         """A teammate following the quickstart runs every migration in order. Doing that
         twice must succeed, not report failure on the ones already applied."""
-        for module in (m001, m002, m003, m004, m005, m006, m007):
+        for module in (m001, m002, m003, m004, m005, m006, m007,
+                       m008, m009, m010, m011):
             assert module.migrate(migrated_db) == 0, f"{module.__name__} failed on re-run"
 
 
@@ -535,3 +542,140 @@ class TestAttachmentNames:
                                    received_at="2026-08-01 09:00:00",
                                    attachment_names=["dup.pdf"])
         assert store.email_for_attachment("dup.pdf")["email_id"] == newer["email_id"]
+
+
+# =====================================================================
+# Migration 010
+# =====================================================================
+class TestRunKindAndThreads:
+    """The only migration since 003 that rewrites an existing table, and invoices.run_id
+    points at it. These tests are mostly about what must not change."""
+
+    @pytest.fixture
+    def before_010(self, legacy_db):
+        for module in (m001, m002, m003, m004, m005, m006, m007, m008, m009):
+            assert module.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_every_existing_run_becomes_an_invoice_run(self, before_010):
+        with connect(before_010) as conn:
+            thresholds = [r["threshold"] for r in
+                          conn.execute("SELECT threshold FROM processing_runs")]
+        m010.migrate(before_010)
+        with connect(before_010) as conn:
+            rows = conn.execute(
+                "SELECT run_kind, threshold FROM processing_runs ORDER BY run_id").fetchall()
+        assert [r["run_kind"] for r in rows] == ["invoice"] * len(rows)
+        assert [r["threshold"] for r in rows] == thresholds
+
+    def test_no_invoice_loses_its_run(self, before_010):
+        """The rebuild drops the table invoices.run_id references. This is the failure that
+        would matter and it is checked inside the migration too, before it commits."""
+        m010.migrate(before_010)
+        with connect(before_010) as conn:
+            orphans = conn.execute(
+                "SELECT COUNT(*) c FROM invoices i "
+                "LEFT JOIN processing_runs r ON r.run_id = i.run_id "
+                "WHERE r.run_id IS NULL").fetchone()["c"]
+            assert orphans == 0
+            assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+    def test_the_rebuild_moves_no_data(self, before_010):
+        with connect(before_010) as conn:
+            before = conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"]
+        m010.migrate(before_010)
+        with connect(before_010) as conn:
+            assert conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"] == before
+
+    def test_an_email_run_becomes_possible(self, before_010):
+        m010.migrate(before_010)
+        with connect(before_010) as conn:
+            conn.execute("INSERT INTO processing_runs (model_name, threshold, run_kind) "
+                         "VALUES ('llama3.2', NULL, 'email')")
+            conn.commit()
+            assert conn.execute(
+                "SELECT COUNT(*) c FROM processing_runs WHERE run_kind = 'email'"
+            ).fetchone()["c"] == 1
+
+    def test_the_thread_columns_start_null(self, before_010):
+        m010.migrate(before_010)
+        with connect(before_010) as conn:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(email_messages)")]
+            assert "thread_id" in cols and "thread_source" in cols
+            assert conn.execute(
+                "SELECT COUNT(*) c FROM email_messages WHERE thread_id IS NOT NULL"
+            ).fetchone()["c"] == 0
+
+    def test_an_invented_thread_source_is_rejected(self, before_010):
+        m010.migrate(before_010)
+        with connect(before_010) as conn:
+            conn.execute("INSERT INTO email_messages (message_id, sender) VALUES ('<x>', 's')")
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute("UPDATE email_messages SET thread_source = 'guessed'")
+
+    def test_is_idempotent(self, before_010):
+        m010.migrate(before_010)
+        assert m010.migrate(before_010) == 0
+
+    def test_refuses_to_run_out_of_order(self, legacy_db):
+        m001.migrate(legacy_db)
+        assert m010.migrate(legacy_db) == 1
+
+
+# =====================================================================
+# Migration 011
+# =====================================================================
+class TestEmailAnalysisTables:
+    @pytest.fixture
+    def before_011(self, legacy_db):
+        for module in (m001, m002, m003, m004, m005, m006, m007, m008, m009, m010):
+            assert module.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_creates_four_empty_tables(self, before_011):
+        m011.migrate(before_011)
+        with connect(before_011) as conn:
+            for table in ("email_analysis", "thread_analysis",
+                          "email_action_items", "thread_decisions"):
+                assert conn.execute(f"SELECT COUNT(*) c FROM {table}").fetchone()["c"] == 0
+
+    def test_touches_no_existing_row(self, before_011):
+        with connect(before_011) as conn:
+            before = conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"]
+        m011.migrate(before_011)
+        with connect(before_011) as conn:
+            assert conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"] == before
+
+    def test_refuses_without_migration_010(self, legacy_db):
+        for module in (m001, m002, m003, m004, m005, m006, m007, m008, m009):
+            assert module.migrate(legacy_db) == 0
+        assert m011.migrate(legacy_db) == 1
+
+    def test_is_idempotent(self, before_011):
+        m011.migrate(before_011)
+        assert m011.migrate(before_011) == 0
+
+    def test_the_sql_comes_from_storage_ddl(self, before_011):
+        """The tables are sliced out of storage.DDL rather than copied here, so a fresh
+        database and a migrated one cannot drift. If the marker comment is ever removed,
+        this fails rather than silently writing a second definition."""
+        assert "CREATE TABLE email_analysis" in m011.ddl_tail()
+        assert len(m011.created_objects(m011.ddl_tail())) == 10
+
+    def test_the_pipeline_can_store_an_analysis_afterwards(self, before_011):
+        """The real risk of a migration: it produces a schema the code cannot use."""
+        m011.migrate(before_011)
+        store = StorageManager(before_011)
+        store.record_email("<m@mail>", "pm@client.com", "Budget")
+        run_id = store.start_email_run("llama3.2:latest")
+        result = store.save_email_analysis({
+            "message_id": "<m@mail>", "run_id": run_id,
+            "processed_at": "2026-09-17T09:00:00Z",
+            "validation_status": "Validated", "validation_reason": None, "attempt_count": 1,
+            "analysis": {"category": "Invoice", "summary": "An invoice arrived.",
+                         "action_items": [{"task": "Pay it", "owner": "Neo",
+                                           "deadline_text": "by 30 September 2026",
+                                           "evidence_quote": "Pay by 30 September 2026."}]},
+        })
+        assert result["was_update"] is False
+        assert result["dated_count"] == 1

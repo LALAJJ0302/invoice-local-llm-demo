@@ -32,6 +32,10 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python migrations/005_rename_validation_status.py
 ./.venv/bin/python migrations/006_storage_completion.py
 ./.venv/bin/python migrations/007_post_approval.py
+./.venv/bin/python migrations/008_email_body.py
+./.venv/bin/python migrations/009_attachment_names.py
+./.venv/bin/python migrations/010_run_kind_and_threads.py
+./.venv/bin/python migrations/011_email_analysis.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
 ./.venv/bin/python query_db.py                   # inspect records
 ./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
@@ -50,8 +54,9 @@ Use `./.venv/bin/python`, not bare `python3`. Dependencies are pinned in `requir
 on a content hash, so regenerating the mocks and re-running updates the same three rows instead of
 accumulating duplicates. It writes to SQLite first and archives only after the commit.
 
-The migration is one-off and idempotent. It renames `workflow_records` to `workflow_records_v1`,
-keeps it, and takes a `.bak` copy of the database first. Running it twice is a no-op.
+The migrations are one-off and idempotent. 001 renames `workflow_records` to `workflow_records_v1`,
+keeps it, and takes a `.bak` copy of the database first. Running any of them twice is a no-op.
+Schema version is 11. 010 is the only one since 003 that rewrites an existing table.
 
 ## Ownership
 
