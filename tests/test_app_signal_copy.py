@@ -12,7 +12,7 @@ import re
 
 import pytest
 
-from review_signals import SIGNALS, risk_signal
+from review_signals import DETAIL, SIGNALS, risk_signal
 
 APP = pathlib.Path(__file__).resolve().parents[1] / "app.py"
 
@@ -22,6 +22,17 @@ def test_app_does_not_contain_signal_copy():
     leaked = [message for _, _, message in SIGNALS if message in source]
     assert leaked == [], (
         "app.py contains risk copy that belongs to review_signals.py: "
+        + "; ".join(leaked)
+    )
+
+
+def test_app_does_not_contain_the_explanations_either():
+    """Added with OV-3. The second sentence per signal lives in the same module as the first,
+    for the same reason: a template that can render its own copy makes the module decorative."""
+    source = APP.read_text(encoding="utf-8")
+    leaked = [detail for detail in DETAIL.values() if detail in source]
+    assert leaked == [], (
+        "app.py contains signal explanations that belong to review_signals.py: "
         + "; ".join(leaked)
     )
 

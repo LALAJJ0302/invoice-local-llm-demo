@@ -119,3 +119,42 @@ class TestAgainstTheRealDatabase:
         }
         for column, value, _ in SIGNALS:
             assert value in allowed[column], f"{column} can never be {value!r}"
+
+
+class TestDetailPairsWithSignal:
+    """DETAIL is a parallel mapping, and two structures that must agree can drift.
+
+    It is parallel rather than a fourth element in SIGNALS because three modules unpack those
+    tuples as triples. The cost of that choice is this test. See fe-overview-spec.md §3.
+    """
+
+    def test_every_signal_has_exactly_one_explanation(self):
+        from review_signals import DETAIL, SIGNALS
+        missing = [message for _, _, message in SIGNALS if message not in DETAIL]
+        assert missing == [], f"signals with no explanation: {missing}"
+
+    def test_no_explanation_is_orphaned(self):
+        from review_signals import DETAIL, SIGNALS
+        known = {message for _, _, message in SIGNALS}
+        orphans = [message for message in DETAIL if message not in known]
+        assert orphans == [], f"explanations for signals that do not exist: {orphans}"
+
+    def test_detail_follows_the_signal_that_wins(self):
+        """First match wins in SIGNALS, so the explanation must follow the same row."""
+        from review_signals import DETAIL, risk_detail, risk_signal
+        row = {"reconciliation": "short", "validation_status": "NeedsReview"}
+        assert risk_signal(row) == "Total is less than the line items add up to"
+        assert risk_detail(row) == DETAIL["Total is less than the line items add up to"]
+
+    def test_no_signal_means_no_detail(self):
+        from review_signals import risk_detail
+        assert risk_detail({"reconciliation": "exact"}) is None
+
+    def test_explanations_read_as_sentences(self):
+        """Same rule the signals themselves are held to: no scores, no field names."""
+        import re
+        from review_signals import DETAIL
+        for message, detail in DETAIL.items():
+            assert detail[0].isupper(), message
+            assert detail.endswith("."), message
+            assert not re.search(r"[_{}]|0\.\d", detail), message

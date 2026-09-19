@@ -149,6 +149,85 @@ Specified in `fe-tabs-spec.md`. All four are done.
 
 ---
 
+## Overview page, prioritised 2026-09-20, finished the same day
+
+**Done: OV-1 to OV-8. Declined: OV-9, OV-10, OV-11.** Spec: `fe-overview-spec.md`. Each declined
+item was argued rather than dropped, and the reasoning stays below.
+
+The page is built and the tab bar is final, so the next block of work is finishing one page
+before starting another. Ordered by what it costs to leave undone, not by what is easiest.
+
+### P1. The approved card is not fully on screen
+
+These are omissions against a design that was already agreed, which makes them the first thing
+to fix. The approved card in `approval-screen-design-v2.html` carries five things in its footer
+and the build renders two.
+
+| id | Work | Done when |
+|---|---|---|
+| ~~OV-1~~ ✅ | `Download the original` on the card | The secondary button sits beside `Review document`, and pressing it downloads the file at `invoices.archive_path` |
+| ~~OV-2~~ ✅ | `Covering email` chip | The chip shows the sender, as the approved card does. It is the only thing on the card that says the document arrived by email rather than appearing from nowhere |
+| ~~OV-3~~ ✅ | The sentence beside the risk signal | `review_signals.py` gains a second sentence per signal, six in total, beside the six it already owns, with tests. It must not be written into a card template: `tests/test_app_signal_copy.py` exists to stop exactly that |
+
+OV-1 and OV-2 were dropped when the card was built, and neither was a decision. OV-3 was a
+recorded decision in `fe-queue-spec.md` §4 and is now due.
+
+### P2. Every section is a dead end
+
+| id | Work | Done when |
+|---|---|---|
+| ~~OV-4~~ ✅ | Each section header can open its tab | Every section on Overview reaches the tab it summarises in one click |
+
+**Researched rather than guessed.** Plausible puts an expand control at the top right of every
+panel and the panel opens to its full view. That is the pattern this needs and the reference
+already uses it. Linear, Attio and Ramp do the same job with a heading that is itself a link.
+
+### P3. Three of the four sections have no actions at all
+
+Only Awaiting approval can be acted on. The other three are read-only lists of things a person
+might want to do something about.
+
+| id | Work | Done when |
+|---|---|---|
+| ~~OV-5~~ ✅ | Outbox rows carry `Push to Jira` on Overview, as they do in the tab | Pressing it dispatches, and it is disabled with the reason while `JIRA_ENABLED` is unset |
+| ~~OV-6~~ ✅ | Approved by the system rows open the document | A person can look at what the system approved without being asked, which is the risk §7.2 of the report calls the most important open one |
+| ~~OV-7~~ ✅ | History rows open the document | A decision can be inspected after the fact |
+
+### P4. Bulk selection, and two requests that need a decision first
+
+| id | Work | Status |
+|---|---|---|
+| ~~OV-8~~ ✅ | Checkbox selection, and `Push selected to Jira` | **Built, on the Outbox tab and not on Overview.** A checkbox asks a person to do bulk work, and Overview is designed for a glance |
+| OV-9 | `Approve selected` | **Declined by Neo, 2026-09-20.** Not built. The argument is below, kept so nobody re-proposes it as an oversight |
+| OV-10 | `Delete all` | **Declined by Neo, 2026-09-20.** Not built. No delete operation exists anywhere in this system |
+
+**OV-9.** `fe-screen-spec.md` §5 says the approve and reject buttons exist in the dialog and
+nowhere else, and gives the reason: *"If a person can approve from the row, they approve on
+exactly the information the machine had, which is the same decision the machine already makes by
+itself. The extra click buys the chance to look at the document, the evidence quotes and the
+covering email first. A rubber stamp with a human hand on it is not human review."* Objective 4
+of the project is keeping a person in the approval path. Bulk approval removes it. The report
+argues in §7.2 that auto-approval at 1.00 is already unsafe; a button that approves several
+documents without opening any of them is the same thing with a person's name on it.
+
+Buildable in an afternoon. The cost is not the code, it is that the report's argument about
+human oversight stops being true of its own screen. **Needs Neo's explicit decision, and if it
+is built the reasoning in §5 has to be rewritten rather than quietly contradicted.**
+
+**OV-10.** Nothing in this codebase deletes an invoice. The database is the audit trail the
+evaluation and the report are built on, `reprocess.py` re-reads rather than removes, and the
+upsert on a content hash exists so that re-running never duplicates. A delete would need a
+policy first: what it means, whether it is reversible, and what happens to the tasks and outbox
+rows that point at the row being removed.
+
+### P5. Researched and recommended against
+
+| id | Work | Status |
+|---|---|---|
+| OV-11 | Collapse or hide a section | **Not recommended.** None of the four reference products collapses a content panel. Linear collapses groups in its sidebar, which is navigation. Plausible, Attio and Ramp expand panels instead of hiding them. A page long enough to need hiding should show fewer rows per section, which it already does at five |
+
+---
+
 ## Group E. The application shell
 
 **Decided 2026-09-19: trim the sidebar to what exists.**

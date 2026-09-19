@@ -34,6 +34,39 @@ SIGNALS = (
 )
 
 
+# The second sentence, keyed by the first. A parallel mapping rather than a fourth element in
+# SIGNALS, because three modules unpack those tuples as triples and a fourth would break all of
+# them for a string none of them use. Two structures that must agree can drift, so
+# tests/test_review_signals.py asserts every message has exactly one explanation and that none
+# is orphaned.
+#
+# Each one says what the gate saw, not what the score was. "Validation score 0.25" tells an
+# approver nothing they can act on; "the model read a total but no rows" tells them what to look
+# for when they open the document.
+DETAIL = {
+    "Total is less than the line items add up to":
+        "Tax and shipping push a total above its parts. Nothing legitimate pushes it below.",
+    "Did not pass the validation gate":
+        "At least one check failed. The document is here because a person has to decide anyway.",
+    "No line items to check the total against":
+        "The model read a total but no rows, so nothing adds up to it. Every other check passed.",
+    "Total was recovered by our code, not read from the document":
+        "A fallback found the amount after the model returned none. Worth confirming against the "
+        "document.",
+    "Vendor name was inferred, not read from the document":
+        "The name was taken from the file or the email rather than the page itself.",
+    "Total exceeds the line items; tax or shipping would explain it":
+        "Common and usually fine. It is flagged because nothing here checks which of the two it "
+        "is.",
+}
+
+
+def risk_detail(row: Mapping[str, Any]) -> Optional[str]:
+    """The sentence that explains the signal, or None when there is no signal."""
+    message = risk_signal(row)
+    return DETAIL.get(message) if message else None
+
+
 def risk_signal(row: Mapping[str, Any]) -> Optional[str]:
     """The one sentence to show for a document, or None when there is nothing to say.
 

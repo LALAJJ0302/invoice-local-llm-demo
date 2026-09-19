@@ -52,7 +52,11 @@ def test_push_appears_only_for_rows_that_have_a_transport():
     jira = outbox[outbox["channel"] == "Jira"]
     pushable = jira[jira["state"].isin(["Pending", "Failed"])]
     at = run()
-    assert len([b for b in at.button if b.label == "Push to Jira"]) == len(pushable)
+    # Two render sites since OV-5: every pushable row in the Outbox tab, and the first five of
+    # them again in the Overview section. Both bodies execute on every rerun.
+    expected = len(pushable) + min(len(pushable), 5)
+    assert len([b for b in at.button if b.label == "Push to Jira"]) == expected, (
+        "a row without a transport has grown a Push button, or a pushable one has lost it")
 
 
 def test_overview_agrees_with_the_tab_labels():
@@ -120,3 +124,48 @@ def test_the_tab_bar_no_longer_says_notifications():
     labels = " ".join(str(getattr(t, "label", "")) for t in at.get("tab"))
     rendered = labels + " ".join(m.value for m in at.markdown if m.value)
     assert not re.search(r"\bNotifications\s+\d", rendered), "a tab is still labelled Notifications"
+
+
+def test_a_section_header_opens_its_tab():
+    """OV-4. Streamlit 1.62.0 takes a key on st.tabs, so a section can select one.
+
+    Asserted rather than clicked through by hand: the button writes the tab's own label, counts
+    and all, and a label that drifts from the tab it names would leave a dead control.
+    """
+    at = run()
+    opens = [b for b in at.button if b.label == "Open"]
+    assert opens, "no section header offers a way into its tab"
+    after = opens[0].click().run()
+    assert not after.exception, [str(e.value) for e in after.exception]
+    assert after.session_state["nav"], "pressing Open did not select a tab"
+
+
+def test_the_card_carries_everything_the_approved_design_carries():
+    """OV-1 and OV-2. Three of the five things in the approved card's footer were missing."""
+    import app
+    df = app.load_data()
+    if df.empty:
+        return
+    at = run()
+    rendered = " ".join(m.value for m in at.markdown if m.value)
+    assert "Covering email" in rendered, "the covering email chip is missing from the card"
+    assert [b for b in at.button if b.label == "Open the document"] or \
+           [b for b in at.button if b.label == "Review document"], "no card action rendered"
+
+
+def test_the_signal_explanation_comes_from_the_module():
+    """OV-3. The sentence is rendered, and app.py does not contain it."""
+    import app
+    from review_signals import DETAIL, risk_detail
+    df = app.load_data()
+    # Only documents drawn as cards carry the strip. A document a person has already decided on
+    # appears in History as a row, which has no signal on it.
+    on_a_card = df[(df["approval_status"] == "Pending")
+                   | ((df["approval_status"] == "Approved") & (df["reviewed_at"].isna()))]
+    flagged = [r for _, r in on_a_card.iterrows() if risk_detail(r)]
+    if not flagged:
+        return
+    at = run()
+    rendered = " ".join(m.value for m in at.markdown if m.value)
+    assert risk_detail(flagged[0]) in rendered
+    assert not any(d in pathlib.Path(APP).read_text(encoding="utf-8") for d in DETAIL.values())

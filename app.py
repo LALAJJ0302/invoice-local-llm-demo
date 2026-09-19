@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 import task_dispatch
-from review_signals import risk_signal
+from review_signals import risk_detail, risk_signal
 from storage import DEFAULT_DB_PATH, StorageManager, connect
 
 # =====================================================================
@@ -346,6 +346,7 @@ st.markdown("""
                 border-top:1px solid var(--border-subtle); background:var(--caution-wash); }
 .signal-strip .dot { width:8px; height:8px; }
 .signal { color: var(--caution-text); font-size:14px; }
+.signal-detail { font-size:13px; color:var(--text-muted); }
 
 [class*="st-key-foot-"] { padding:13px 24px !important; border-top:1px solid var(--border-subtle); }
 .chips { display:flex; align-items:center; flex-wrap:wrap; row-gap:6px; }
@@ -376,8 +377,11 @@ st.markdown("""
 .ov-note { font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--text-muted);
            font-variant-numeric:tabular-nums; }
 
-.sec-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
-            margin:26px 0 12px; padding-bottom:9px; border-bottom:1px solid var(--border); }
+.sec-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:0;
+            line-height:2.4; }
+[class*="st-key-sechead-"] { margin:26px 0 12px !important; padding-bottom:6px !important;
+                             border-bottom:1px solid var(--border); }
+[class*="st-key-open-"] { display:flex; justify-content:flex-end; }
 .sec-title { font-size:14px; font-weight:600; color:var(--text); }
 .sec-note { font-size:12.5px; color:var(--text-muted); }
 
@@ -418,6 +422,15 @@ st.markdown("""
 
 /* History. One row per decision a person made. */
 [class*="st-key-hist-"] { padding:12px 18px !important; border-radius:10px; background:var(--surface); }
+/* Rows that carry an action. The border comes from the panel they sit in, not from each row. */
+[class*="st-key-ovpanel-"] { background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; box-shadow:0 1px 2px rgba(24,24,28,0.04); overflow:hidden;
+  padding:0 !important; }
+[class*="st-key-ovauto-"], [class*="st-key-ovout-"], [class*="st-key-ovhist-"] {
+  padding:4px 10px 4px 4px !important; border-bottom:1px solid var(--border-subtle); }
+[class*="st-key-ovpanel-"] > div > div:last-child [class*="st-key-ov"] { border-bottom:none; }
+[class*="st-key-ovauto-"] .dense, [class*="st-key-ovout-"] .dense,
+[class*="st-key-ovhist-"] .dense { border-bottom:none; padding:10px 14px; }
 .hist { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
 .hist-decision { font-size:13px; font-weight:500; color:var(--text); min-width:72px; }
 .hist-vendor { font-size:13.5px; color:var(--text); }
@@ -590,6 +603,29 @@ def waiting_days(row) -> int | None:
         return None
 
 
+@st.cache_data(show_spinner=False)
+def original_bytes(path: str, _mtime: float) -> bytes:
+    """The archived PDF, cached on its path and mtime.
+
+    Streamlit re-executes every tab body on every rerun, and Overview and the queue tab both
+    draw the same cards, so without this the same file is read from disk several times a click.
+    """
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+def original_for(row):
+    """The bytes and name of the document behind a row, or None when the file is not there.
+
+    `archive_path` can point at a file that has been moved or was never archived, and a download
+    button that produces nothing is worse than one that says why it cannot.
+    """
+    path = row.get("archive_path")
+    if not path or pd.isna(path) or not os.path.exists(path):
+        return None
+    return original_bytes(path, os.path.getmtime(path)), os.path.basename(path)
+
+
 def chip(text: str, dot: str | None) -> str:
     mark = f"<span class='dot' style='background:{dot}'></span>" if dot else ""
     return f"<span class='chip'>{mark}{text}</span>"
@@ -610,6 +646,9 @@ def provenance(row) -> str:
         from_model = row.get(column) == "model"
         out.append(chip(read if from_model else inferred,
                         "var(--positive)" if from_model else "var(--caution)"))
+    sender = row.get("email_sender")
+    if sender and not pd.isna(sender):
+        out.append(chip(f"Covering email · {sender}", None))
     return "".join(out)
 
 
@@ -630,9 +669,11 @@ def document_card(row, *, actionable: bool, context: str = "queue"):
         meta.append(f"waiting {waited}d")
 
     signal = risk_signal(row)
+    detail = risk_detail(row)
     signal_html = (
         f"<div class='signal-strip'><span class='dot' style='background:var(--caution)'></span>"
-        f"<span class='signal'>{signal}</span></div>" if signal else ""
+        f"<span class='signal'>{signal}</span>"
+        f"<span class='signal-detail'>{detail or ''}</span></div>" if signal else ""
     )
 
     with st.container(border=True, key=f"doc-{context}-{row['id']}", gap=None):
@@ -649,14 +690,28 @@ def document_card(row, *, actionable: bool, context: str = "queue"):
             unsafe_allow_html=True,
         )
         with st.container(key=f"foot-{context}-{row['id']}", gap=None):
-            chips, action = st.columns([3, 1.1], vertical_alignment="center")
+            chips, download, action = st.columns([4, 1.4, 1.3], vertical_alignment="center")
             chips.markdown(f"<div class='chips'>{provenance(row)}</div>", unsafe_allow_html=True)
-            if actionable:
-                if action.button("Review document", type="primary", key=f"rev-{context}-{row['id']}"):
-                    review_dialog(row)
+
+            original = original_for(row)
+            if original:
+                data, name = original
+                download.download_button("Download the original", data=data, file_name=name,
+                                         mime="application/pdf",
+                                         key=f"dl-{context}-{row['id']}")
             else:
-                action.markdown("<div class='chips decided'>Decided by the system</div>",
-                                unsafe_allow_html=True)
+                download.button("Download the original", disabled=True,
+                                key=f"dl-{context}-{row['id']}",
+                                help="The archived file is not on disk.")
+
+            # OV-6. A document the system approved without asking can still be opened. The
+            # dialog is the same one, so a person can look at what was decided for them and
+            # reject it if they disagree, which is the oversight §2 of fe-screen-spec.md says
+            # the second tab exists to make possible.
+            label = "Review document" if actionable else "Open the document"
+            if action.button(label, type="primary" if actionable else "secondary",
+                             key=f"rev-{context}-{row['id']}"):
+                review_dialog(row)
 
 
 def queue_controls(frame):
@@ -809,9 +864,25 @@ def outbox_body(frame):
             "Set <code>JIRA_ENABLED</code> and the rest in <code>.env</code> to enable it.</p>",
             unsafe_allow_html=True)
 
+    # OV-8. Selection lives here rather than on Overview: a checkbox asks a person to do bulk
+    # work, and Overview is designed for a glance. Pushing a queued message is a batch operation
+    # with no judgment in it, which is why this is the one bulk action that was built.
+    # `Approve selected` was raised and declined: fe-screen-spec.md §5 keeps approval in the
+    # dialog so that a person sees the document before deciding.
+    chosen = [int(r["outbox_id"]) for _, r in pushable.iterrows()
+              if st.session_state.get(f"sel-{r['outbox_id']}")]
+    if not pushable.empty:
+        bulk, _spacer = st.columns([2, 5], vertical_alignment="center")
+        if bulk.button(f"Push selected to Jira ({len(chosen)})", type="primary",
+                       disabled=not ready or not chosen, key="push-selected"):
+            for _, row in pushable[pushable["outbox_id"].isin(chosen)].iterrows():
+                push_to_jira(row)
+            st.rerun()
+
     for _, row in pushable.iterrows():
         with st.container(border=True, key=f"out-{row['outbox_id']}", gap=None):
-            body, action = st.columns([5, 1.2], vertical_alignment="center")
+            pick, body, action = st.columns([0.5, 5, 1.3], vertical_alignment="center")
+            pick.checkbox("Select", key=f"sel-{row['outbox_id']}", label_visibility="collapsed")
             state_dot = "var(--caution)" if row["state"] == "Failed" else "var(--text-faint)"
             failure = f"<div class='out-error'>{row['error']}</div>" if row["error"] else ""
             body.markdown(
@@ -885,9 +956,43 @@ def tile(label, value, note) -> str:
             f"<span class='ov-note'>{note}</span></div></div>")
 
 
-def section_head(title, note) -> str:
-    return (f"<div class='sec-head'><span class='sec-title'>{title}</span>"
-            f"<span class='sec-note'>{note}</span></div>")
+def section_head(title, note, *, opens: str | None = None, key: str = "") -> None:
+    """A section heading, and the control that opens the tab it summarises.
+
+    Streamlit 1.62.0 takes `key` on `st.tabs`, so writing that key and rerunning selects a tab.
+    Measured before this was built: the key raises KeyError until a tab is chosen, and setting
+    it to a label lands on that tab with no exception. Plausible puts the same control at the
+    top right of every panel; a section that cannot be opened is a dead end.
+    """
+    # The rule under a heading belongs to the whole row, not to the column the text sits in,
+    # so it goes on the container rather than on the markdown inside it.
+    with st.container(key=f"sechead-{key}"):
+        head, action = st.columns([6, 1], vertical_alignment="center")
+        head.markdown(f"<div class='sec-head'><span class='sec-title'>{title}</span>"
+                      f"<span class='sec-note'>{note}</span></div>", unsafe_allow_html=True)
+        if opens and action.button("Open", key=f"open-{key}", type="tertiary"):
+            st.session_state["nav"] = opens
+            st.rerun()
+
+
+def record_row(*, key, dot, left, doc, value, right, action, on_action,
+               disabled=False, help=None):
+    """One record with one action.
+
+    Overview used to render these sections as a block of markdown, which read well and could not
+    be acted on. Three of the four sections were lists of things a person might want to do
+    something about, with nothing to press. OV-5 to OV-7.
+    """
+    with st.container(key=key, gap=None):
+        body, act = st.columns([5, 1.3], vertical_alignment="center")
+        body.markdown(
+            f"<div class='dense'><span class='dot' style='background:{dot}'></span>"
+            f"<span class='dense-left'>{left}</span>"
+            f"<span class='dense-doc'>{doc}</span>"
+            f"<span class='dense-amount'>{value}</span>"
+            f"<span class='dense-right'>{right}</span></div>", unsafe_allow_html=True)
+        if act.button(action, key=f"{key}-act", disabled=disabled, help=help):
+            on_action()
 
 
 def dense_rows(rows) -> str:
@@ -934,8 +1039,8 @@ def overview_body(pending, auto, outbox, history):
                oldest_since or "the queue is empty")
         + "</div>", unsafe_allow_html=True)
 
-    st.markdown(section_head("Awaiting approval", "a person has to decide on each of these"),
-                unsafe_allow_html=True)
+    section_head("Awaiting approval", "a person has to decide on each of these",
+                 opens=TAB_AWAITING, key="awaiting")
     document_rows(pending, actionable=True, context="ov", controls=False, limit=3)
 
     if not pending.empty or not auto.empty:
@@ -945,13 +1050,16 @@ def overview_body(pending, auto, outbox, history):
             f"That is everything waiting.{cleared}</div>", unsafe_allow_html=True)
 
     if not auto.empty:
-        st.markdown(section_head("Approved by the system",
-                                 "at a validation score of 1.00, with nobody asked"),
-                    unsafe_allow_html=True)
-        st.markdown(dense_rows([
-            ("var(--positive)", r["vendor_name"] or "-", r["invoice_number"] or "-",
-             money(r["total_amount"], r["currency"]), str(r["system_processed_at"])[11:16])
-            for _, r in auto.iterrows()]), unsafe_allow_html=True)
+        section_head("Approved by the system",
+                     "at a validation score of 1.00, with nobody asked",
+                     opens=TAB_AUTO, key="auto")
+        with st.container(key="ovpanel-auto", gap=None):
+          for _, r in auto.iterrows():
+            record_row(key=f"ovauto-{r['id']}", dot="var(--positive)",
+                       left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
+                       value=money(r["total_amount"], r["currency"]),
+                       right=str(r["system_processed_at"])[11:16],
+                       action="Open", on_action=lambda row=r: review_dialog(row))
 
     if outbox.empty:
         pushable, frozen, sent = outbox, 0, 0
@@ -960,30 +1068,43 @@ def overview_body(pending, auto, outbox, history):
         pushable = jira_rows[jira_rows["state"].isin(["Pending", "Failed"])]
         frozen = len(outbox[outbox["channel"] != "Jira"])
         sent = int((outbox["state"] == "Sent").sum())
-    st.markdown(section_head("Outbox", f"{len(pushable)} ready to push, {frozen} with no "
-                                       f"transport, {sent} sent"), unsafe_allow_html=True)
+    section_head("Outbox", f"{len(pushable)} ready to push, {frozen} with no transport, "
+                           f"{sent} sent", opens=TAB_OUTBOX, key="outbox")
     if pushable.empty:
         st.markdown("<p class='ov-more'>Nothing is waiting to go out.</p>", unsafe_allow_html=True)
     else:
-        st.markdown(dense_rows([
+        ready = jira_ready()
+        with st.container(key="ovpanel-out", gap=None):
+         for _, r in pushable.head(5).iterrows():
             # The channel is Jira on every row in this list, so the slot that holds an amount
             # elsewhere holds the state instead: Pending or Failed is the thing worth reading.
-            ("var(--caution)" if r["state"] == "Failed" else "var(--text-muted)",
-             r["vendor_name"] or "-", r["invoice_number"] or "-", r["state"],
-             str(r["created_at"])[:16])
-            for _, r in pushable.head(5).iterrows()]), unsafe_allow_html=True)
+            record_row(key=f"ovout-{r['outbox_id']}",
+                       dot="var(--caution)" if r["state"] == "Failed" else "var(--text-muted)",
+                       left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
+                       value=r["state"], right=str(r["created_at"])[:16],
+                       action="Push to Jira", disabled=not ready,
+                       help=None if ready else "Jira is not configured. Set JIRA_ENABLED in .env",
+                       on_action=lambda row=r: (push_to_jira(row), st.rerun()))
 
-    st.markdown(section_head("History", "decisions a person made, including rejections"),
-                unsafe_allow_html=True)
+    section_head("History", "decisions a person made, including rejections",
+                 opens=TAB_HISTORY, key="history")
     if history.empty:
         st.markdown("<p class='ov-more'>Nobody has decided anything yet.</p>",
                     unsafe_allow_html=True)
     else:
-        st.markdown(dense_rows([
-            ("var(--caution)" if r["approval_status"] == "Rejected" else "var(--positive)",
-             f"{r['approval_status']} · {r['vendor_name'] or '-'}", r["invoice_number"] or "-",
-             money(r["total_amount"], r["currency"]), str(r["reviewed_at"])[:16])
-            for _, r in history.head(5).iterrows()]), unsafe_allow_html=True)
+        decided = load_data().set_index("id")
+        with st.container(key="ovpanel-hist", gap=None):
+         for _, r in history.head(5).iterrows():
+            full = decided.loc[r["invoice_id"]] if r["invoice_id"] in decided.index else None
+            record_row(key=f"ovhist-{r['invoice_id']}",
+                       dot="var(--caution)" if r["approval_status"] == "Rejected"
+                           else "var(--positive)",
+                       left=f"{r['approval_status']} · {r['vendor_name'] or '-'}",
+                       doc=r["invoice_number"] or "-",
+                       value=money(r["total_amount"], r["currency"]),
+                       right=str(r["reviewed_at"])[:16],
+                       action="Open", disabled=full is None,
+                       on_action=lambda row=full: review_dialog(row))
 
     st.markdown(
         "<p class='ov-foot'>Approving opens a Jira task for someone else, so the decision is "
@@ -995,13 +1116,13 @@ st.title("Invoice approvals")
 # Overview leads and is the default. fe-screen-spec.md §2 made Awaiting approval the default on
 # the grounds that the screen exists to decide on documents, and amended it on 2026-09-20: the
 # queue holds nothing most days, so opening onto it says nothing about what happened.
-overview, awaiting_tab, auto_tab, outbox_tab, history_tab = st.tabs([
-    "Overview",
-    pending_label(pending),
-    f"Approved by the system  {len(auto)}",
-    f"Outbox  {len(outbox)}",
-    f"History  {len(history)}",
-])
+TAB_AWAITING = pending_label(pending)
+TAB_AUTO = f"Approved by the system  {len(auto)}"
+TAB_OUTBOX = f"Outbox  {len(outbox)}"
+TAB_HISTORY = f"History  {len(history)}"
+
+overview, awaiting_tab, auto_tab, outbox_tab, history_tab = st.tabs(
+    ["Overview", TAB_AWAITING, TAB_AUTO, TAB_OUTBOX, TAB_HISTORY], key="nav")
 
 with overview:
     overview_body(pending, auto, outbox, history)
