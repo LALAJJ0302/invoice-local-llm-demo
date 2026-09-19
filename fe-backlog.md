@@ -34,8 +34,21 @@ that was correct and invisible. With three it showed `3 · 6,500`, which is USD 
 catch a model doing, on our own screen. The amount now appears only while every pending document
 shares a currency, and it carries that currency's code.
 
-**Next: group C, the review dialog.** It is the only group blocked on outside work, because
-FE-9 needs a design round.
+**Groups D and D+ are done too, as of 2026-09-20.** The tab bar reached its final shape:
+Overview, Awaiting approval, Approved by the system, Outbox, History. `fe-screen-spec.md` §2 was
+amended rather than contradicted, and it now records why the default moved off the queue, why
+the outbox is not called Push to Jira, and why History exists.
+
+Two more defects surfaced while verifying, both invisible until the data moved:
+
+- The `Awaiting approval` label summed across currencies. Fixed during group B.
+- History showed `task Cancelled` against an approved document. The join matched every resolved
+  task for the invoice and grouped, so SQLite returned an arbitrary one: invoice 1 carries a
+  Review task cancelled on 2026-08-28 beside the Approve task completed on 2026-09-19. It now
+  joins the most recently resolved task.
+
+**Next: group C, the review dialog, and group E, the sidebar.** C is the only group blocked on
+outside work, because FE-9 needs a design round. E is not blocked.
 
 ---
 
@@ -117,8 +130,22 @@ group and the only one blocked on outside work.
 
 | id | Work | Done when |
 |---|---|---|
-| FE-13 | Approved by the system, per C7 | Two dense rows, each carrying its own currency symbol, and no column total drawn beneath them |
-| FE-14 | Notifications, 17 rows | The repetition is legible as repetition: three messages fired four times and never sent |
+| ~~FE-13~~ ✅ | Approved by the system, per C7 | Two dense rows, each carrying its own currency symbol, and no column total drawn beneath them |
+| ~~FE-14~~ ✅ | Outbox, was Notifications | The repetition is legible as repetition: three messages fired four times and never sent |
+
+---
+
+## Group D+. Added 2026-09-20, after the tab bar was reviewed
+
+Specified in `fe-tabs-spec.md`. All four are done.
+
+| id | Work | Done when |
+|---|---|---|
+| ~~FE-16~~ ✅ | `Notifications` becomes `Outbox` | No tab is labelled Notifications. The table is a transactional outbox and the word says so |
+| ~~FE-17~~ ✅ | History tab | `reviewed_at IS NOT NULL`. It is the only place a rejection can be seen |
+| ~~FE-18~~ ✅ | Overview tab, first and default | Four tiles whose counts equal the four tab labels, asserted in a test rather than compared by eye |
+| ~~FE-19~~ ✅ | Push to Jira | On Jira rows only, disabled with the reason on screen while `JIRA_ENABLED` is unset |
+| ~~FE-20~~ ➖ | Stop writing Teams rows | **No work needed.** `queue_outbound` is called from one place, `task_dispatch.py`, and it passes `Jira`. The newest Teams row is 2026-09-08 and the pipeline has run since without producing one |
 
 ---
 

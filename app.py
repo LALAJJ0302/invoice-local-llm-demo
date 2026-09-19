@@ -163,11 +163,14 @@ def record_decision(record_id: int, decision: str):
                 approval_path="human",
             )
 
-def load_pending_notifications() -> pd.DataFrame:
-    """The outbox: what the pipeline would have sent, had anything been wired to send it.
+def load_outbox() -> pd.DataFrame:
+    """Every outbound row, in whatever state it reached.
 
-    FR-6.2 requires every intended notification to be recorded rather than printed. 17 rows have
-    been recorded since 30 August and no interface has ever displayed one.
+    Renamed from `load_pending_notifications` on 2026-09-20, and it no longer filters on state:
+    a row that has been sent or has failed is the interesting one, and hiding it left the tab
+    unable to show that anything had ever happened.
+
+    FR-6.2 requires every intended notification to be recorded rather than printed.
 
     `created_at` is selected because the payload decays. The oldest row still reads "NeedsReview
     at score 0.25" for a document that now reads Validated at 1.00: the message was written when
@@ -177,17 +180,70 @@ def load_pending_notifications() -> pd.DataFrame:
     conn = connect(DB_PATH)
     df = pd.read_sql_query(
         """
-        SELECT o.outbox_id, o.channel, o.payload, o.created_at,
-               i.vendor_name, i.invoice_number
+        SELECT o.outbox_id, o.task_id, o.invoice_id, o.channel, o.payload, o.created_at,
+               o.state, o.sent_at, o.external_ref, o.error,
+               i.vendor_name, i.invoice_number, i.file_name
         FROM outbound_messages o
         JOIN invoices i ON i.invoice_id = o.invoice_id
-        WHERE o.state = 'Pending'
         ORDER BY o.created_at DESC
         """,
         conn,
     )
     conn.close()
     return df
+
+
+def load_history() -> pd.DataFrame:
+    """Documents a person decided on, and what happened to the work that followed.
+
+    `reviewed_at` is the column that separates a person's decision from the system's, because
+    `record_decision()` writes it and the auto-approval path never does. That is already how
+    "Approved by the system" is defined, so History needs no new column and no new table.
+
+    This is the only place a rejection is visible. A rejected document is not Pending, so it
+    leaves the queue, and not Approved, so it never reaches the auto tab. Without this tab the
+    decision is recorded and then cannot be seen anywhere.
+    """
+    conn = connect(DB_PATH)
+    df = pd.read_sql_query(
+        """
+        SELECT i.invoice_id, i.invoice_number, i.vendor_name, i.document_type,
+               i.total_cents / 100.0 AS total_amount, i.currency,
+               i.approval_status, i.reviewed_at,
+               t.task_type, t.state AS task_state, t.resolved_at
+        FROM invoices i
+        -- The task the decision actually resolved, which is the most recently resolved one.
+        -- Joining on every matching task and grouping let SQLite pick an arbitrary row: an
+        -- approved document showed "task Cancelled" because invoice 1 carries a Review task
+        -- cancelled on 2026-08-28 alongside the Approve task completed on 2026-09-19.
+        LEFT JOIN tasks t ON t.task_id = (
+            SELECT task_id FROM tasks
+            WHERE invoice_id = i.invoice_id
+              AND task_type IN ('Review', 'Approve')
+              AND resolved_at IS NOT NULL
+            ORDER BY resolved_at DESC, task_id DESC
+            LIMIT 1
+        )
+        WHERE i.reviewed_at IS NOT NULL
+        ORDER BY i.reviewed_at DESC
+        """,
+        conn,
+    )
+    conn.close()
+    return df
+
+
+def jira_ready() -> bool:
+    """Whether pressing Push would actually reach Jira.
+
+    Read fresh rather than cached: the answer changes the moment someone writes a .env, and a
+    button that lies about being able to act is worse than one that explains why it cannot.
+    """
+    try:
+        from jira_client import JiraClient
+        return JiraClient().is_configured()
+    except Exception:
+        return False
 
 
 def load_email_for(invoice_row) -> dict:
@@ -304,6 +360,45 @@ st.markdown("""
               display:flex; align-items:center; justify-content:center; }
 .empty-title { font-size:15px; font-weight:600; color:var(--text); }
 .empty-note { font-size:13px; color:var(--text-muted); }
+
+/* Overview. Four tiles, one per tab, built from C3 in approval-screen-components.html, which
+   was drawn for the queue screen and rejected there as duplication of the tab labels. */
+.ov-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+.ov-tile { background:var(--surface); border:1px solid var(--border); border-radius:12px;
+           box-shadow:0 1px 2px rgba(24,24,28,0.04); padding:18px 20px;
+           display:flex; flex-direction:column; gap:8px; }
+.ov-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+.ov-title { font-size:13.5px; font-weight:600; color:var(--text); }
+.ov-count { font-family:'IBM Plex Mono',monospace; font-size:26px; font-weight:500; color:var(--text); }
+.ov-detail { font-size:13px; color:var(--text-strong); }
+.ov-note { font-size:12px; color:var(--text-muted); }
+
+.tab-note { font-size:13px; line-height:1.6; color:var(--text-muted); max-width:860px; margin:0 0 14px; }
+.tab-warn { font-size:13px; line-height:1.6; color:var(--caution-text); background:var(--caution-wash);
+            border:1px solid var(--border-subtle); border-radius:10px; padding:11px 14px; margin:0 0 14px; }
+.tab-note code, .tab-warn code { font-family:'IBM Plex Mono',monospace; font-size:12px; }
+
+/* Outbox rows that can be pushed. The Teams rows stay in a plain table: they have no action,
+   because nothing in this codebase has written one since 2026-09-08 and none ever will. */
+[class*="st-key-out-"] { padding:13px 18px !important; border-radius:10px; background:var(--surface); }
+.out-row { display:flex; flex-direction:column; gap:5px; }
+.out-head { display:flex; align-items:center; gap:10px; }
+.out-doc { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text); }
+.out-vendor { font-size:13px; color:var(--text-strong); }
+.out-when { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-muted); margin-left:auto; }
+.out-payload { font-size:12.5px; color:var(--text-muted); }
+.out-error { font-size:12px; color:var(--caution-text); }
+[class*="st-key-push-"] { display:flex; justify-content:flex-end; }
+
+/* History. One row per decision a person made. */
+[class*="st-key-hist-"] { padding:12px 18px !important; border-radius:10px; background:var(--surface); }
+.hist { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.hist-decision { font-size:13px; font-weight:500; color:var(--text); min-width:72px; }
+.hist-vendor { font-size:13.5px; color:var(--text); }
+.hist-doc { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-muted); }
+.hist-amount { font-family:'IBM Plex Mono',monospace; font-size:13px; font-variant-numeric:tabular-nums; color:var(--text); }
+.hist-when { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-muted); margin-left:auto; }
+.hist-task { font-size:12px; color:var(--text-muted); }
 
 /* Focus has to be visible on every control, not just the ones Streamlit decides to mark.
    :focus-visible rather than :focus so a mouse click does not leave a ring behind. */
@@ -608,64 +703,237 @@ if df.empty:
 
 pending = df[df["approval_status"] == "Pending"]
 auto = df[(df["approval_status"] == "Approved") & (df["reviewed_at"].isna())]
-notifications = load_pending_notifications()
+outbox = load_outbox()
+history = load_history()
 
-def pending_label(frame) -> str:
-    """The Awaiting approval tab label, with its amount only when an amount means something.
+def single_currency_total(frame) -> str | None:
+    """The summed amount, or None when summing would be dishonest.
 
-    Until 2026-09-19 this read `{count} · {sum}` unconditionally. With one document pending
-    that was correct and invisible; with three it showed `3 · 6,500`, which is USD 1,500 plus
-    USD 2,350 plus AUD 2,650 added as though they were the same unit. That is the arithmetic
-    this project exists to catch a model doing, and the screen was doing it.
+    Until 2026-09-19 the Awaiting approval tab label read `{count} · {sum}` unconditionally.
+    With one document pending that was correct and invisible; with three it showed `3 · 6,500`,
+    which is USD 1,500 plus USD 2,350 plus AUD 2,650 added as though they were the same unit.
+    That is the arithmetic this project exists to catch a model doing, and the screen was doing
+    it.
 
-    So the amount appears only while every pending document shares a currency, and it carries
-    that currency's code. Otherwise the count stands alone.
+    So an amount is returned only while every row shares a currency, and it carries that
+    currency's code. Every total on the screen goes through here.
     """
     if frame.empty:
-        return "Awaiting approval  0"
+        return None
     currencies = set(frame["currency"].dropna())
     if len(currencies) != 1:
-        return f"Awaiting approval  {len(frame)}"
-    return f"Awaiting approval  {len(frame)} · {currencies.pop()} {frame['total_amount'].sum():,.0f}"
+        return None
+    return f"{currencies.pop()} {frame['total_amount'].sum():,.0f}"
+
+
+def pending_label(frame) -> str:
+    total = single_currency_total(frame)
+    return f"Awaiting approval  {len(frame)}" + (f" · {total}" if total else "")
+
+def push_to_jira(row) -> None:
+    """Send one outbox row to Jira, through the path that already exists.
+
+    `task_dispatch.dispatch_task_to_jira` looks for an existing Pending or Failed outbox row for
+    the same task and reuses it rather than queueing a second one, so retry was designed in from
+    the start. This button is that retry, with a person pressing it.
+    """
+    store = StorageManager(DB_PATH)
+    task = store.task_by_id(int(row["task_id"])) if row["task_id"] else None
+    task_dispatch.dispatch_task_to_jira(
+        store,
+        int(row["task_id"]),
+        int(row["invoice_id"]),
+        task["task_type"] if task else "Payment",
+        (task["reason"] if task else None) or row["payload"],
+        approval_path="human",
+    )
+
+
+def outbox_body(frame):
+    """Two groups, because the rows are two different things.
+
+    Jira rows have a transport and can be pushed. Teams rows never will: nothing in this
+    codebase has written one since 2026-09-08, `queue_outbound` is called from one place and it
+    passes Jira. They stay because they are the evidence that FR-6.2 was implemented while
+    FR-6.3 was not, which is a point the report makes.
+    """
+    if frame.empty:
+        st.caption("Nothing has ever been queued.")
+        return
+
+    jira_rows = frame[frame["channel"] == "Jira"]
+    other = frame[frame["channel"] != "Jira"]
+    pushable = jira_rows[jira_rows["state"].isin(["Pending", "Failed"])]
+    ready = jira_ready()
+
+    st.markdown(
+        f"<p class='tab-note'>{len(pushable)} can be pushed to Jira. "
+        f"{len(other)} were recorded for Teams, which has no transport and is not planned, so "
+        f"they stay here as a record. {int((frame['state'] == 'Sent').sum())} have been sent.</p>",
+        unsafe_allow_html=True)
+
+    if not ready and not pushable.empty:
+        st.markdown(
+            "<p class='tab-warn'>Jira is not configured, so Push is disabled. "
+            "Set <code>JIRA_ENABLED</code> and the rest in <code>.env</code> to enable it.</p>",
+            unsafe_allow_html=True)
+
+    for _, row in pushable.iterrows():
+        with st.container(border=True, key=f"out-{row['outbox_id']}", gap=None):
+            body, action = st.columns([5, 1.2], vertical_alignment="center")
+            state_dot = "var(--caution)" if row["state"] == "Failed" else "var(--text-faint)"
+            failure = f"<div class='out-error'>{row['error']}</div>" if row["error"] else ""
+            body.markdown(
+                f"<div class='out-row'><div class='out-head'>"
+                f"<span class='dot' style='background:{state_dot}'></span>"
+                f"<span class='out-doc'>{row['invoice_number'] or '-'}</span>"
+                f"<span class='out-vendor'>{row['vendor_name'] or '-'}</span>"
+                f"<span class='out-when'>{row['created_at']}</span></div>"
+                f"<div class='out-payload'>{row['payload']}</div>{failure}</div>",
+                unsafe_allow_html=True)
+            if action.button("Push to Jira", key=f"push-{row['outbox_id']}",
+                             type="primary", disabled=not ready):
+                push_to_jira(row)
+                st.rerun()
+
+    sent = jira_rows[jira_rows["state"] == "Sent"]
+    if not sent.empty:
+        st.markdown("<p class='tab-note'>Sent</p>", unsafe_allow_html=True)
+        st.dataframe(sent[["created_at", "sent_at", "invoice_number", "external_ref", "payload"]],
+                     hide_index=True, width="stretch",
+                     column_config={"created_at": "Queued", "sent_at": "Sent",
+                                    "invoice_number": "Document", "external_ref": "Jira issue",
+                                    "payload": "Message"})
+
+    if not other.empty:
+        st.markdown(
+            "<p class='tab-note'>Recorded for Teams, never sent. The text was written when it "
+            "was true and nothing rewrites it, which is why the age matters: the oldest still "
+            "say <code>NeedsReview at score 0.25</code> for documents that now read Validated."
+            "</p>", unsafe_allow_html=True)
+        st.dataframe(other[["created_at", "channel", "vendor_name", "invoice_number", "payload"]],
+                     hide_index=True, width="stretch",
+                     column_config={"created_at": "Queued", "channel": "Channel",
+                                    "vendor_name": "Vendor", "invoice_number": "Document",
+                                    "payload": "Message"})
+
+
+def history_body(frame):
+    """What a person decided, and what happened to the work that followed."""
+    if frame.empty:
+        st.markdown(
+            "<div class='empty'><div class='empty-title'>Nobody has decided anything yet</div>"
+            "<div class='empty-note'>Every document here so far was cleared by the system. "
+            "A decision made in the review dialog appears in this tab.</div></div>",
+            unsafe_allow_html=True)
+        return
+
+    st.markdown(
+        "<p class='tab-note'>Decisions made by a person. This is the only place a rejection is "
+        "visible: a rejected document is not Pending, so it leaves the queue, and not Approved, "
+        "so it never reaches the system tab.</p>", unsafe_allow_html=True)
+    for _, row in frame.iterrows():
+        rejected = row["approval_status"] == "Rejected"
+        with st.container(border=True, key=f"hist-{row['invoice_id']}", gap=None):
+            st.markdown(
+                f"<div class='hist'>"
+                f"<span class='dot' style='background:"
+                f"{'var(--caution)' if rejected else 'var(--positive)'}'></span>"
+                f"<span class='hist-decision'>{row['approval_status']}</span>"
+                f"<span class='hist-vendor'>{row['vendor_name'] or '-'}</span>"
+                f"<span class='hist-doc'>{row['invoice_number'] or '-'}</span>"
+                f"<span class='hist-amount'>{money(row['total_amount'], row['currency'])}</span>"
+                f"<span class='hist-when'>{row['reviewed_at']}</span>"
+                f"<span class='hist-task'>task {row['task_state'] or 'none'}</span>"
+                f"</div>", unsafe_allow_html=True)
+
+
+def overview_tile(title, count, detail, *, href_note=""):
+    return (f"<div class='ov-tile'><div class='ov-head'><span class='ov-title'>{title}</span>"
+            f"<span class='ov-count'>{count}</span></div>"
+            f"<div class='ov-detail'>{detail}</div>"
+            f"<div class='ov-note'>{href_note}</div></div>")
+
+
+def overview_body(pending, auto, outbox, history):
+    """One section per tab. Every number here is the number on that tab's label.
+
+    It duplicates by design, which is what an overview is. `fe-screen-spec.md` §2 rejected a
+    metric strip on the queue screen for duplicating the tab labels above it; here the
+    duplication is the whole purpose rather than a strip competing for the same glance.
+    """
+    waiting_total = single_currency_total(pending)
+    oldest = pending.sort_values("email_received_at", na_position="last").head(1)
+    if pending.empty:
+        waiting_detail = "Nothing is waiting for you."
+    else:
+        top = oldest.iloc[0]
+        days = waiting_days(top)
+        waiting_detail = (f"Oldest is {top['vendor_name'] or '-'}, "
+                          f"{money(top['total_amount'], top['currency'])}"
+                          + (f", waiting {days}d." if days is not None else "."))
+
+    auto_when = auto["system_processed_at"].max() if not auto.empty else None
+    auto_detail = ("No document has been cleared without a person." if auto.empty else
+                   f"Cleared with no person involved, most recently at {str(auto_when)[11:16]}.")
+
+    jira_rows = outbox[outbox["channel"] == "Jira"] if not outbox.empty else outbox
+    pushable = len(jira_rows[jira_rows["state"].isin(["Pending", "Failed"])]) if not outbox.empty else 0
+    sent = int((outbox["state"] == "Sent").sum()) if not outbox.empty else 0
+    frozen = len(outbox[outbox["channel"] != "Jira"]) if not outbox.empty else 0
+    outbox_detail = (f"{pushable} ready to push, {frozen} recorded for a channel with no "
+                     f"transport, {sent} sent.")
+
+    approved = int((history["approval_status"] == "Approved").sum()) if not history.empty else 0
+    rejected = int((history["approval_status"] == "Rejected").sum()) if not history.empty else 0
+    last = history["reviewed_at"].max() if not history.empty else None
+    history_detail = ("No decision by a person yet." if history.empty else
+                      f"{approved} approved, {rejected} rejected. Last on {str(last)[:16]}.")
+
+    st.markdown(
+        "<div class='ov-grid'>"
+        + overview_tile("Awaiting approval", len(pending), waiting_detail,
+                        href_note=f"Total {waiting_total}" if waiting_total else
+                                  ("More than one currency, so no total is shown."
+                                   if len(pending) > 1 else ""))
+        + overview_tile("Approved by the system", len(auto), auto_detail,
+                        href_note="Every check behind the score reads the document itself.")
+        + overview_tile("Outbox", len(outbox), outbox_detail,
+                        href_note="Nothing has reached an external system.")
+        + overview_tile("History", len(history), history_detail,
+                        href_note="Decisions made by a person, including rejections.")
+        + "</div>", unsafe_allow_html=True)
+
 
 st.title("Invoice approvals")
 
-# The counts live on the tab labels. Every number is therefore visible without a click, and
-# there is no separate metric strip duplicating them.
-awaiting_tab, auto_tab, outbox_tab = st.tabs([
+# Overview leads and is the default. fe-screen-spec.md §2 made Awaiting approval the default on
+# the grounds that the screen exists to decide on documents, and amended it on 2026-09-20: the
+# queue holds nothing most days, so opening onto it says nothing about what happened.
+overview, awaiting_tab, auto_tab, outbox_tab, history_tab = st.tabs([
+    "Overview",
     pending_label(pending),
     f"Approved by the system  {len(auto)}",
-    f"Notifications  {len(notifications)}",
+    f"Outbox  {len(outbox)}",
+    f"History  {len(history)}",
 ])
+
+with overview:
+    overview_body(pending, auto, outbox, history)
 
 with awaiting_tab:
     document_rows(pending, actionable=True)
 
 with auto_tab:
-    st.caption(
-        "These were approved at a validation score of 1.00 with no person involved. Every check "
-        "behind that score reads the document itself, so a duplicate, an unknown vendor and a "
-        "well-formatted forgery all score the same."
-    )
+    st.markdown(
+        "<p class='tab-note'>These were approved at a validation score of 1.00 with no person "
+        "involved. Every check behind that score reads the document itself, so a duplicate, an "
+        "unknown vendor and a well-formatted forgery all score the same.</p>",
+        unsafe_allow_html=True)
     document_rows(auto, actionable=False)
 
 with outbox_tab:
-    if notifications.empty:
-        st.caption("Nothing queued.")
-    else:
-        st.caption(
-            "Recorded, never sent. Nothing in this project is wired to Teams or Jira for these, "
-            "so the queue is real and the sending is not. The text was written when it was true "
-            "and nothing rewrites it, which is why the age matters."
-        )
-        st.dataframe(
-            notifications[["created_at", "channel", "vendor_name", "invoice_number", "payload"]],
-            hide_index=True, use_container_width=True,
-            column_config={
-                "created_at": "Queued",
-                "channel": "Channel",
-                "vendor_name": "Vendor",
-                "invoice_number": "Document",
-                "payload": "Message",
-            },
-        )
+    outbox_body(outbox)
+
+with history_tab:
+    history_body(history)

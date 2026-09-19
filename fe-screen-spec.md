@@ -22,19 +22,38 @@ history. Anything that does not help a person accept or refuse a document belong
 
 ## 2. Structure
 
-Three tabs. The counts live in the tab labels, so every number is visible without clicking and
-there is no separate metric strip to duplicate them.
+**Amended 2026-09-20.** Three tabs became five, `Notifications` became `Outbox`, and the default
+moved. The counts still live in the tab labels, so every number is visible without clicking and
+there is still no separate metric strip on the queue screen to duplicate them. See
+`fe-tabs-spec.md` for the change and its reasoning.
 
 ```
-Awaiting approval  1 · 1,500   │   Approved by the system  2   │   Notifications  17
+Overview │ Awaiting approval 0 │ Approved by the system 2 │ Outbox 18 │ History 1
 └── default tab
 ```
 
 | Tab | Contains | Source |
 |---|---|---|
+| **Overview** | One section per tab below, each summarising it | the same queries, counted |
 | **Awaiting approval** | Documents a person must decide on | `invoices` where `approval_status = 'Pending'` |
 | **Approved by the system** | Documents the system approved with no human involved | `approval_status = 'Approved' AND reviewed_at IS NULL` |
-| **Notifications** | Notifications recorded and never sent | `outbound_messages` where `state = 'Pending'` |
+| **Outbox** | Every outbound row, in whatever state it reached | `outbound_messages`, unfiltered |
+| **History** | Documents a person decided on, approvals and rejections | `invoices` where `reviewed_at IS NOT NULL` |
+
+**Why the default moved off Awaiting approval.** The original argument was that the screen exists
+to decide on documents, so it should open on the documents. §8 of this same spec says the real
+queue holds one document, and on 2026-09-19 it held none: all three were approved. Opening onto
+an empty queue says nothing about what happened. Overview does, and the queue is one click away
+when it has something in it.
+
+**Why Outbox is not called Push to Jira.** Fifteen of the eighteen rows are Teams messages with
+no relationship to Jira, and nothing has been pushed anywhere: every row is `Pending` and
+`sent_at` is null on all of them. Naming a tab after an action the system has never performed
+would advertise the capability `requirements-spec.md` FR-6.3 records as deliberately absent.
+
+**Why History exists.** It is the only place a rejection can be seen. A rejected document is not
+`Pending`, so it leaves the queue, and not `Approved`, so it never reaches the system tab. Before
+this tab the decision was recorded and then invisible.
 
 **Why the second tab exists at all.** The system currently approves 2 of 3 documents by itself.
 The report argues in §7.2 that auto-approval at a score of 1.00 is not yet safe, because every
