@@ -78,19 +78,50 @@ the answer.
 something else. Your call, but the person must be able to see that a decision is being asked of
 them without scrolling to find out.
 
-## Type direction, new, and it applies to the whole product
+## Separation: this is the real tell, and it is not a colour problem
 
-Today it is IBM Plex Sans at every size with headings at weight 600. That weight is the loudest
-machine-generated tell in the build.
+Measured on both renders. Below a card, ours goes:
 
-Move to a **serif display paired with a sans for interface**, headings at **weight 400 with
-negative letter-spacing**, in the manner of craft.do. Two constraints on that:
+```
+card #FFFFFF  ->  one pixel of #E5EAF4  ->  ground #E8EDF7
+```
 
-- **The sizes do not transfer.** craft.do is a marketing page with a 66px h1. This is a
-  14px-base dense internal tool whose largest heading is 17px. Take the pairing, the weight and
-  the tracking. Leave the scale.
-- **Name a serif that Google Fonts serves.** The app loads its fonts by URL from
-  `config.toml`, so a licensed foundry face cannot be used.
+craft.do's product UI goes:
+
+```
+card  ->  #C8C8C8 -> #D7D7D7 -> #DADADA -> #E0E0E0  ->  ground
+```
+
+One border pixel against a shadow with ten pixels of falloff. Counted in our stylesheet: **25
+border declarations against 4 shadows**, and every shadow is 1-2px of blur at 0.04-0.07 alpha,
+which is to say invisible.
+
+craft.do's app chrome carries **almost no lines at all**. The sidebar meets the canvas as a tone
+step, not a rule. The selected sidebar row is a soft rounded fill with no outline, no left rule
+and no count chip. The toolbar has no fill; the active tab is a white pill with a real shadow.
+
+A generated interface reaches for a border because a border is unambiguous. A designer reaches
+for tone, space and shadow. **Rework the separation.** Where a hairline is doing work that a
+tone step or a shadow could do, take the hairline out.
+
+## Type direction
+
+Today it is IBM Plex Sans at every size with headings at weight 600, and that weight reads
+heavy for a dense tool.
+
+**A correction to make before you use craft.do as the precedent here: craft.do's product UI is
+entirely sans, with bold near-black headings.** Its serif lives on the marketing site and
+nowhere in the app. So a serif in this product is a real option, and it is a decision to argue
+for on its own merits, not a thing craft.do justifies.
+
+Propose one of:
+
+- a serif display against the existing sans, and say what it buys in a finance tool whose job
+  is to look like evidence
+- the existing sans with the heading weight brought down and the scale tightened
+
+If it is the serif, **name one that Google Fonts serves**: the app loads fonts by URL from
+`config.toml`, so a licensed foundry face cannot be used.
 
 ## Colour discipline, measured
 
