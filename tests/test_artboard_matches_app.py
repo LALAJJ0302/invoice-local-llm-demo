@@ -59,3 +59,31 @@ def test_builder_token_map_covers_every_changed_token():
     stray = targets - new_values - chrome_only
     assert not stray, f"artboard paints colours the app does not hold: {sorted(stray)}"
     assert mapped, "the token map is empty"
+
+
+def test_separation_is_shadow_not_border():
+    """The three hairlines that survive are the three that separate parts of one card.
+
+    Pinned because the count is the whole argument of `fe-theme-v2-spec.md` §9, and because a
+    single careless `border:1px solid` added later would undo it without failing anything else.
+    """
+    stylesheet = APP[APP.index("st.markdown(\"\"\"\n<style>"):APP.index("</style>")]
+    assert stylesheet.count("1px solid") == 3, (
+        "a hairline was added or removed; §9 allows only the three inside a card")
+    for token in ("--lift:", "--lift-soft:", "--fill-subtle:"):
+        assert token in stylesheet, f"{token} is gone, so nothing replaces the borders"
+
+
+def test_artboard_separates_the_same_way():
+    """v3 draws the app, so it may not keep a border the app dropped.
+
+    Counted over the body only: the aside and the header are Claude Design's and are held byte
+    for byte, so their rules are not this test's business.
+    """
+    v3 = (ROOT / "approval-screen-design-v3.html").read_text()
+    body = v3[v3.index("</header>"):]
+    # 4 section header bands + 2 disabled buttons + 3 secondary buttons + 1 primary button
+    # + 1 tab underline + 2 card-internal rules = 13. Streamlit draws the button borders
+    # itself because config.toml sets showWidgetBorder, so they are not ours to remove.
+    assert body.count("1px solid") == 13, (
+        "the artboard and the app disagree about where a hairline belongs")

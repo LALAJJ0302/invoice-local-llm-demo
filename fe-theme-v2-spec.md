@@ -378,3 +378,49 @@ in the scratch directory, not the repo: it is 30 lines and nothing else needs it
 - **The upload is a first upload, not a sync.** There is nothing in the target project to
   compare against, so `get_file` diffing does not apply and the first `write_files` defines the
   baseline.
+
+---
+
+## 9. Separation: borders become tone and shadow
+
+Added 2026-09-20, after craft.do's capture was looked at rather than its token dump read. This
+is a second change to the same stylesheet and it is recorded here rather than in a new spec,
+because it is the same argument continued: what makes an interface read as machine-made.
+
+### The measurement
+
+Sampled straight down from inside a card to the ground, on the running app:
+
+```
+before   card #FFFFFF -> #D8DCE8 -> #E0E5EE -> #E5EAF4 -> ground          3px
+after    card #FFFFFF -> #D3D9E2 -> ... twenty-one more steps ...         24px
+craft.do card          -> #C8C8C8 -> #D7D7D7 -> #DADADA -> #E0E0E0       10px+
+```
+
+Counted in the stylesheet: **19 `1px solid` declarations before, 3 after**, and every shadow
+was 1-2px of blur at 0.04-0.07 alpha, which is to say invisible.
+
+### The rule applied
+
+**A hairline that separates an element from the page is replaced. A hairline that separates two
+parts of the same card stays.** All three survivors are the second kind: the rule above the risk
+strip, the rule above the card's chip row, and the section header band's own outline.
+
+Three tokens carry it:
+
+```css
+--lift:0 1px 2px rgba(22,26,35,0.06), 0 8px 20px rgba(22,26,35,0.07);
+--lift-soft:0 1px 2px rgba(22,26,35,0.05), 0 4px 10px rgba(22,26,35,0.05);
+--fill-subtle:rgba(22,26,35,0.045);
+```
+
+Two terms per shadow on purpose. The near term seats the element; the far term is the falloff a
+border cannot produce. `--fill-subtle` replaces the outline on chips and on the two page-level
+notes: a tint reads as a chip, and the outline was doing nothing the fill does not.
+
+### What this does not decide
+
+**Which layer carries the colour is still open.** craft.do keeps its frame silent and puts the
+colour on the content; what shipped in `c430bcf` does the opposite. That trade is prototyped in
+`approval-screen-design-v4.html` and deliberately not implemented. This section changes only the
+separation, which both models agree on.

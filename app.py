@@ -322,6 +322,13 @@ st.markdown("""
      1.4.11's 3:1 for non-text components. --positive-text is the one that carries words. */
   --positive:#3D9A50;  --positive-text:#2B7038;  --positive-wash:#E9F2EC;
   --control-fill:#EBEEF5;  --row-hover:#F7F8FC;
+  /* Separation is tone and shadow. A generated interface reaches for a border because a border
+     is unambiguous; these give an element an edge without drawing one. See fe-theme-v2-spec.md
+     §9, which carries the measurement that prompted them. */
+  --lift:0 1px 2px rgba(22,26,35,0.06), 0 8px 20px rgba(22,26,35,0.07);
+  --lift-soft:0 1px 2px rgba(22,26,35,0.05), 0 4px 10px rgba(22,26,35,0.05);
+  --lift-hover:0 1px 2px rgba(22,26,35,0.07), 0 12px 28px rgba(22,26,35,0.10);
+  --fill-subtle:rgba(22,26,35,0.045);
 }
 
 /* A column of money that does not line up is a functional defect, not a preference. */
@@ -340,14 +347,15 @@ st.markdown("""
   border-radius: 12px;
   overflow: hidden;
   background: var(--surface);
-  box-shadow: 0 1px 2px rgba(24,24,28,0.05);
+  border-color: transparent !important;
+  box-shadow: var(--lift);
 }
-[class*="st-key-doc-"]:hover { border-color: var(--border-hover); box-shadow: 0 2px 6px rgba(24,24,28,0.07); }
+[class*="st-key-doc-"]:hover { box-shadow: var(--lift-hover); }
 [class*="st-key-doc-"] .stMarkdown p { margin: 0; }
 
 .card-head { display:grid; grid-template-columns:44px 1fr auto; gap:16px; align-items:start; padding:22px 24px 20px; }
 .doc-icon { width:44px; height:44px; border-radius:10px; background:var(--control-fill);
-            border:1px solid var(--border-subtle); display:flex; align-items:center; justify-content:center; }
+            display:flex; align-items:center; justify-content:center; }
 .card-id { display:flex; flex-direction:column; gap:7px; min-width:0; }
 .card-title { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 .vendor { font-size:17px; font-weight:600; letter-spacing:-0.01em; color:var(--text); }
@@ -356,7 +364,7 @@ st.markdown("""
                      text-align:right; white-space:nowrap; color:var(--text); }
 
 .chip { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--text-strong);
-        background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:3px 9px; margin-right:8px; }
+        background:var(--fill-subtle); border-radius:7px; padding:4px 10px; margin-right:8px; }
 .dot { width:6px; height:6px; border-radius:50%; flex:none; }
 
 /* The sentence comes from review_signals.py. Nothing in this file writes signal copy. */
@@ -377,7 +385,7 @@ st.markdown("""
 .queue-count { font-size:13px; color:var(--text-muted); }
 
 .empty { display:flex; flex-direction:column; align-items:center; gap:9px; padding:28px 24px;
-         background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+         background:var(--surface); border-radius:12px; box-shadow:var(--lift); }
 .empty-mark { width:42px; height:42px; border-radius:50%; background:var(--positive-wash);
               display:flex; align-items:center; justify-content:center; }
 .empty-title { font-size:15px; font-weight:600; color:var(--text); }
@@ -391,9 +399,9 @@ st.markdown("""
 /* The tiles were three white boxes on a near-white page. The left rule gives each one an edge
    to sit against, and the sunk surface separates them from the panels below, which are the
    things that actually hold content. */
-.ov-tile { background:var(--surface-sunk); border:1px solid var(--border);
+.ov-tile { background:var(--surface-sunk);
            border-left:3px solid var(--border-hover); border-radius:10px;
-           box-shadow:0 1px 2px rgba(24,24,28,0.04); padding:14px 16px;
+           box-shadow:var(--lift-soft); padding:14px 16px;
            display:flex; flex-direction:column; gap:6px; }
 .ov-strip > .ov-tile:nth-child(1) { border-left-color:var(--accent); background:var(--surface); }
 .ov-strip > .ov-tile:nth-child(2) { border-left-color:var(--positive); }
@@ -442,11 +450,10 @@ st.markdown("""
 .sec-title { font-size:14px; font-weight:600; color:var(--text); }
 .sec-note { font-size:12.5px; color:var(--text-muted); }
 
-.dense-panel { background:var(--surface); border:1px solid var(--border); border-radius:12px;
-               box-shadow:0 1px 2px rgba(24,24,28,0.04); overflow:hidden; }
+.dense-panel { background:var(--surface); border-radius:12px;
+               box-shadow:var(--lift); overflow:hidden; }
 .dense { display:grid; grid-template-columns:auto 1fr auto auto auto; align-items:center;
-         gap:16px; padding:11px 18px; border-bottom:1px solid var(--border-subtle);
-         border-radius:8px; }
+         gap:16px; padding:11px 18px; border-radius:10px; }
 [class*="st-key-ovauto-"]:hover .dense, [class*="st-key-ovout-"]:hover .dense,
 [class*="st-key-ovhist-"]:hover .dense { background:var(--row-hover); }
 .dense:last-child { border-bottom:none; }
@@ -461,25 +468,24 @@ st.markdown("""
            font-size:13px; color:var(--text-strong); }
 .ov-more { font-size:13px; color:var(--text-muted); margin:10px 0 0; }
 .ov-foot { font-size:12.5px; color:var(--text-muted); margin:18px 0 0;
-           padding:12px 16px; border-radius:10px; background:var(--surface-sunk);
-           border:1px solid var(--border-subtle); }
-.ai-find { display:flex; flex-direction:column; gap:3px; padding:9px 12px; margin-bottom:6px;
-           background:var(--surface-sunk); border:1px solid var(--border-subtle);
-           border-radius:8px; }
+           padding:14px 18px; border-radius:12px; background:var(--fill-subtle); }
+.ai-find { display:flex; flex-direction:column; gap:3px; padding:10px 13px; margin-bottom:6px;
+           background:var(--fill-subtle); border-radius:9px; }
 .ai-task { font-size:13.5px; color:var(--text); }
 .ai-quote { font-size:12.5px; color:var(--text-muted); font-style:italic; }
 .note-when { font-size:12px; color:var(--text-muted); margin:0; }
 
 .tab-note { font-size:13px; line-height:1.6; color:var(--text-muted); max-width:860px;
-            margin:0 0 14px; padding:11px 14px; background:var(--surface-sunk);
-            border:1px solid var(--border-subtle); border-radius:10px; }
-.tab-warn { font-size:13px; line-height:1.6; color:var(--caution-text); background:var(--caution-wash);
-            border:1px solid var(--border-subtle); border-radius:10px; padding:11px 14px; margin:0 0 14px; }
+            margin:0 0 14px; padding:13px 16px; background:var(--fill-subtle);
+            border-radius:12px; }
+.tab-warn { font-size:13px; line-height:1.6; color:var(--caution-text);
+            background:var(--caution-wash); border-radius:12px; padding:13px 16px; margin:0 0 14px; }
 .tab-note code, .tab-warn code { font-family:'IBM Plex Mono',monospace; font-size:12px; }
 
 /* Outbox rows that can be pushed. The Teams rows stay in a plain table: they have no action,
    because nothing in this codebase has written one since 2026-09-08 and none ever will. */
-[class*="st-key-out-"] { padding:13px 18px !important; border-radius:10px; background:var(--surface); }
+[class*="st-key-out-"] { padding:13px 18px !important; border-radius:12px;
+                         background:var(--surface); box-shadow:var(--lift-soft); }
 .out-row { display:flex; flex-direction:column; gap:5px; }
 .out-head { display:flex; align-items:center; gap:10px; }
 .out-doc { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text); }
@@ -490,11 +496,12 @@ st.markdown("""
 [class*="st-key-push-"] { display:flex; justify-content:flex-end; }
 
 /* History. One row per decision a person made. */
-[class*="st-key-hist-"] { padding:12px 18px !important; border-radius:10px; background:var(--surface); }
+[class*="st-key-hist-"] { padding:12px 18px !important; border-radius:12px;
+                          background:var(--surface); box-shadow:var(--lift-soft); }
 /* Rows that carry an action. The border comes from the panel they sit in, not from each row. */
-[class*="st-key-ovpanel-"] { background:var(--surface); border:1px solid var(--border);
-  border-radius:12px; box-shadow:0 1px 2px rgba(24,24,28,0.04); overflow:hidden;
-  padding:0 !important; }
+[class*="st-key-ovpanel-"] { background:var(--surface); border:none;
+  border-radius:12px; box-shadow:var(--lift); overflow:hidden;
+  padding:6px !important; }
 /* The section's identity rule. These must stay after the shorthand above: both selectors have
    the same specificity, so the later `border` would otherwise repaint this edge. */
 [class*="st-key-ovpanel-auto"] { border-left:3px solid var(--positive); }
@@ -502,7 +509,7 @@ st.markdown("""
 [class*="st-key-ovpanel-out-failed"] { border-left-color:var(--caution); }
 [class*="st-key-ovpanel-hist"] { border-left:3px solid var(--border-hover); }
 [class*="st-key-ovauto-"], [class*="st-key-ovout-"], [class*="st-key-ovhist-"] {
-  padding:4px 10px 4px 4px !important; border-bottom:1px solid var(--border-subtle); }
+  padding:2px 10px 2px 4px !important; border-radius:10px; }
 [class*="st-key-ovpanel-"] > div > div:last-child [class*="st-key-ov"] { border-bottom:none; }
 [class*="st-key-ovauto-"] .dense, [class*="st-key-ovout-"] .dense,
 [class*="st-key-ovhist-"] .dense { border-bottom:none; padding:10px 14px; }

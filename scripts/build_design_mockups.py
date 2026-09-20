@@ -68,8 +68,16 @@ SECTION_ICONS = {
 
 ACCENT, POSITIVE, CAUTION, NEUTRAL = "#5B5BD6", "#3D9A50", "#A65A1E", "#C9C9CF"
 MONO = "font-family:'IBM Plex Mono',monospace;"
-PANEL = ("background:#FFFFFF; border:1px solid #E1E1E4; border-radius:12px; "
-         "box-shadow:0 1px 2px rgba(24,24,28,0.04); overflow:hidden;")
+
+# v2 separates with a hairline, v3 with a shadow. Both values are pinned to app.py by
+# tests/test_artboard_matches_app.py. The before-and-after is the point of the pair, so the
+# generator has to hold both rather than one plus a token swap.
+BORDERED = ("background:#FFFFFF; border:1px solid #E1E1E4; border-radius:12px; "
+            "box-shadow:0 1px 2px rgba(24,24,28,0.04); overflow:hidden;")
+LIFTED = ("background:#FFFFFF; border-radius:12px; overflow:hidden; "
+          "box-shadow:0 1px 2px rgba(22,26,35,0.06), 0 8px 20px rgba(22,26,35,0.07);")
+FILL_SUBTLE = "rgba(22,26,35,0.045)"
+PANEL = BORDERED   # kept for callers that predate the split; build_body passes its own
 
 
 def tab(label, count, *, active=False, count_tone="muted"):
@@ -85,13 +93,15 @@ def tab(label, count, *, active=False, count_tone="muted"):
             f"{chip}</div>")
 
 
-def tile(label, value, note, rule):
+def tile(label, value, note, rule, *, themed=True):
     # The tiles carried left rules before this change too, so they are the one piece of
     # section identity that is not new and is drawn the same way in both artboards.
     surface = "#FFFFFF" if rule == "#5B5BD6" else "#FBFBFC"
-    return (f"<div style=\"background:{surface}; border:1px solid #E1E1E4; "
+    box = ("box-shadow:0 1px 2px rgba(22,26,35,0.05), 0 4px 10px rgba(22,26,35,0.05);" if themed
+           else "border:1px solid #E1E1E4; box-shadow:0 1px 2px rgba(24,24,28,0.04);")
+    return (f"<div style=\"background:{surface}; {box} "
             f"border-left:3px solid {rule}; border-radius:10px; "
-            f"box-shadow:0 1px 2px rgba(24,24,28,0.04); padding:14px 16px; display:flex; "
+            f"padding:14px 16px; display:flex; "
             f"flex-direction:column; gap:6px;\">"
             f"<span style=\"font-size:12px; color:#6E6E76;\">{label}</span>"
             f"<div style=\"display:flex; align-items:baseline; gap:9px; flex-wrap:wrap;\">"
@@ -123,12 +133,13 @@ def section_head(key, title, note, rule, chip_bg="#F1F1F3", chip_fg="#6E6E76", *
             f"<span style=\"font-size:12.5px; color:#6E6E76;\">{note}</span></div>")
 
 
-def chip(text, dot):
+def chip(text, dot, *, themed=True):
     mark = (f"<span style=\"width:6px; height:6px; border-radius:50%; background:{dot}; "
             f"flex:none;\"></span>") if dot else ""
+    box = (f"background:{FILL_SUBTLE}; padding:4px 10px;" if themed
+           else "background:#FFFFFF; border:1px solid #E1E1E4; padding:3px 9px;")
     return (f"<span style=\"display:inline-flex; align-items:center; gap:7px; font-size:12px; "
-            f"color:#3F3F46; background:#FFFFFF; border:1px solid #E1E1E4; border-radius:7px; "
-            f"padding:3px 9px; margin-right:8px;\">{mark}{text}</span>")
+            f"color:#3F3F46; {box} border-radius:7px; margin-right:8px;\">{mark}{text}</span>")
 
 
 def button(label, kind):
@@ -141,8 +152,8 @@ def button(label, kind):
             f"border-radius:8px; font-size:13px; white-space:nowrap; {styles}\">{label}</span>")
 
 
-def dense_row(dot, left, doc, value, right, action, last=False):
-    border = "" if last else "border-bottom:1px solid #EDEDEF;"
+def dense_row(dot, left, doc, value, right, action, last=False, themed=True):
+    border = "" if last or themed else "border-bottom:1px solid #EDEDEF;"
     return (f"<div style=\"display:grid; grid-template-columns:auto 1fr auto auto auto auto; "
             f"align-items:center; gap:16px; padding:10px 14px; {border}\">"
             f"<span style=\"width:6px; height:6px; border-radius:50%; background:{dot}; flex:none;\"></span>"
@@ -161,6 +172,8 @@ def build_body(d, *, themed=True):
     the identity rules and the header bands are gated on it; the token values are swapped
     afterwards by TOKEN_MAP, so nothing in here has to know two palettes.
     """
+    panel = LIFTED if themed else BORDERED
+
     def rule(colour):
         return f"border-left:3px solid {colour};" if themed else ""
 
@@ -175,22 +188,22 @@ def build_body(d, *, themed=True):
     ])
 
     tiles = "".join([
-        tile("Waiting for you", d["pending_n"], d["waiting_total"], "#5B5BD6"),
-        tile("Approved by the system", d["auto_n"], "no person involved", "#3D9A50"),
-        tile("Oldest wait", d["oldest"], d["oldest_since"], "#C9C9CF"),
+        tile("Waiting for you", d["pending_n"], d["waiting_total"], "#5B5BD6", themed=themed),
+        tile("Approved by the system", d["auto_n"], "no person involved", "#3D9A50", themed=themed),
+        tile("Oldest wait", d["oldest"], d["oldest_since"], "#C9C9CF", themed=themed),
     ])
 
     p = d["pending"]
     card = (
-        f"<article style=\"{PANEL} {rule(ACCENT)}\">"
+        f"<article style=\"{panel} {rule(ACCENT)}\">"
         f"<div style=\"display:grid; grid-template-columns:44px 1fr auto; gap:16px; "
         f"align-items:start; padding:22px 24px 20px;\">"
         f"<div style=\"width:44px; height:44px; border-radius:10px; background:#F1F1F3; "
-        f"border:1px solid #EDEDEF; display:flex; align-items:center; justify-content:center;\">{DOC_ICON}</div>"
+        f"display:flex; align-items:center; justify-content:center;\">{DOC_ICON}</div>"
         f"<div style=\"display:flex; flex-direction:column; gap:7px; min-width:0;\">"
         f"<div style=\"display:flex; align-items:center; gap:10px; flex-wrap:wrap;\">"
         f"<span style=\"font-size:17px; font-weight:600; letter-spacing:-0.01em; color:#1C1C1F;\">{p['vendor']}</span>"
-        f"{chip(p['type'], '#A1A1A8')}</div>"
+        f"{chip(p['type'], '#A1A1A8', themed=themed)}</div>"
         f"<div style=\"{MONO} font-size:12.5px; color:#6E6E76;\">{p['meta']}</div></div>"
         f"<div style=\"{MONO} font-size:22px; font-weight:500; text-align:right; "
         f"white-space:nowrap; color:#1C1C1F; font-variant-numeric:tabular-nums;\">{p['amount']}</div></div>"
@@ -206,9 +219,9 @@ def build_body(d, *, themed=True):
         f"<div style=\"display:flex; align-items:center; gap:12px; padding:13px 24px; "
         f"border-top:1px solid #EDEDEF; flex-wrap:wrap; row-gap:8px;\">"
         f"<div style=\"display:flex; align-items:center; flex-wrap:wrap; row-gap:6px;\">"
-        f"{chip('Vendor read from the document', '#3D9A50')}"
-        f"{chip('Total read from the document', '#3D9A50')}"
-        f"{chip('Covering email &middot; ' + p['sender'], None)}</div>"
+        f"{chip('Vendor read from the document', '#3D9A50', themed=themed)}"
+        f"{chip('Total read from the document', '#3D9A50', themed=themed)}"
+        f"{chip('Covering email &middot; ' + p['sender'], None, themed=themed)}</div>"
         f"<div style=\"margin-left:auto; display:flex; align-items:center; gap:10px;\">"
         f"{button('Download the original', 'secondary')}{button('Review document', 'primary')}"
         f"</div></div></article>")
@@ -221,21 +234,24 @@ def build_body(d, *, themed=True):
 
     auto_rows = "".join(
         dense_row("#3D9A50", r["vendor"], r["doc"], r["amount"], r["right"],
-                  button("Open", "secondary"), last=(i == len(d["auto"]) - 1))
+                  button("Open", "secondary"), last=(i == len(d["auto"]) - 1), themed=themed)
         for i, r in enumerate(d["auto"]))
-    auto_panel = f"<div style=\"{PANEL} {rule(POSITIVE)}\">{auto_rows}</div>"
+    auto_panel = f"<div style=\"{panel} {rule(POSITIVE)}\">{auto_rows}</div>"
 
     out_rows = "".join(
         dense_row("#6E6E76", r["vendor"], r["doc"], r["state"], r["when"],
-                  button("Push to Jira", "disabled"), last=(i == len(d["outbox"]) - 1))
+                  button("Push to Jira", "disabled"), last=(i == len(d["outbox"]) - 1),
+                  themed=themed)
         for i, r in enumerate(d["outbox"]))
-    out_panel = f"<div style=\"{PANEL} {rule(NEUTRAL)}\">{out_rows}</div>"
+    out_panel = f"<div style=\"{panel} {rule(NEUTRAL)}\">{out_rows}</div>"
 
     history = (f"<p style=\"font-size:13px; color:#6E6E76; margin:10px 0 0;\">"
                f"Nobody has decided anything yet.</p>")
 
-    foot = (f"<p style=\"font-size:12.5px; color:#6E6E76; margin:18px 0 0; padding:12px 16px; "
-            f"border-radius:10px; background:#FBFBFC; border:1px solid #EDEDEF;\">"
+    foot_box = (f"background:{FILL_SUBTLE};" if themed
+                else "background:#FBFBFC; border:1px solid #EDEDEF;")
+    foot = (f"<p style=\"font-size:12.5px; color:#6E6E76; margin:18px 0 0; padding:14px 18px; "
+            f"border-radius:12px; {foot_box}\">"
             f"Approving opens a Jira task for someone else, so the decision is made inside the "
             f"document, not from this page.</p>")
 
