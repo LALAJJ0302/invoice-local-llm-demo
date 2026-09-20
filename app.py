@@ -13,7 +13,7 @@ from storage import DEFAULT_DB_PATH, StorageManager, connect
 st.set_page_config(
     page_title="Invoice approvals",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 DB_PATH = DEFAULT_DB_PATH
@@ -521,6 +521,25 @@ st.markdown("""
 .hist-when { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-muted); margin-left:auto; }
 .hist-task { font-size:12px; color:var(--text-muted); }
 
+/* The sidebar. FE-15. Streamlit paints the surface from [theme.sidebar] in config.toml; these
+   rules cover the identity block and the saved views, which are markdown and a radio. */
+.side-id { display:flex; align-items:center; gap:10px; padding:2px 2px 16px; }
+.side-mark { width:26px; height:26px; border-radius:7px; background:var(--navy); flex:none;
+             display:flex; align-items:center; justify-content:center; }
+.side-name { display:flex; flex-direction:column; line-height:1.25; }
+.side-title { font-size:13.5px; font-weight:600; letter-spacing:-0.005em; color:var(--text); }
+.side-sub { font-size:11.5px; color:var(--text-muted); }
+.side-label { font-size:11px; font-weight:500; letter-spacing:0.04em; text-transform:uppercase;
+              color:var(--text-muted); margin:18px 0 6px; }
+.side-foot { margin-top:22px; padding:11px 13px; border-radius:10px;
+             background:var(--fill-subtle); line-height:1.5; }
+/* The selected saved view reads as a filled row rather than a dot, which is how every
+   reference product marks the thing you are currently looking at. */
+[data-testid="stSidebar"] [role="radiogroup"] label { border-radius:8px; padding:5px 9px;
+                                                      margin:0 0 1px; }
+[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
+  background:var(--accent-wash); color:var(--accent-text); }
+
 /* Focus has to be visible on every control, not just the ones Streamlit decides to mark.
    :focus-visible rather than :focus so a mouse click does not leave a ring behind. */
 :is(button, input, select, textarea, a, [role="tab"], [tabindex]):focus-visible {
@@ -907,7 +926,12 @@ def document_rows(frame, *, actionable: bool, context: str = "queue",
     validation score. All are available and none of them changes a decision.
     """
     if frame.empty:
-        if actionable:
+        # Under a filter the queue being empty says nothing about the work. Claiming otherwise
+        # would be the empty state lying, which is worse than the blank screen it replaced.
+        if filtered:
+            st.markdown("<p class='ov-more'>No documents match the current view.</p>",
+                        unsafe_allow_html=True)
+        elif actionable:
             empty_queue()
         else:
             st.caption("Nothing here.")
@@ -923,16 +947,116 @@ def document_rows(frame, *, actionable: bool, context: str = "queue",
                     unsafe_allow_html=True)
 
 
+# =====================================================================
+# The sidebar. FE-15.
+# =====================================================================
+#
+# The returned design drew five destinations, Approvals, Documents, Vendors, Notifications and
+# Pipeline runs, plus two saved views. Two of the five exist and three are navigation to screens
+# nobody has specified, so the decision on 2026-09-19 was to carry only what resolves.
+#
+# What is left after that trim is not navigation at all, because this application is one page
+# with five tabs. It is identity, a search that filters, and two saved views that are real
+# queries. Every control here does something; a control that does not is the defect this
+# project already removed once, in a5864d5.
+
+
+def flagged(frame) -> pd.Series:
+    """Rows the gate put a sentence against. `review_signals` owns that call, not this file."""
+    from review_signals import has_signal
+    if frame.empty:
+        return pd.Series(dtype=bool)
+    return frame.apply(has_signal, axis=1)
+
+
+def saved_views(frame) -> dict:
+    """The two views, as the queries they claim to be.
+
+    `fe-backlog.md` defined `Cleared this week` as `approval_status = 'Approved' AND reviewed_at
+    IS NULL`, which is every document the system ever cleared and has no week in it at all. A
+    label that promises a week and returns all time is the same class of overstatement as the
+    approve line fixed in 8750a8c, so the week is real here: seven days back from now, measured
+    on `system_processed_at`.
+    """
+    pending_rows = frame[frame["approval_status"] == "Pending"]
+    marked = pending_rows[flagged(pending_rows)] if not pending_rows.empty else pending_rows
+
+    cleared = frame[(frame["approval_status"] == "Approved") & (frame["reviewed_at"].isna())]
+    if not cleared.empty:
+        seen = pd.to_datetime(cleared["system_processed_at"], errors="coerce")
+        cleared = cleared[seen >= pd.Timestamp.now() - pd.Timedelta(days=7)]
+
+    return {
+        "all": ("All documents", frame, None),
+        "flagged": ("Flagged by the model", marked, "var(--caution)"),
+        "cleared": ("Cleared this week", cleared, "var(--positive)"),
+    }
+
+
+def matches(frame, query: str):
+    """Substring over the three fields a person would actually type."""
+    if not query.strip():
+        return frame
+    needle = query.strip()
+    hit = False
+    for column in ("vendor_name", "invoice_number", "file_name"):
+        found = frame[column].astype("string").str.contains(needle, case=False, na=False)
+        hit = found if hit is False else (hit | found)
+    return frame[hit]
+
+
+def sidebar(frame):
+    """Draws the sidebar and returns the frame the whole page is built from."""
+    views = saved_views(frame)
+    with st.sidebar:
+        st.markdown(
+            "<div class='side-id'><div class='side-mark'>"
+            "<svg width='14' height='14' viewBox='0 0 16 16' fill='none'>"
+            "<path d='M3 2.5h7l3 3v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1Z' "
+            "stroke='#FFFFFF' stroke-width='1.3' stroke-linejoin='round'/>"
+            "<path d='M9.5 2.5v3.5H13' stroke='#FFFFFF' stroke-width='1.3' "
+            "stroke-linejoin='round'/></svg></div>"
+            "<div class='side-name'><span class='side-title'>Payables</span>"
+            "<span class='side-sub'>Finance operations</span></div></div>",
+            unsafe_allow_html=True)
+
+        query = st.text_input("Search documents", key="search",
+                              placeholder="Vendor, invoice number or file",
+                              label_visibility="collapsed")
+
+        st.markdown("<div class='side-label'>Saved views</div>", unsafe_allow_html=True)
+        chosen = st.radio(
+            "Saved views", list(views), key="view", label_visibility="collapsed",
+            format_func=lambda key: f"{views[key][0]}  ·  {len(views[key][1])}")
+
+        # The account block is honest about what it is. There is no sign-in anywhere in this
+        # system, so naming an approver would be a claim the software cannot support.
+        st.markdown(
+            f"<div class='side-foot'><span class='side-sub'>Running locally on this machine."
+            f" No sign-in, so every decision is recorded without an author.</span></div>",
+            unsafe_allow_html=True)
+
+    return matches(views[chosen][1], query), chosen, query
+
+
 df = load_data()
 if df.empty:
     st.title("Invoice approvals")
     st.write("No documents have been processed yet. Run `main.py` over a document in `inbox/`.")
     st.stop()
 
+df, view, query = sidebar(df)
+# A filter has to reach the whole page or the counts on the tabs contradict the rows beneath
+# them. outbox and history are separate queries, so they are narrowed by membership.
+filtered = view != "all" or bool(query.strip())
+keep = set(df["id"])
 pending = df[df["approval_status"] == "Pending"]
 auto = df[(df["approval_status"] == "Approved") & (df["reviewed_at"].isna())]
 outbox = load_outbox()
 history = load_history()
+if filtered:
+    outbox = outbox[outbox["invoice_id"].isin(keep)]
+    history = history[history["invoice_id"].isin(keep)]
 
 def single_currency_total(frame) -> str | None:
     """The summed amount, or None when summing would be dishonest.

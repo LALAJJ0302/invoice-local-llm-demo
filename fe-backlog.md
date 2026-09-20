@@ -264,7 +264,7 @@ implemented from what is not.
 
 | id | Work | Done when |
 |---|---|---|
-| FE-15 | Sidebar carries only what resolves | Approvals and Notifications, plus the two saved views, which are both real queries: `Flagged by the model` is `has_signal()` over the pending set, `Cleared this week` is `approval_status = 'Approved' AND reviewed_at IS NULL` |
+| ~~FE-15~~ ✅ | Sidebar carries only what resolves | **Done 2026-09-20, and the trim went further than this row.** After removing the three destinations that go nowhere, what was left was not navigation at all: this application is one page with five tabs, so `Approvals` and `Outbox` in a sidebar would have duplicated the tab bar. The sidebar carries identity, a search that filters, and the two saved views. All three change what is on screen. **The row's own definition of `Cleared this week` was wrong**: `approval_status = 'Approved' AND reviewed_at IS NULL` is every document the system ever cleared and has no week in it. The view now measures seven days on `system_processed_at`. 12 tests in `tests/test_sidebar_views.py` |
 
 ---
 
