@@ -147,7 +147,7 @@ group and the only one blocked on outside work.
 | FE-9 | Design the dialog in the new system | An artboard exists at 1440 covering the six steps in `fe-screen-spec.md` §5 in order | A Claude Design round |
 | FE-10 | Apply it to `review_dialog()` | The six steps appear in order: what am I approving, is there a concern, let me look, where did it come from, what happens if I approve, decide | FE-9 |
 | FE-11 | Draw the contradiction | A person can see the document text listing three priced line items and the field reading `Line items: none` at the same time, without scrolling between them | FE-9 |
-| FE-12 | The consequence line before the decision | The name of the Jira task that approving will create is on screen before the button is pressed. `fe-screen-spec.md` §5 calls this new: today `dispatch_task_to_jira` fires with no warning of any kind | |
+| ~~FE-12~~ ✅ | The consequence line before the decision | **Built earlier than this row suggested, and corrected 2026-09-20.** The line existed and said "Approving creates a Jira task Payment immediately", which is false whenever Jira is unconfigured, and it is unconfigured. Approving writes a local task and queues an outbox row; nothing is sent. The line now names the issue title the dispatcher would actually build, and says plainly that nothing is sent while `JIRA_ENABLED` is unset. Pinned by `tests/test_app_jira_preview.py` | |
 
 ---
 

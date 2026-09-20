@@ -672,9 +672,27 @@ def review_dialog(row):
         st.rerun()
 
     st.divider()
-    st.markdown(
-        f"Approving creates a Jira task **{follow_up_for(row['document_type'])}** immediately."
-    )
+    # FE-12, corrected 2026-09-20. This said "Approving creates a Jira task Payment
+    # immediately", which is false whenever Jira is unconfigured, and it is unconfigured now.
+    # `record_decision` always writes a local follow-up task and queues an outbox row;
+    # `dispatch_task_to_jira` then returns without contacting anything unless JIRA_ENABLED and
+    # the .env are set. A screen that claims more than the system does is the exact failure
+    # this project exists to catch, and it was doing it on the one line that exists to warn a
+    # person before they act.
+    #
+    # The title is built by the dispatcher's own function rather than re-spelled here, so the
+    # preview cannot drift from the issue. `_build_summary` is private and lives in Luke's
+    # file; it is called read-only and pinned by tests/test_app_jira_preview.py. Making it
+    # public is a one-line PR whenever that is worth doing.
+    task_title = task_dispatch._build_summary(
+        follow_up_for(row["document_type"]), row["file_name"], row["vendor_name"])
+    if jira_ready():
+        st.markdown(f"Approving creates a Jira issue immediately, titled `{task_title}`.")
+    else:
+        st.markdown(
+            f"Approving opens a task titled `{task_title}` and queues it for Jira. "
+            f"**Jira is not configured, so nothing is sent**: the row waits in the Outbox "
+            f"until `JIRA_ENABLED` is set.")
     # Two identical full-width buttons made Reject look as inviting as Approve, and both of
     # them look like the third button on the screen rather than the decision the dialog exists
     # for. approval-screen-design-v2.html fills Approve and leaves Reject quiet, both sitting at
