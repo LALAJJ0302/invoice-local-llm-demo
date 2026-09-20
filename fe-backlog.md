@@ -264,7 +264,11 @@ implemented from what is not.
 
 | id | Work | Done when |
 |---|---|---|
-| ~~FE-15~~ ✅ | Sidebar carries only what resolves | **Done 2026-09-20, and the trim went further than this row.** After removing the three destinations that go nowhere, what was left was not navigation at all: this application is one page with five tabs, so `Approvals` and `Outbox` in a sidebar would have duplicated the tab bar. The sidebar carries identity, a search that filters, and the two saved views. All three change what is on screen. **The row's own definition of `Cleared this week` was wrong**: `approval_status = 'Approved' AND reviewed_at IS NULL` is every document the system ever cleared and has no week in it. The view now measures seven days on `system_processed_at`. 12 tests in `tests/test_sidebar_views.py` |
+| ~~FE-15~~ ✅ | Sidebar carries only what resolves | **Rebuilt 2026-09-20 to match `approval-screen-design-v3.html`, after the first attempt looked nothing like it.** The first trim removed Documents, Vendors and Pipeline runs as destinations to screens nobody had specified. That was wrong twice over: every count behind them is real, and none of the three needed a screen, only a panel. All six rows the design drew are back, with icons, counts at the far edge and the accent-wash active row. `Notifications` is the one row not carried over: FE-16 renamed that table to Outbox and it is a tab, so a sidebar row would draw the tab bar twice. **`Approvals` is the page, not a filter on it** — a first draft made it filter to pending and hid the approved rows and most of the outbox, caught by `tests/test_app_tabs.py`. The row's own definition of `Cleared this week` was also wrong: it had no week in it. 12 tests in `tests/test_sidebar_views.py` |
+
+---
+
+| **FE-27** | The ⌘K hint is drawn and not wired | The search field carries the shortcut badge the design draws, and nothing listens for the keystroke. It is a hint rather than a control, but it still promises something the app does not do. Either bind it or remove the badge |
 
 ---
 

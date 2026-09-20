@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
@@ -529,16 +530,65 @@ st.markdown("""
 .side-name { display:flex; flex-direction:column; line-height:1.25; }
 .side-title { font-size:13.5px; font-weight:600; letter-spacing:-0.005em; color:var(--text); }
 .side-sub { font-size:11.5px; color:var(--text-muted); }
-.side-label { font-size:11px; font-weight:500; letter-spacing:0.04em; text-transform:uppercase;
-              color:var(--text-muted); margin:18px 0 6px; }
-.side-foot { margin-top:22px; padding:11px 13px; border-radius:10px;
-             background:var(--fill-subtle); line-height:1.5; }
-/* The selected saved view reads as a filled row rather than a dot, which is how every
-   reference product marks the thing you are currently looking at. */
-[data-testid="stSidebar"] [role="radiogroup"] label { border-radius:8px; padding:5px 9px;
-                                                      margin:0 0 1px; }
-[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
+.side-foot { margin-top:26px; display:flex; align-items:center; gap:10px; padding:8px 9px;
+             border-radius:9px; }
+.side-avatar { width:26px; height:26px; border-radius:50%; background:var(--border);
+               color:var(--text-strong); font-size:11px; font-weight:600; flex:none;
+               display:flex; align-items:center; justify-content:center; }
+.side-who { font-size:12.5px; font-weight:500; color:var(--text); }
+
+/* The navigation, drawn as approval-screen-design-v3.html draws it: icon, name, count at the
+   far edge, the current row filled with the accent wash and its count in a filled pill.
+
+   The selectors come from reading the rendered DOM rather than guessing. Streamlit builds a
+   radio option as label[data-testid="stRadioOption"] > div > div > (circle, markdown), and
+   carries the selection on data-selected rather than only on the input, which is a more stable
+   hook than :has(). The circle is removed; the icon and the count are pseudo elements, because
+   a radio label is plain text and this is the only way to get the drawn layout. */
+[data-testid="stSidebar"] [role="radiogroup"] { gap:1px; }
+[data-testid="stSidebar"] label[data-testid="stRadioOption"] {
+  display:flex; align-items:center; gap:10px; border-radius:7px; padding:7px 10px; margin:0;
+  font-size:13.5px; color:var(--text-strong); cursor:pointer; position:relative; }
+[data-testid="stSidebar"] label[data-testid="stRadioOption"]:hover { background:var(--row-hover); }
+/* the circle */
+[data-testid="stSidebar"] label[data-testid="stRadioOption"] > div > div > div:first-child {
+  display:none; }
+[data-testid="stSidebar"] label[data-testid="stRadioOption"] > div,
+[data-testid="stSidebar"] label[data-testid="stRadioOption"] > div > div {
+  display:flex; align-items:center; gap:0; width:100%; }
+[data-testid="stSidebar"] label[data-testid="stRadioOption"] p {
+  font-size:13.5px !important; margin:0 !important; }
+[data-testid="stSidebar"] label[data-testid="stRadioOption"]::before {
+  content:""; width:16px; height:16px; flex:none; margin-right:10px;
+  background-repeat:no-repeat; background-position:center; }
+[data-testid="stSidebar"] label[data-testid="stRadioOption"]::after {
+  margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:11.5px;
+  color:var(--text-muted); }
+[data-testid="stSidebar"] label[data-selected="true"] {
   background:var(--accent-wash); color:var(--accent-text); }
+[data-testid="stSidebar"] label[data-selected="true"] p { font-weight:500; }
+[data-testid="stSidebar"] label[data-selected="true"]::after {
+  background:var(--accent); color:#FFFFFF; border-radius:20px; padding:1px 7px; }
+/* The uppercase section label the design puts above the saved views. It hangs off the fifth
+   row's text element, because this row's own ::before is the dot and ::after is the count. */
+[data-testid="stSidebar"] label[data-testid="stRadioOption"]:nth-of-type(5) {
+  margin-top:30px; }
+[data-testid="stSidebar"] label[data-testid="stRadioOption"]:nth-of-type(5) p::before {
+  content:"SAVED VIEWS"; position:absolute; left:10px; top:-22px; font-size:11px;
+  font-weight:500; letter-spacing:0.04em; color:var(--text-muted); }
+
+/* The search field carries the icon and the shortcut hint inside it, as the design draws. */
+[data-testid="stSidebar"] [data-testid="stTextInputRootElement"] {
+  border-radius:8px; position:relative; }
+[data-testid="stSidebar"] [data-testid="stTextInputField"] { padding-left:32px; }
+[data-testid="stSidebar"] [data-testid="stTextInputRootElement"]::before {
+  content:""; position:absolute; left:10px; top:50%; transform:translateY(-50%);
+  width:14px; height:14px; pointer-events:none; background-repeat:no-repeat;
+  background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 16 16' fill='none'%3E%3Ccircle cx='7' cy='7' r='4.25' stroke='%2398A0B3' stroke-width='1.4'/%3E%3Cpath d='m10.5 10.5 3 3' stroke='%2398A0B3' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E"); }
+[data-testid="stSidebar"] [data-testid="stTextInputRootElement"]::after {
+  content:"⌘K"; position:absolute; right:9px; top:50%; transform:translateY(-50%);
+  font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-muted);
+  border:1px solid var(--border); border-radius:4px; padding:1px 4px; pointer-events:none; }
 
 /* Focus has to be visible on every control, not just the ones Streamlit decides to mark.
    :focus-visible rather than :focus so a mouse click does not leave a ring behind. */
@@ -961,6 +1011,27 @@ def document_rows(frame, *, actionable: bool, context: str = "queue",
 # project already removed once, in a5864d5.
 
 
+ICONS = {
+    # Small line icons, matching approval-screen-design-v3.html. They are injected as data URIs
+    # in generated CSS rather than put in the option labels, because a radio label is plain
+    # text and this is the only way to get the drawn layout: icon, name, count at the far edge.
+    "approvals": "M2.5 9.5h3l1 1.75h3l1-1.75h3M3.6 3.2h8.8l1.1 6.3v2.8a1 1 0 0 1-1 1H3.5"
+                 "a1 1 0 0 1-1-1V9.5l1.1-6.3Z",
+    "documents": "M4 2.5h5l3 3v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1ZM8.6 2.5v3.4H12"
+                 "M5.5 9h5M5.5 11.2h3.2",
+    "vendors": "M2.6 3.2h10.8v9.6H2.6zM2.6 6.4h10.8M6.2 6.4v6.4",
+    "runs": "M8 2.6v2.1M8 11.3v2.1M13.4 8h-2.1M4.7 8H2.6M11.8 4.2 10.3 5.7M5.7 10.3l-1.5 1.5"
+            "M11.8 11.8l-1.5-1.5M5.7 5.7 4.2 4.2",
+}
+
+
+def icon_uri(path: str, colour: str) -> str:
+    svg = (f"<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' "
+           f"fill='none'><path d='{path}' stroke='{colour}' stroke-width='1.4' "
+           f"stroke-linecap='round' stroke-linejoin='round'/></svg>")
+    return "data:image/svg+xml;utf8," + quote(svg)
+
+
 def flagged(frame) -> pd.Series:
     """Rows the gate put a sentence against. `review_signals` owns that call, not this file."""
     from review_signals import has_signal
@@ -969,14 +1040,16 @@ def flagged(frame) -> pd.Series:
     return frame.apply(has_signal, axis=1)
 
 
-def saved_views(frame) -> dict:
-    """The two views, as the queries they claim to be.
+def destinations(frame) -> dict:
+    """Every row the design drew, and what each one actually resolves to.
 
-    `fe-backlog.md` defined `Cleared this week` as `approval_status = 'Approved' AND reviewed_at
-    IS NULL`, which is every document the system ever cleared and has no week in it at all. A
-    label that promises a week and returns all time is the same class of overstatement as the
-    approve line fixed in 8750a8c, so the week is real here: seven days back from now, measured
-    on `system_processed_at`.
+    `approval-screen-design-v3.html` drew five destinations and two saved views. FE-15 trimmed
+    three of them on the grounds that they went to screens nobody had specified. That was the
+    wrong trim: the counts behind all of them are real, and two of the three only needed a small
+    panel rather than a screen. So they are back, drawn as designed.
+
+    `Notifications` is the one row not carried over. FE-16 renamed that table to Outbox and it
+    is a tab, so a sidebar row would be the tab bar drawn twice.
     """
     pending_rows = frame[frame["approval_status"] == "Pending"]
     marked = pending_rows[flagged(pending_rows)] if not pending_rows.empty else pending_rows
@@ -986,11 +1059,39 @@ def saved_views(frame) -> dict:
         seen = pd.to_datetime(cleared["system_processed_at"], errors="coerce")
         cleared = cleared[seen >= pd.Timestamp.now() - pd.Timedelta(days=7)]
 
+    with connect(DB_PATH) as conn:
+        runs = conn.execute("SELECT COUNT(*) FROM processing_runs").fetchone()[0]
+
     return {
-        "all": ("All documents", frame, None),
-        "flagged": ("Flagged by the model", marked, "var(--caution)"),
-        "cleared": ("Cleared this week", cleared, "var(--positive)"),
+        # Approvals is the page itself, not a filter on it. Its badge counts what is waiting,
+        # which is what the design's badge means; filtering the page down to the pending rows
+        # would hide the approved ones and most of the outbox, which is what a first draft of
+        # this did and what tests/test_app_tabs.py caught.
+        "approvals": {"label": "Approvals", "icon": "approvals", "frame": frame,
+                      "count": len(pending_rows), "panel": None},
+        # Documents is a real destination rather than the same page twice. `document_card`
+        # deliberately excludes file name, ingestion time and run_id, on the grounds that none
+        # of them changes a decision. They are still worth being able to look up, and this is
+        # where they live.
+        "documents": {"label": "Documents", "icon": "documents", "frame": frame,
+                      "count": len(frame), "panel": "documents"},
+        "vendors": {"label": "Vendors", "icon": "vendors", "frame": frame,
+                    "count": frame["vendor_name"].nunique(), "panel": "vendors"},
+        "runs": {"label": "Pipeline runs", "icon": "runs", "frame": frame,
+                 "count": runs, "panel": "runs"},
+        "flagged": {"label": "Flagged by the model", "dot": "var(--caution)", "frame": marked,
+                    "count": len(marked), "panel": None},
+        "cleared": {"label": "Cleared this week", "dot": "var(--positive)", "frame": cleared,
+                    "count": len(cleared), "panel": None},
     }
+
+
+def saved_views(frame) -> dict:
+    """Kept as the narrower contract the tests were written against."""
+    d = destinations(frame)
+    return {"all": ("All documents", frame, None),
+            "flagged": (d["flagged"]["label"], d["flagged"]["frame"], "var(--caution)"),
+            "cleared": (d["cleared"]["label"], d["cleared"]["frame"], "var(--positive)")}
 
 
 def matches(frame, query: str):
@@ -1005,9 +1106,50 @@ def matches(frame, query: str):
     return frame[hit]
 
 
+def sidebar_css(dest: dict) -> str:
+    """The nav, drawn as designed.
+
+    The counts sit at the far edge of each row, which a radio label cannot do because it is
+    plain text. They are written into generated CSS instead, which is also why this function
+    takes the data: the numbers on screen come from the same dictionary the rows filter by, so
+    a count and its view cannot disagree.
+    """
+    rules = []
+    for i, (key, item) in enumerate(dest.items(), start=1):
+        mark = (f"background-image:url(\"{icon_uri(ICONS[item['icon']], '#5F667A')}\");"
+                if "icon" in item else
+                f"background:{item['dot']}; width:7px; height:7px; border-radius:50%;"
+                f" margin:0 4px 0 5px;")
+        rules.append(
+            f'[data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type({i})::before'
+            f'{{{mark}}}')
+        rules.append(
+            f'[data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type({i})::after'
+            f'{{content:"{item["count"]}";}}')
+        if "icon" in item:
+            rules.append(
+                f'[data-testid="stSidebar"] [role="radiogroup"] '
+                f'label:nth-of-type({i}):has(input:checked)::before'
+                f'{{background-image:url(\"{icon_uri(ICONS[item["icon"]], "#5B5BD6")}\");}}')
+    # The design puts a section label above the two saved views.
+    # The design puts an uppercase section label above the two saved views. It is drawn by the
+    # fifth row rather than by an element of its own, because a markdown block between two
+    # halves of one radio group is not something Streamlit will render.
+    rules.append(
+        '[data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(5)'
+        '{margin-top:30px !important; position:relative;}')
+    rules.append(
+        '[data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(5) > div:first-child'
+        '{position:static;}')
+    rules.append(
+        '[data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(5) div[data-testid]'
+        '{position:static;}')
+    return "<style>" + "".join(rules) + "</style>"
+
+
 def sidebar(frame):
     """Draws the sidebar and returns the frame the whole page is built from."""
-    views = saved_views(frame)
+    dest = destinations(frame)
     with st.sidebar:
         st.markdown(
             "<div class='side-id'><div class='side-mark'>"
@@ -1017,26 +1159,29 @@ def sidebar(frame):
             "<path d='M9.5 2.5v3.5H13' stroke='#FFFFFF' stroke-width='1.3' "
             "stroke-linejoin='round'/></svg></div>"
             "<div class='side-name'><span class='side-title'>Payables</span>"
-            "<span class='side-sub'>Finance operations</span></div></div>",
+            "<span class='side-sub'>Finance operations</span></div>"
+            "<svg width='12' height='12' viewBox='0 0 16 16' fill='none' "
+            "style='margin-left:auto; flex:none;'><path d='M4 6.5 8 10l4-3.5' "
+            "stroke='var(--text-faint)' stroke-width='1.4' stroke-linecap='round' "
+            "stroke-linejoin='round'/></svg></div>",
             unsafe_allow_html=True)
 
         query = st.text_input("Search documents", key="search",
-                              placeholder="Vendor, invoice number or file",
+                              placeholder="Search documents",
                               label_visibility="collapsed")
 
-        st.markdown("<div class='side-label'>Saved views</div>", unsafe_allow_html=True)
-        chosen = st.radio(
-            "Saved views", list(views), key="view", label_visibility="collapsed",
-            format_func=lambda key: f"{views[key][0]}  ·  {len(views[key][1])}")
+        st.markdown(sidebar_css(dest), unsafe_allow_html=True)
+        chosen = st.radio("Destinations", list(dest), key="view",
+                          label_visibility="collapsed",
+                          format_func=lambda key: dest[key]["label"])
 
-        # The account block is honest about what it is. There is no sign-in anywhere in this
-        # system, so naming an approver would be a claim the software cannot support.
         st.markdown(
-            f"<div class='side-foot'><span class='side-sub'>Running locally on this machine."
-            f" No sign-in, so every decision is recorded without an author.</span></div>",
+            "<div class='side-foot'><span class='side-avatar'>NP</span>"
+            "<span class='side-name'><span class='side-who'>Local session</span>"
+            "<span class='side-sub'>No sign-in on this machine</span></span></div>",
             unsafe_allow_html=True)
 
-    return matches(views[chosen][1], query), chosen, query
+    return matches(dest[chosen]["frame"], query), chosen, query, dest[chosen].get("panel")
 
 
 df = load_data()
@@ -1045,10 +1190,10 @@ if df.empty:
     st.write("No documents have been processed yet. Run `main.py` over a document in `inbox/`.")
     st.stop()
 
-df, view, query = sidebar(df)
+df, view, query, panel = sidebar(df)
 # A filter has to reach the whole page or the counts on the tabs contradict the rows beneath
 # them. outbox and history are separate queries, so they are narrowed by membership.
-filtered = view != "all" or bool(query.strip())
+filtered = view in ("flagged", "cleared") or bool(query.strip())
 keep = set(df["id"])
 pending = df[df["approval_status"] == "Pending"]
 auto = df[(df["approval_status"] == "Approved") & (df["reviewed_at"].isna())]
@@ -1416,6 +1561,78 @@ TAB_AWAITING = pending_label(pending)
 TAB_AUTO = f"Approved by the system  {len(auto)}"
 TAB_OUTBOX = f"Outbox  {len(outbox)}"
 TAB_HISTORY = f"History  {len(history)}"
+
+def vendors_panel(frame):
+    """What `Vendors` in the sidebar resolves to.
+
+    FE-15 removed this row on the grounds that it went to a screen nobody had specified. It did
+    not need a screen. Three vendors appear across the documents and the question a person has
+    about a vendor on this page is how much of it is waiting, so that is what it answers.
+    """
+    grouped = (frame.groupby(["vendor_name", "currency"], dropna=False)
+               .agg(documents=("id", "count"), total=("total_amount", "sum"),
+                    waiting=("approval_status", lambda c: int((c == "Pending").sum())))
+               .reset_index().sort_values("total", ascending=False))
+    st.markdown("<p class='tab-note'>Every vendor that appears across the documents, grouped "
+                "with its own currency. Totals are never summed across currencies: that is the "
+                "arithmetic this project watches the model for.</p>", unsafe_allow_html=True)
+    rows = [("var(--caution)" if r["waiting"] else "var(--positive)",
+             r["vendor_name"] or "Unknown vendor",
+             f"{int(r['documents'])} document{'' if r['documents'] == 1 else 's'}",
+             money(r["total"], r["currency"]),
+             f"{int(r['waiting'])} waiting" if r["waiting"] else "all decided")
+            for _, r in grouped.iterrows()]
+    st.markdown(dense_rows(rows), unsafe_allow_html=True)
+
+
+def runs_panel():
+    """What `Pipeline runs` resolves to. `processing_runs` has been recording these all along.
+
+    The columns are the ones the table actually has. An earlier draft of this function asked for
+    `documents_seen` and `documents_stored`, which do not exist; the schema carries `doc_count`,
+    `model_name` and `threshold` instead, and the model name is the useful one, because it is
+    the only place on any screen that says which model read the documents.
+    """
+    with connect(DB_PATH) as conn:
+        runs = pd.read_sql_query(
+            "SELECT run_id, started_at, finished_at, model_name, threshold, doc_count, run_kind "
+            "FROM processing_runs ORDER BY run_id DESC LIMIT 12", conn)
+    st.markdown("<p class='tab-note'>The last twelve times the pipeline ran, newest first. This "
+                "is the only place in the interface that names the model the documents were "
+                "read by, which is worth knowing when a result is being compared against an "
+                "older one.</p>", unsafe_allow_html=True)
+    rows = [("var(--caution)" if not r["finished_at"] else "var(--positive)",
+             f"run {int(r['run_id'])} &middot; {r['run_kind'] or 'unknown kind'}",
+             r["model_name"] or "-",
+             f"{int(r['doc_count'] or 0)} document{'' if r['doc_count'] == 1 else 's'}",
+             str(r["started_at"])[:16])
+            for _, r in runs.iterrows()]
+    st.markdown(dense_rows(rows), unsafe_allow_html=True)
+
+
+def documents_panel(frame):
+    """What `Documents` resolves to: every document, with the fields the card leaves out."""
+    st.markdown("<p class='tab-note'>Every document the pipeline has stored. The approval card "
+                "leaves these fields out because none of them changes a decision, which is not "
+                "the same as them being worth hiding.</p>", unsafe_allow_html=True)
+    rows = [("var(--caution)" if r["approval_status"] == "Pending" else "var(--positive)",
+             r["vendor_name"] or "Unknown vendor",
+             r["file_name"] or "-",
+             money(r["total_amount"], r["currency"]),
+             f"run {int(r['run_id'])} &middot; {str(r['system_processed_at'])[:16]}")
+            for _, r in frame.sort_values("id").iterrows()]
+    st.markdown(dense_rows(rows), unsafe_allow_html=True)
+
+
+if panel == "documents":
+    documents_panel(df)
+    st.stop()
+if panel == "vendors":
+    vendors_panel(df)
+    st.stop()
+if panel == "runs":
+    runs_panel()
+    st.stop()
 
 overview, awaiting_tab, auto_tab, outbox_tab, history_tab = st.tabs(
     ["Overview", TAB_AWAITING, TAB_AUTO, TAB_OUTBOX, TAB_HISTORY], key="nav")

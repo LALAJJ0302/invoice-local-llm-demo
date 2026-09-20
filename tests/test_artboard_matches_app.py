@@ -68,8 +68,11 @@ def test_separation_is_shadow_not_border():
     single careless `border:1px solid` added later would undo it without failing anything else.
     """
     stylesheet = APP[APP.index("st.markdown(\"\"\"\n<style>"):APP.index("</style>")]
-    assert stylesheet.count("1px solid") == 3, (
-        "a hairline was added or removed; §9 allows only the three inside a card")
+    # Three inside a card, plus the keycap outline on the search field's shortcut hint. A
+    # keycap is a border around part of one control rather than an element against the page,
+    # which is the side of §9's rule that keeps its hairline. The design draws it that way too.
+    assert stylesheet.count("1px solid") == 4, (
+        "a hairline was added or removed; §9 allows the three inside a card and the keycap")
     for token in ("--lift:", "--lift-soft:", "--fill-subtle:"):
         assert token in stylesheet, f"{token} is gone, so nothing replaces the borders"
 
