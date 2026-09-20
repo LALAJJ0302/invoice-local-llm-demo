@@ -226,6 +226,11 @@ def screen_page():
     return '<!-- @dsCard group="Screens" -->\n' + html
 
 
+def dialog_page():
+    html = (ROOT / "review-dialog-design.html").read_text()
+    return '<!-- @dsCard group="Screens" -->\n' + html
+
+
 FILES = {
     "foundations/tokens.html": tokens_page,
     "foundations/type.html": type_page,
@@ -235,6 +240,7 @@ FILES = {
     "components/empty-state.html": empty_page,
     "components/buttons.html": buttons_page,
     "screens/approval-queue.html": screen_page,
+    "screens/review-dialog.html": dialog_page,
 }
 
 
