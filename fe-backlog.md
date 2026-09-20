@@ -201,7 +201,7 @@ recorded decision in `fe-queue-spec.md` §4 and is now due.
 
 | id | Work | Done when |
 |---|---|---|
-| **OV-4** ⚠️ | Each section header can open its tab | **Reopened 2026-09-20. Built, shipped, and it never worked.** `st.tabs` takes `key` and `default` and neither selects a tab from code: the key records what the user picked, and writing it moves the session value while the frontend keeps its own selection. Measured in a browser, `aria-selected` stayed on Overview with both tried. The control is removed rather than left dead. `st.segmented_control` can be driven from code, measured the same way, so the fix is to swap the tab bar for one. That is a change to the page's navigation and wants Neo's eyes before it lands |
+| ~~OV-4~~ ✅ | Each section header can open its destination | **Built, removed, and built again 2026-09-20.** It never worked on `st.tabs`, which cannot be driven from code. Removing the tab bar in favour of the sidebar is what made it possible, not any change to the control. One trap on the way: `st.session_state["view"] = key` raises, because Streamlit refuses a write to a widget's key once the widget exists and the sidebar is drawn first. The request is parked under `goto` and applied on the next run before the radio is created. `tests/test_app_tabs.py::test_a_section_header_opens_its_destination` asserts the outcome, the sidebar's selection moving, not the mechanism |
 
 **Researched rather than guessed.** Plausible puts an expand control at the top right of every
 panel and the panel opens to its full view. That is the pattern this needs and the reference
@@ -250,6 +250,33 @@ rows that point at the row being removed.
 | id | Work | Status |
 |---|---|---|
 | OV-11 | Collapse or hide a section | **Not recommended.** None of the four reference products collapses a content panel. Linear collapses groups in its sidebar, which is navigation. Plausible, Attio and Ramp expand panels instead of hiding them. A page long enough to need hiding should show fewer rows per section, which it already does at five |
+
+---
+
+## Group G. One navigation, 2026-09-20
+
+The screen carried a tab bar and a sidebar over the same data. Measured, two of the sidebar's
+six rows returned exactly the rows of two tabs:
+
+```
+Flagged by the model  -> {1}      Awaiting approval tab      -> {1}
+Cleared this week     -> {2,3}    Approved by the system tab -> {2,3}
+```
+
+They could only have diverged on a pending document the gate did not flag, or an auto-approved
+one older than seven days. There were none of either. Neo's call: keep the sidebar, drop the
+tabs, and make the sidebar reach everything the tabs reached.
+
+| id | Work | Done when |
+|---|---|---|
+| ~~FE-28~~ ✅ | The sidebar is the only navigation | Eight destinations in one list, the five states a document moves through and then the three other things to look at, split by an `EXPLORE` label. `st.tabs` is gone from `app.py` |
+| ~~FE-29~~ ✅ | The two saved views go | What they filtered to, a destination already shows. Nothing in the navigation collapses into anything else, asserted by `test_no_destination_repeats_another` |
+| ~~FE-30~~ ✅ | Dead helpers removed | `pending_label`, `flagged` and `EXPLORE_FROM` had no caller left |
+
+**One consequence worth knowing.** `st.tabs` renders every body on every rerun; a radio renders
+one. So a control that appeared twice, once in a tab and once in the Overview section that
+summarises it, now appears once. `tests/test_app_tabs.py` counted Push buttons across both and
+had to be split in two.
 
 ---
 

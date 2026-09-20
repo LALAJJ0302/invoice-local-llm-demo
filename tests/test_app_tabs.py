@@ -51,11 +51,17 @@ def test_push_appears_only_for_rows_that_have_a_transport():
         return
     jira = outbox[outbox["channel"] == "Jira"]
     pushable = jira[jira["state"].isin(["Pending", "Failed"])]
+    # One render site since the tab bar was replaced by the sidebar on 2026-09-20. Every
+    # destination used to execute on every rerun because st.tabs renders all of its bodies;
+    # only the chosen one runs now, so the Overview section and the Outbox destination are
+    # counted separately rather than added together.
     at = run()
-    # Two render sites since OV-5: every pushable row in the Outbox tab, and the first five of
-    # them again in the Overview section. Both bodies execute on every rerun.
-    expected = len(pushable) + min(len(pushable), 5)
-    assert len([b for b in at.button if b.label == "Push to Jira"]) == expected, (
+    assert len([b for b in at.button if b.label == "Push to Jira"]) == min(len(pushable), 5), (
+        "the Overview outbox section should offer one button per pushable row, up to five")
+
+    at = run()
+    at.sidebar.radio[0].set_value("outbox").run()
+    assert len([b for b in at.button if b.label == "Push to Jira"]) == len(pushable), (
         "a row without a transport has grown a Push button, or a pushable one has lost it")
 
 
@@ -202,15 +208,38 @@ def test_a_history_row_carries_what_the_dialog_reads():
 
 
 def test_every_open_button_can_be_pressed():
-    """The bug above was invisible because no test pressed the buttons that carry rows."""
+    """The bug above was invisible because no test pressed the buttons that carry rows.
+
+    Buttons are found by key rather than by label now. Two different controls are labelled
+    Open: the row actions, keyed ovauto-/ovhist-, and the section headers, keyed open-. Looking
+    a button up by its label picked whichever came first, and a section header press navigates
+    away, so the next lookup failed on a page that no longer had that button.
+    """
     at = run()
-    labels = ["Open", "Open the document", "Open tab"]
-    for index, button in enumerate(b for b in at.button if b.label in labels):
-        after = at.button[[b.label for b in at.button].index(button.label)].click().run()
+    keys = [b.key for b in at.button
+            if b.label in ("Open", "Open the document") and not b.key.startswith("open-")]
+    for key in keys[:7]:
+        fresh = run()
+        after = next(b for b in fresh.button if b.key == key).click().run()
         assert not after.exception, (
-            f"pressing {button.label!r} raised: {[str(e.value) for e in after.exception]}")
-        if index > 6:
-            break
+            f"pressing {key!r} raised: {[str(e.value) for e in after.exception]}")
+
+
+def test_a_section_header_opens_its_destination():
+    """OV-4, asserted by outcome.
+
+    The first version of this control was built on st.tabs, which cannot be driven from code.
+    A test then asserted that the session key had been written, saw that it had, and passed for
+    two commits while the button did nothing. So this asserts the thing a person would notice:
+    the sidebar's selection moves.
+    """
+    for key, destination in (("open-awaiting", "awaiting"), ("open-outbox", "outbox"),
+                             ("open-history", "history")):
+        at = run()
+        assert at.sidebar.radio[0].value == "overview"
+        next(b for b in at.button if b.key == key).click().run()
+        assert at.sidebar.radio[0].value == destination, (
+            f"{key} did not move the sidebar to {destination}")
 
 
 def test_the_review_note_replaces_the_checkbox():

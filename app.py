@@ -569,12 +569,13 @@ st.markdown("""
 [data-testid="stSidebar"] label[data-selected="true"] p { font-weight:500; }
 [data-testid="stSidebar"] label[data-selected="true"]::after {
   background:var(--accent); color:#FFFFFF; border-radius:20px; padding:1px 7px; }
-/* The uppercase section label the design puts above the saved views. It hangs off the fifth
-   row's text element, because this row's own ::before is the dot and ::after is the count. */
-[data-testid="stSidebar"] label[data-testid="stRadioOption"]:nth-of-type(5) {
+/* The list holds two kinds of thing: the five states a document moves through, then the three
+   other things there are to look at. The label marks the seam. It hangs off the sixth row's
+   text element because that row's own pseudo elements are already the icon and the count. */
+[data-testid="stSidebar"] label[data-testid="stRadioOption"]:nth-of-type(6) {
   margin-top:30px; }
-[data-testid="stSidebar"] label[data-testid="stRadioOption"]:nth-of-type(5) p::before {
-  content:"SAVED VIEWS"; position:absolute; left:10px; top:-22px; font-size:11px;
+[data-testid="stSidebar"] label[data-testid="stRadioOption"]:nth-of-type(6) p::before {
+  content:"EXPLORE"; position:absolute; left:10px; top:-22px; font-size:11px;
   font-weight:500; letter-spacing:0.04em; color:var(--text-muted); }
 
 /* The search field carries the icon and the shortcut hint inside it, as the design draws. */
@@ -1012,86 +1013,71 @@ def document_rows(frame, *, actionable: bool, context: str = "queue",
 
 
 ICONS = {
-    # Small line icons, matching approval-screen-design-v3.html. They are injected as data URIs
-    # in generated CSS rather than put in the option labels, because a radio label is plain
-    # text and this is the only way to get the drawn layout: icon, name, count at the far edge.
-    "approvals": "M2.5 9.5h3l1 1.75h3l1-1.75h3M3.6 3.2h8.8l1.1 6.3v2.8a1 1 0 0 1-1 1H3.5"
-                 "a1 1 0 0 1-1-1V9.5l1.1-6.3Z",
-    "documents": "M4 2.5h5l3 3v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1ZM8.6 2.5v3.4H12"
-                 "M5.5 9h5M5.5 11.2h3.2",
-    "vendors": "M2.6 3.2h10.8v9.6H2.6zM2.6 6.4h10.8M6.2 6.4v6.4",
-    "runs": "M8 2.6v2.1M8 11.3v2.1M13.4 8h-2.1M4.7 8H2.6M11.8 4.2 10.3 5.7M5.7 10.3l-1.5 1.5"
-            "M11.8 11.8l-1.5-1.5M5.7 5.7 4.2 4.2",
+    # Inner SVG markup, not a single path, because a clock needs a circle as well as a line.
+    # `currentColor` is not usable here: these are background images on a pseudo element, so the
+    # colour is baked in and the selected state gets its own copy.
+    "overview": "<path d='M2.8 2.8h4.2v4.2H2.8zM9 2.8h4.2v4.2H9zM2.8 9h4.2v4.2H2.8zM9 9h4.2v4.2H9z'"
+                " stroke='{c}' stroke-width='1.4' stroke-linejoin='round'/>",
+    "awaiting": "<path d='M2.5 9.5h3l1 1.75h3l1-1.75h3M3.6 3.2h8.8l1.1 6.3v2.8a1 1 0 0 1-1 1H3.5"
+                "a1 1 0 0 1-1-1V9.5l1.1-6.3Z' stroke='{c}' stroke-width='1.4' "
+                "stroke-linecap='round' stroke-linejoin='round'/>",
+    "auto": "<path d='m3.4 8.2 2.9 2.9 6.1-6.3' stroke='{c}' stroke-width='1.6' "
+            "stroke-linecap='round' stroke-linejoin='round'/>",
+    "outbox": "<path d='M2.6 9h3.2l1 1.8h2.4l1-1.8h3.2M8 9.6V3.2M5.6 5.6 8 3.2l2.4 2.4' "
+              "stroke='{c}' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/>",
+    "history": "<circle cx='8' cy='8' r='5.4' stroke='{c}' stroke-width='1.4'/>"
+               "<path d='M8 4.8V8l2.2 1.4' stroke='{c}' stroke-width='1.4' "
+               "stroke-linecap='round' stroke-linejoin='round'/>",
+    "documents": "<path d='M4 2.5h5l3 3v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1Z"
+                 "M8.6 2.5v3.4H12M5.5 9h5M5.5 11.2h3.2' stroke='{c}' stroke-width='1.4' "
+                 "stroke-linecap='round' stroke-linejoin='round'/>",
+    "vendors": "<path d='M2.6 3.2h10.8v9.6H2.6zM2.6 6.4h10.8M6.2 6.4v6.4' stroke='{c}' "
+               "stroke-width='1.4' stroke-linejoin='round'/>",
+    "runs": "<path d='M8 2.6v2.1M8 11.3v2.1M13.4 8h-2.1M4.7 8H2.6M11.8 4.2 10.3 5.7"
+            "M5.7 10.3l-1.5 1.5M11.8 11.8l-1.5-1.5M5.7 5.7 4.2 4.2' stroke='{c}' "
+            "stroke-width='1.4' stroke-linecap='round'/><circle cx='8' cy='8' r='2.1' "
+            "stroke='{c}' stroke-width='1.4'/>",
 }
 
 
-def icon_uri(path: str, colour: str) -> str:
-    svg = (f"<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' "
-           f"fill='none'><path d='{path}' stroke='{colour}' stroke-width='1.4' "
-           f"stroke-linecap='round' stroke-linejoin='round'/></svg>")
+def icon_uri(name: str, colour: str) -> str:
+    inner = ICONS[name].replace("{c}", colour)
+    svg = (f"<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' "
+           f"viewBox='0 0 16 16' fill='none'>{inner}</svg>")
     return "data:image/svg+xml;utf8," + quote(svg)
 
 
-def flagged(frame) -> pd.Series:
-    """Rows the gate put a sentence against. `review_signals` owns that call, not this file."""
-    from review_signals import has_signal
-    if frame.empty:
-        return pd.Series(dtype=bool)
-    return frame.apply(has_signal, axis=1)
+def destinations(frame, pending, auto, outbox, history) -> dict:
+    """Everything the page can show, in one list.
 
+    The tab bar was removed on 2026-09-20 and this took over, measured rather than argued. The
+    sidebar and the tabs had been two navigation systems over the same data, and two of the
+    sidebar's rows returned exactly the rows of two tabs:
 
-def destinations(frame) -> dict:
-    """Every row the design drew, and what each one actually resolves to.
+        Flagged by the model  -> {1}      Awaiting approval tab      -> {1}
+        Cleared this week     -> {2,3}    Approved by the system tab -> {2,3}
 
-    `approval-screen-design-v3.html` drew five destinations and two saved views. FE-15 trimmed
-    three of them on the grounds that they went to screens nobody had specified. That was the
-    wrong trim: the counts behind all of them are real, and two of the three only needed a small
-    panel rather than a screen. So they are back, drawn as designed.
+    They could only have diverged on a pending document the gate did not flag, or an
+    auto-approved one older than seven days, and there were none of either. So the two saved
+    views are gone: what they filtered to, a destination already shows.
 
-    `Notifications` is the one row not carried over. FE-16 renamed that table to Outbox and it
-    is a tab, so a sidebar row would be the tab bar drawn twice.
+    The five states of a document and the three other things to look at are one list, split by
+    a label, because a person choosing where to go should not have to know which of two controls
+    owns which half of the application.
     """
-    pending_rows = frame[frame["approval_status"] == "Pending"]
-    marked = pending_rows[flagged(pending_rows)] if not pending_rows.empty else pending_rows
-
-    cleared = frame[(frame["approval_status"] == "Approved") & (frame["reviewed_at"].isna())]
-    if not cleared.empty:
-        seen = pd.to_datetime(cleared["system_processed_at"], errors="coerce")
-        cleared = cleared[seen >= pd.Timestamp.now() - pd.Timedelta(days=7)]
-
     with connect(DB_PATH) as conn:
         runs = conn.execute("SELECT COUNT(*) FROM processing_runs").fetchone()[0]
-
     return {
-        # Approvals is the page itself, not a filter on it. Its badge counts what is waiting,
-        # which is what the design's badge means; filtering the page down to the pending rows
-        # would hide the approved ones and most of the outbox, which is what a first draft of
-        # this did and what tests/test_app_tabs.py caught.
-        "approvals": {"label": "Approvals", "icon": "approvals", "frame": frame,
-                      "count": len(pending_rows), "panel": None},
-        # Documents is a real destination rather than the same page twice. `document_card`
-        # deliberately excludes file name, ingestion time and run_id, on the grounds that none
-        # of them changes a decision. They are still worth being able to look up, and this is
-        # where they live.
-        "documents": {"label": "Documents", "icon": "documents", "frame": frame,
-                      "count": len(frame), "panel": "documents"},
-        "vendors": {"label": "Vendors", "icon": "vendors", "frame": frame,
-                    "count": frame["vendor_name"].nunique(), "panel": "vendors"},
-        "runs": {"label": "Pipeline runs", "icon": "runs", "frame": frame,
-                 "count": runs, "panel": "runs"},
-        "flagged": {"label": "Flagged by the model", "dot": "var(--caution)", "frame": marked,
-                    "count": len(marked), "panel": None},
-        "cleared": {"label": "Cleared this week", "dot": "var(--positive)", "frame": cleared,
-                    "count": len(cleared), "panel": None},
+        "overview":  {"label": "Overview", "icon": "overview", "count": None},
+        "awaiting":  {"label": "Awaiting approval", "icon": "awaiting", "count": len(pending)},
+        "auto":      {"label": "Approved by the system", "icon": "auto", "count": len(auto)},
+        "outbox":    {"label": "Outbox", "icon": "outbox", "count": len(outbox)},
+        "history":   {"label": "History", "icon": "history", "count": len(history)},
+        "documents": {"label": "Documents", "icon": "documents", "count": len(frame)},
+        "vendors":   {"label": "Vendors", "icon": "vendors",
+                      "count": frame["vendor_name"].nunique()},
+        "runs":      {"label": "Pipeline runs", "icon": "runs", "count": runs},
     }
-
-
-def saved_views(frame) -> dict:
-    """Kept as the narrower contract the tests were written against."""
-    d = destinations(frame)
-    return {"all": ("All documents", frame, None),
-            "flagged": (d["flagged"]["label"], d["flagged"]["frame"], "var(--caution)"),
-            "cleared": (d["cleared"]["label"], d["cleared"]["frame"], "var(--positive)")}
 
 
 def matches(frame, query: str):
@@ -1107,49 +1093,35 @@ def matches(frame, query: str):
 
 
 def sidebar_css(dest: dict) -> str:
-    """The nav, drawn as designed.
+    """The icons, the counts and the group label, written from the data they describe.
 
-    The counts sit at the far edge of each row, which a radio label cannot do because it is
-    plain text. They are written into generated CSS instead, which is also why this function
-    takes the data: the numbers on screen come from the same dictionary the rows filter by, so
-    a count and its view cannot disagree.
+    A radio label is plain text, so the icon and the count are pseudo elements and their values
+    have to be generated. Generating them from `dest` is also what stops a count disagreeing
+    with the destination it sits on.
     """
     rules = []
-    for i, (key, item) in enumerate(dest.items(), start=1):
-        mark = (f"background-image:url(\"{icon_uri(ICONS[item['icon']], '#5F667A')}\");"
-                if "icon" in item else
-                f"background:{item['dot']}; width:7px; height:7px; border-radius:50%;"
-                f" margin:0 4px 0 5px;")
+    for i, item in enumerate(dest.values(), start=1):
         rules.append(
-            f'[data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type({i})::before'
-            f'{{{mark}}}')
+            f'[data-testid="stSidebar"] label[data-testid="stRadioOption"]:nth-of-type({i})'
+            f'::before{{background-image:url("{icon_uri(item["icon"], "#5F667A")}");}}')
         rules.append(
-            f'[data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type({i})::after'
-            f'{{content:"{item["count"]}";}}')
-        if "icon" in item:
+            f'[data-testid="stSidebar"] label[data-selected="true"]:nth-of-type({i})'
+            f'::before{{background-image:url("{icon_uri(item["icon"], "#5B5BD6")}");}}')
+        if item["count"] is not None:
             rules.append(
-                f'[data-testid="stSidebar"] [role="radiogroup"] '
-                f'label:nth-of-type({i}):has(input:checked)::before'
-                f'{{background-image:url(\"{icon_uri(ICONS[item["icon"]], "#5B5BD6")}\");}}')
-    # The design puts a section label above the two saved views.
-    # The design puts an uppercase section label above the two saved views. It is drawn by the
-    # fifth row rather than by an element of its own, because a markdown block between two
-    # halves of one radio group is not something Streamlit will render.
-    rules.append(
-        '[data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(5)'
-        '{margin-top:30px !important; position:relative;}')
-    rules.append(
-        '[data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(5) > div:first-child'
-        '{position:static;}')
-    rules.append(
-        '[data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(5) div[data-testid]'
-        '{position:static;}')
+                f'[data-testid="stSidebar"] label[data-testid="stRadioOption"]:nth-of-type({i})'
+                f'::after{{content:"{item["count"]}";}}')
     return "<style>" + "".join(rules) + "</style>"
 
 
-def sidebar(frame):
-    """Draws the sidebar and returns the frame the whole page is built from."""
-    dest = destinations(frame)
+def sidebar(frame, pending, auto, outbox, history):
+    """Draws the sidebar. Returns the search text and the chosen destination."""
+    dest = destinations(frame, pending, auto, outbox, history)
+    # A destination requested by a section header on the previous run. Applied here because this
+    # is the last moment before the radio exists, after which its key is not writable.
+    requested = st.session_state.pop("goto", None)
+    if requested in dest:
+        st.session_state["view"] = requested
     with st.sidebar:
         st.markdown(
             "<div class='side-id'><div class='side-mark'>"
@@ -1181,7 +1153,7 @@ def sidebar(frame):
             "<span class='side-sub'>No sign-in on this machine</span></span></div>",
             unsafe_allow_html=True)
 
-    return matches(dest[chosen]["frame"], query), chosen, query, dest[chosen].get("panel")
+    return chosen, query
 
 
 df = load_data()
@@ -1190,10 +1162,11 @@ if df.empty:
     st.write("No documents have been processed yet. Run `main.py` over a document in `inbox/`.")
     st.stop()
 
-df, view, query, panel = sidebar(df)
-# A filter has to reach the whole page or the counts on the tabs contradict the rows beneath
-# them. outbox and history are separate queries, so they are narrowed by membership.
-filtered = view in ("flagged", "cleared") or bool(query.strip())
+# The search runs before the counts, so what the sidebar says and what the body shows are the
+# same set. outbox and history are separate queries, so they are narrowed by membership.
+query_text = st.session_state.get("search", "")
+df = matches(df, query_text)
+filtered = bool(query_text.strip())
 keep = set(df["id"])
 pending = df[df["approval_status"] == "Pending"]
 auto = df[(df["approval_status"] == "Approved") & (df["reviewed_at"].isna())]
@@ -1202,6 +1175,8 @@ history = load_history()
 if filtered:
     outbox = outbox[outbox["invoice_id"].isin(keep)]
     history = history[history["invoice_id"].isin(keep)]
+
+view, query = sidebar(df, pending, auto, outbox, history)
 
 def single_currency_total(frame) -> str | None:
     """The summed amount, or None when summing would be dishonest.
@@ -1221,29 +1196,6 @@ def single_currency_total(frame) -> str | None:
     if len(currencies) != 1:
         return None
     return f"{currencies.pop()} {frame['total_amount'].sum():,.0f}"
-
-
-def pending_label(frame) -> str:
-    total = single_currency_total(frame)
-    return f"Awaiting approval  {len(frame)}" + (f" · {total}" if total else "")
-
-def push_to_jira(row) -> None:
-    """Send one outbox row to Jira, through the path that already exists.
-
-    `task_dispatch.dispatch_task_to_jira` looks for an existing Pending or Failed outbox row for
-    the same task and reuses it rather than queueing a second one, so retry was designed in from
-    the start. This button is that retry, with a person pressing it.
-    """
-    store = StorageManager(DB_PATH)
-    task = store.task_by_id(int(row["task_id"])) if row["task_id"] else None
-    task_dispatch.dispatch_task_to_jira(
-        store,
-        int(row["task_id"]),
-        int(row["invoice_id"]),
-        task["task_type"] if task else "Payment",
-        (task["reason"] if task else None) or row["payload"],
-        approval_path="human",
-    )
 
 
 def outbox_body(frame):
@@ -1385,18 +1337,23 @@ SECTION_ICONS = {
 
 
 def section_head(title, note, *, opens: str | None = None, key: str = "") -> None:
-    """A section heading, and the control that opens the tab it summarises.
+    """A section heading, and the control that opens the destination it summarises.
 
-    Streamlit 1.62.0 takes `key` on `st.tabs`, so writing that key and rerunning selects a tab.
-    Measured before this was built: the key raises KeyError until a tab is chosen, and setting
-    it to a label lands on that tab with no exception. Plausible puts the same control at the
-    top right of every panel; a section that cannot be opened is a dead end.
+    OV-4, built and working as of 2026-09-20, after being built, shipped and removed once.
+
+    It never worked on `st.tabs`. That widget takes a `key` and a `default` and neither selects
+    a tab from code: the key records what the user picked, and writing it moves the session
+    value while the frontend keeps its own selection. Measured in a browser, `aria-selected`
+    stayed on Overview with both tried. A radio does not have that problem, so removing the tab
+    bar in favour of the sidebar is what made this buildable, rather than any change here.
+
+    Plausible puts the same control at the top right of every panel. A section that summarises
+    something and cannot open it is a dead end.
     """
     # The rule under a heading belongs to the whole row, not to the column the text sits in,
     # so it goes on the container rather than on the markdown inside it.
     with st.container(key=f"sechead-{key}"):
         head, action = st.columns([8, 1], vertical_alignment="center")
-        del opens  # OV-4 is not buildable on st.tabs. See fe-backlog.md.
         # "outbox-failed" is still the outbox icon. The suffix exists to drive the
         # header colour from CSS, not to name a different section.
         icon = SECTION_ICONS.get(key.split("-")[0], "")
@@ -1404,7 +1361,14 @@ def section_head(title, note, *, opens: str | None = None, key: str = "") -> Non
                 f"fill='none'>{icon}</svg></span>" if icon else "")
         head.markdown(f"<div class='sec-head'>{mark}<span class='sec-title'>{title}</span>"
                       f"<span class='sec-note'>{note}</span></div>", unsafe_allow_html=True)
-        del action
+        if opens and action.button("Open", key=f"open-{key}", help=f"Go to {title}"):
+            # Not `st.session_state["view"] = opens`. Streamlit refuses a write to a widget's
+            # key once that widget exists in the run, and the sidebar is drawn before this
+            # button. The request is parked instead and `sidebar` applies it on the next run,
+            # before the radio is created. Measured: the direct write raises and the radio does
+            # not move, which is the same shape of failure that killed this control on tabs.
+            st.session_state["goto"] = opens
+            st.rerun()
 
 
 def record_row(*, key, dot, left, doc, value, right, action, on_action,
@@ -1472,7 +1436,7 @@ def overview_body(pending, auto, outbox, history):
         + "</div>", unsafe_allow_html=True)
 
     section_head("Awaiting approval", "a person has to decide on each of these",
-                 opens=TAB_AWAITING, key="awaiting")
+                 opens="awaiting", key="awaiting")
     document_rows(pending, actionable=True, context="ov", controls=False, limit=3)
 
     if not pending.empty or not auto.empty:
@@ -1484,7 +1448,7 @@ def overview_body(pending, auto, outbox, history):
     if not auto.empty:
         section_head("Approved by the system",
                      "at a validation score of 1.00, with nobody asked",
-                     opens=TAB_AUTO, key="auto")
+                     opens="auto", key="auto")
         with st.container(key="ovpanel-auto", gap=None):
           for _, r in auto.iterrows():
             # The score belongs on the row. This section exists to show what was approved
@@ -1507,7 +1471,7 @@ def overview_body(pending, auto, outbox, history):
     # Outbox has rows in it. See fe-theme-v2-spec.md §4.
     any_failed = not pushable.empty and bool((pushable["state"] == "Failed").any())
     section_head("Outbox", f"{len(pushable)} ready to push, {frozen} with no transport, "
-                           f"{sent} sent", opens=TAB_OUTBOX,
+                           f"{sent} sent", opens="outbox",
                  key="outbox-failed" if any_failed else "outbox")
     if pushable.empty:
         st.markdown("<p class='ov-more'>Nothing is waiting to go out.</p>", unsafe_allow_html=True)
@@ -1526,7 +1490,7 @@ def overview_body(pending, auto, outbox, history):
                        on_action=lambda row=r: (push_to_jira(row), st.rerun()))
 
     section_head("History", "decisions a person made, including rejections",
-                 opens=TAB_HISTORY, key="history")
+                 opens="history", key="history")
     if history.empty:
         st.markdown("<p class='ov-more'>Nobody has decided anything yet.</p>",
                     unsafe_allow_html=True)
@@ -1557,10 +1521,7 @@ st.title("Invoice approvals")
 # Overview leads and is the default. fe-screen-spec.md §2 made Awaiting approval the default on
 # the grounds that the screen exists to decide on documents, and amended it on 2026-09-20: the
 # queue holds nothing most days, so opening onto it says nothing about what happened.
-TAB_AWAITING = pending_label(pending)
-TAB_AUTO = f"Approved by the system  {len(auto)}"
-TAB_OUTBOX = f"Outbox  {len(outbox)}"
-TAB_HISTORY = f"History  {len(history)}"
+
 
 def vendors_panel(frame):
     """What `Vendors` in the sidebar resolves to.
@@ -1624,35 +1585,24 @@ def documents_panel(frame):
     st.markdown(dense_rows(rows), unsafe_allow_html=True)
 
 
-if panel == "documents":
+if view == "documents":
     documents_panel(df)
-    st.stop()
-if panel == "vendors":
+elif view == "vendors":
     vendors_panel(df)
-    st.stop()
-if panel == "runs":
+elif view == "runs":
     runs_panel()
-    st.stop()
-
-overview, awaiting_tab, auto_tab, outbox_tab, history_tab = st.tabs(
-    ["Overview", TAB_AWAITING, TAB_AUTO, TAB_OUTBOX, TAB_HISTORY], key="nav")
-
-with overview:
-    overview_body(pending, auto, outbox, history)
-
-with awaiting_tab:
+elif view == "awaiting":
     document_rows(pending, actionable=True)
-
-with auto_tab:
+elif view == "auto":
     st.markdown(
         "<p class='tab-note'>These were approved at a validation score of 1.00 with no person "
         "involved. Every check behind that score reads the document itself, so a duplicate, an "
         "unknown vendor and a well-formatted forgery all score the same.</p>",
         unsafe_allow_html=True)
     document_rows(auto, actionable=False)
-
-with outbox_tab:
+elif view == "outbox":
     outbox_body(outbox)
-
-with history_tab:
+elif view == "history":
     history_body(history)
+else:
+    overview_body(pending, auto, outbox, history)
