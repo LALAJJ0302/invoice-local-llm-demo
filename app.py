@@ -6,6 +6,7 @@ import streamlit as st
 
 import task_dispatch
 from review_signals import risk_detail, risk_signal
+from line_item_check import contradiction
 from storage import DEFAULT_DB_PATH, StorageManager, connect
 
 # =====================================================================
@@ -591,6 +592,78 @@ st.markdown("""
   font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-muted);
   border:1px solid var(--border); border-radius:4px; padding:1px 4px; pointer-events:none; }
 
+/* The review dialog. FE-10, laid out as review-dialog-design.html.
+
+   Step 1 is pinned to the top and step 6 to the bottom, so what is being decided and the
+   decision itself are both on screen while the middle scrolls. Measured before this was built:
+   at a 1000px viewport the approve and reject buttons sat below the fold. */
+/* `position:sticky` does not work inside `st.dialog`, and this is the record of why, so the
+   next person does not spend the afternoon on it.
+
+   Measured, not assumed. The header computed as `position:sticky` and still scrolled from 116
+   to -553. Its parent wrapper was exactly its own height, so it had nowhere to travel;
+   `display:contents` on that wrapper fixed the travel and changed nothing, because an ancestor
+   inside the dialog carries `overflow:hidden` and a sticky element positions against the
+   nearest scrollport rather than the element that actually scrolls. Overriding that would mean
+   reaching into the dialog's own clipping, which is the kind of `data-testid` dependency
+   `fe-theme-spec.md` §1 warns breaks on upgrade.
+
+   Shortening the dialog instead got most of the way and not all of it. The two-column layout
+   and a capped, self-scrolling document panel take the overflow at a 1000px viewport from
+   "the buttons are nowhere near the fold" to 104px. Measured on open, Approve sits at 1006 and
+   needs 41px of scroll. Opening both expanders is a deliberate act and takes it to 669px.
+
+   That last 41px is not fixed and is recorded as FE-31 rather than rounded off. On a real
+   laptop the viewport is shorter than 1000px, so it is worse there, not better. */
+[class*="st-key-dlg-foot-"] { padding-top:10px !important; }
+
+.dlg-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+.dlg-vendor { font-size:18px; font-weight:600; letter-spacing:-0.01em; color:var(--text); }
+.dlg-amount { font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:500;
+              margin-left:auto; font-variant-numeric:tabular-nums; color:var(--text); }
+.dlg-meta { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-muted);
+            margin-top:5px; }
+/* The risk band is still the only filled band on the screen. */
+.dlg-risk { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-top:14px;
+            padding:12px 16px; border-radius:12px; background:var(--caution-wash); }
+
+.panel { background:var(--surface); border-radius:12px; box-shadow:var(--lift);
+         padding:16px 18px; }
+.panel-label { font-size:12px; color:var(--text-muted); margin-bottom:10px; }
+.doc-marked { color:var(--caution-text); }
+.doc-text { font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.5;
+            color:var(--text-strong); max-height:250px; overflow-y:auto; }
+.doc-line { padding:1px 0; }
+/* A row the model failed to store, marked where it appears. The eye needs somewhere to land on
+   both sides of the same fact, which is what makes the panel opposite readable without
+   scrolling between the two. */
+.doc-missed { display:grid; grid-template-columns:1fr auto auto auto; gap:12px;
+              align-items:baseline; margin:3px -8px; padding:6px 8px; border-radius:7px;
+              background:var(--caution-wash); box-shadow:inset 3px 0 0 var(--caution); }
+.doc-qty { color:#7A7160; }
+.doc-sum { font-weight:500; }
+
+.clash { margin-top:12px; padding:14px 16px; border-radius:12px; background:var(--caution-wash);
+         box-shadow:inset 3px 0 0 var(--caution); }
+.clash-title { font-size:13.5px; font-weight:600; color:var(--caution-text); margin-bottom:6px; }
+.clash-note { font-size:13px; color:#6B6152; line-height:1.55; margin-bottom:10px; }
+.clash-row { display:flex; justify-content:space-between; gap:12px;
+             font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A7160; }
+.clash-sum { display:flex; justify-content:space-between; gap:12px; margin-top:6px;
+             padding-top:6px; border-top:1px solid rgba(138,74,24,0.22);
+             font-family:'IBM Plex Mono',monospace; font-size:12.5px; font-weight:500;
+             color:var(--caution-text); }
+
+.field { display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+         padding:7px 0; }
+.field-label { font-size:13px; color:var(--text-muted); }
+.field-value { font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--text);
+               text-align:right; }
+.field-note { font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--text-muted);
+              background:var(--fill-subtle); border-radius:5px; padding:1px 6px; margin-left:8px; }
+.field-rule { height:1px; background:var(--fill-subtle); margin:8px 0; }
+.field-miss { color:var(--caution-text); font-weight:500; }
+
 /* Focus has to be visible on every control, not just the ones Streamlit decides to mark.
    :focus-visible rather than :focus so a mouse click does not leave a ring behind. */
 :is(button, input, select, textarea, a, [role="tab"], [tabindex]):focus-visible {
@@ -608,89 +681,152 @@ def money(amount, currency) -> str:
     return f"{currency or ''} {amount:,.2f}".strip()
 
 
-def render_document(path, height: int = 420):
-    """Show the text the model actually read, and offer the file itself.
+def document_text(path) -> str:
+    """The text the model was given, character for character.
 
-    **Not the rendered page, and three approaches were tried before settling here.**
-    `st.pdf` exists in Streamlit 1.62.0 but raises unless the separate `streamlit-pdf` component
-    is installed, and version 2.0.1 of that component fails on import against this Streamlit.
+    **Not the rendered page, and three approaches were tried before settling here.** `st.pdf`
+    exists in Streamlit 1.62.0 but raises unless the separate `streamlit-pdf` component is
+    installed, and version 2.0.1 of that component fails on import against this Streamlit.
     Embedding the file as a `data:` URI renders nothing, because Streamlit sandboxes the iframe
     `st.html` produces. Rasterising the first page would work and costs a binary dependency that
     every teammate would have to install.
 
-    So the panel shows the extracted text. That is a downgrade for layout and an upgrade for the
-    job: the question an approver is answering is whether the model read the document correctly,
-    and this is character for character what the model was given. A rendered page would show
-    what the document looks like; this shows what the pipeline saw.
-
-    The original is one click away for anyone who needs the layout.
+    The text is a downgrade for layout and an upgrade for the job: the question an approver is
+    answering is whether the model read the document correctly, and this is exactly what it was
+    given. The original is one click away for anyone who needs the layout.
     """
     if not path or not os.path.exists(path):
-        st.caption("The archived file is no longer on disk.")
-        return
-
-    with open(path, "rb") as handle:
-        data = handle.read()
-
+        return ""
     try:
         from pypdf import PdfReader
-        text = "\n".join((page.extract_text() or "") for page in PdfReader(path).pages)
+        return "\n".join((page.extract_text() or "") for page in PdfReader(path).pages)
     except Exception:                                   # noqa: BLE001
-        text = ""
+        return ""
 
-    st.caption("What the model read")
-    if text.strip():
-        st.text_area(
-            "document text", value=text, height=height,
-            label_visibility="collapsed", disabled=True,
-        )
-    else:
-        st.caption("No text layer. This document would need OCR, which the pipeline does not do.")
 
-    st.download_button(
-        "Download the original", data=data,
-        file_name=os.path.basename(path), mime="application/pdf",
-    )
+def document_panel(text: str, missed) -> str:
+    """The extracted text, with the priced rows the model failed to store marked in place.
+
+    FE-11. Marking them here is what lets the panel opposite be read without scrolling between
+    the two: the same fact has somewhere to land on both sides of the dialog.
+    """
+    wanted = {row.description for row in missed}
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    out, i = [], 0
+    while i < len(lines):
+        if lines[i] in wanted and i + 3 < len(lines):
+            description, quantity, unit, total = lines[i:i + 4]
+            out.append(f"<div class='doc-missed'><span>{description}</span>"
+                       f"<span class='doc-qty'>{quantity}</span>"
+                       f"<span class='doc-qty'>{unit}</span>"
+                       f"<span class='doc-sum'>{total}</span></div>")
+            i += 4
+        else:
+            out.append(f"<div class='doc-line'>{lines[i]}</div>")
+            i += 1
+    return f"<div class='doc-text'>{''.join(out)}</div>"
+
+
+def contradiction_panel(clash) -> str:
+    """The most useful thing on the screen, said out loud.
+
+    `fe-screen-spec.md` §5 called the contradiction the most useful thing here and it was only
+    ever *available*: the document text and `Line items: none` sat side by side with nothing
+    connecting them. `line_item_check` closes that. On all three sample documents the priced
+    rows sum to exactly the total the pipeline stored, so the model's own total corroborates the
+    rows it failed to store, and there is no reading of that except a miss.
+    """
+    rows = "".join(
+        f"<div class='clash-row'><span>{r.description if len(r.description) <= 30 else r.description[:29] + chr(8230)}</span>"
+        f"<span>{r.line_total.split()[1]}</span></div>" for r in clash["rows"])
+    agreement = ("the exact total the model did read"
+                 if clash["matches_stored_total"] else "which the model's total does not match")
+    return (f"<div class='clash'>"
+            f"<div class='clash-title'>The document shows {clash['count']}</div>"
+            f"<div class='clash-note'>They are marked in the panel on the left. They sum to "
+            f"<strong>{clash['sum']:,.2f}</strong>, {agreement}. The model stored none of "
+            f"them.</div>{rows}"
+            f"<div class='clash-sum'><span>sum of the rows</span>"
+            f"<span>{clash['sum']:,.2f}</span></div></div>")
+
+
+def field_row(label, value, note="") -> str:
+    tail = f"<span class='field-note'>{note}</span>" if note else ""
+    return (f"<div class='field'><span class='field-label'>{label}</span>"
+            f"<span class='field-value'>{value}{tail}</span></div>")
 
 
 @st.dialog("Review document", width="large")
 def review_dialog(row):
-    """The only place approve and reject exist.
+    """The only place approve and reject exist, laid out as `review-dialog-design.html`.
 
     Not in the row, deliberately. Objective 4 of this project is to keep a person in the
     approval path, and a person approving from the row decides on exactly the information the
     machine had, which is the decision the machine already makes by itself at a score of 1.00.
     The extra click buys a look at the document, the evidence quotes and the covering email.
 
-    Ordered by the questions a person asks: what am I approving, is there a concern, let me
-    look, where did it come from, what happens if I approve.
+    The six questions in order: what am I approving, is there a concern, let me look, where did
+    it come from, what happens if I approve, decide. Two of those steps changed on 2026-09-24.
+
+    Step 3 now draws the contradiction rather than merely exposing it, which is FE-11. Step 6
+    is pinned to the bottom, because measured in a browser at a 1000px viewport the decision sat
+    below the fold: on a screen whose whole argument is that a person should look before
+    clicking, the thing they were being asked to click was the one thing they could not see.
     """
-    st.subheader(row["vendor_name"] or "Unknown vendor")
-    st.markdown(
-        f"<span class='amount'><strong>{money(row['total_amount'], row['currency'])}</strong>"
-        f"</span> &nbsp; {row['invoice_number'] or '-'} &middot; {row['document_type']}",
-        unsafe_allow_html=True,
-    )
+    with st.container(key=f"dlg-head-{row['id']}", gap=None):
+        st.markdown(
+            f"<div class='dlg-head'>"
+            f"<span class='dlg-vendor'>{row['vendor_name'] or 'Unknown vendor'}</span>"
+            f"{chip(row['document_type'], 'var(--text-faint)')}"
+            f"<span class='dlg-amount'>{money(row['total_amount'], row['currency'])}</span>"
+            f"</div><div class='dlg-meta'>{dialog_meta(row)}</div>",
+            unsafe_allow_html=True)
 
-    signal = risk_signal(row)
-    if signal:
-        st.markdown(f"<p class='signal'>{signal}</p>", unsafe_allow_html=True)
+        signal, detail = risk_signal(row), risk_detail(row)
+        if signal:
+            st.markdown(
+                f"<div class='dlg-risk'><span class='verdict verdict-look'>Worth a careful "
+                f"look</span><span class='signal'>{signal}</span>"
+                f"<span class='signal-detail'>{detail or ''}</span></div>",
+                unsafe_allow_html=True)
 
-    left, right = st.columns([3, 2])
+    text = document_text(row.get("archive_path"))
+    items = load_line_items(int(row["id"]))
+    clash = contradiction(text, len(items), row.get("total_amount"))
+
+    left, right = st.columns([1.35, 1], gap="small")
     with left:
-        render_document(row.get("archive_path"))
+        if text.strip():
+            marked = clash["rows"] if clash else []
+            note = (f" &middot; <span class='doc-marked'>the {clash['count']} rows it missed "
+                    f"are marked</span>" if clash else "")
+            st.markdown(f"<div class='panel'><div class='panel-label'>What the model read{note}"
+                        f"</div>{document_panel(text, marked)}</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div class='panel'><div class='panel-label'>What the model read</div>"
+                        "<p class='ov-more'>No text layer. This document would need OCR, which "
+                        "the pipeline does not do.</p></div>", unsafe_allow_html=True)
+        original = original_for(row)
+        if original:
+            data, name = original
+            st.download_button("Download the original", data=data, file_name=name,
+                               mime="application/pdf", key=f"dlgdl-{row['id']}")
+
     with right:
-        for label, value in (
-            ("Date", row.get("invoice_date")),
-            ("Currency", row.get("currency")),
-            ("Total source", row.get("total_source")),
-            ("Vendor source", row.get("vendor_source")),
-        ):
-            st.markdown(f"**{label}** &nbsp; `{value or '-'}`")
-        items = load_line_items(int(row["id"]))
-        st.markdown(f"**Line items** &nbsp; `{len(items) or 'none'}`")
-        if not items.empty:
-            st.dataframe(items, hide_index=True, use_container_width=True)
+        stored = "none" if items.empty else str(len(items))
+        st.markdown(
+            "<div class='panel'><div class='panel-label'>What the model stored</div>"
+            + field_row("Date", row.get("invoice_date") or "-")
+            + field_row("Currency", row.get("currency") or "-")
+            + field_row("Total", money(row["total_amount"], row["currency"]),
+                        row.get("total_source") or "")
+            + field_row("Vendor", "read from the document"
+                        if row.get("vendor_source") == "model" else "recovered by our code")
+            + "<div class='field-rule'></div>"
+            + field_row("Line items",
+                        f"<span class='field-miss'>{stored}</span>" if clash else stored)
+            + (contradiction_panel(clash) if clash else "")
+            + "</div>", unsafe_allow_html=True)
 
     email = load_email_for(row)
     if email["sender"]:
@@ -708,11 +844,6 @@ def review_dialog(row):
                 "separates a real action from an invented one, and it is worth reading: the "
                 "model tends to produce generic actions and then attach whatever sentence it "
                 "happened to be near."
-            )
-            st.caption(
-                "**Tick one when you have dealt with it.** It saves immediately and is a note "
-                "to whoever opens this document next. Nothing downstream reads it: it does not "
-                "affect the validation score, the approval, or the Jira task."
             )
             # These were checkboxes until 2026-09-20. Ticking one wrote
             # invoice_action_items.is_done, which nothing in this codebase reads: not the
@@ -733,47 +864,56 @@ def review_dialog(row):
         value="" if not existing or pd.isna(existing) else existing,
         key=f"note-{row['id']}", height=80,
         placeholder="Chased the vendor about the missing line items.")
-    left, right = st.columns([5, 1.2], vertical_alignment="center")
+    saved, save = st.columns([5, 1.2], vertical_alignment="center")
     if row.get("review_note_at") and not pd.isna(row.get("review_note_at")):
-        left.markdown(f"<p class='note-when'>Last saved {row['review_note_at']}</p>",
-                      unsafe_allow_html=True)
-    if right.button("Save note", key=f"savenote-{row['id']}", width="stretch"):
+        saved.markdown(f"<p class='note-when'>Last saved {row['review_note_at']}</p>",
+                       unsafe_allow_html=True)
+    if save.button("Save note", key=f"savenote-{row['id']}", width="stretch"):
         save_review_note(int(row["id"]), note)
         st.rerun()
 
-    st.divider()
-    # FE-12, corrected 2026-09-20. This said "Approving creates a Jira task Payment
-    # immediately", which is false whenever Jira is unconfigured, and it is unconfigured now.
-    # `record_decision` always writes a local follow-up task and queues an outbox row;
-    # `dispatch_task_to_jira` then returns without contacting anything unless JIRA_ENABLED and
-    # the .env are set. A screen that claims more than the system does is the exact failure
-    # this project exists to catch, and it was doing it on the one line that exists to warn a
-    # person before they act.
-    #
-    # The title is built by the dispatcher's own function rather than re-spelled here, so the
-    # preview cannot drift from the issue. `_build_summary` is private and lives in Luke's
-    # file; it is called read-only and pinned by tests/test_app_jira_preview.py. Making it
-    # public is a one-line PR whenever that is worth doing.
-    task_title = task_dispatch._build_summary(
-        follow_up_for(row["document_type"]), row["file_name"], row["vendor_name"])
-    if jira_ready():
-        st.markdown(f"Approving creates a Jira issue immediately, titled `{task_title}`.")
-    else:
-        st.markdown(
-            f"Approving opens a task titled `{task_title}` and queues it for Jira. "
-            f"**Jira is not configured, so nothing is sent**: the row waits in the Outbox "
-            f"until `JIRA_ENABLED` is set.")
-    # Two identical full-width buttons made Reject look as inviting as Approve, and both of
-    # them look like the third button on the screen rather than the decision the dialog exists
-    # for. approval-screen-design-v2.html fills Approve and leaves Reject quiet, both sitting at
-    # the right edge under the line that says what approving will do.
-    _spacer, reject, approve = st.columns([4, 1.1, 1.2], vertical_alignment="center")
-    if reject.button("Reject", key=f"reject-{row['id']}", width="stretch"):
-        record_decision(int(row["id"]), "Rejected")
-        st.rerun()
-    if approve.button("Approve", type="primary", key=f"approve-{row['id']}", width="stretch"):
-        record_decision(int(row["id"]), "Approved")
-        st.rerun()
+    with st.container(key=f"dlg-foot-{row['id']}", gap=None):
+        # FE-12, corrected 2026-09-20. This said "Approving creates a Jira task Payment
+        # immediately", which is false whenever Jira is unconfigured, and it is unconfigured
+        # now. `record_decision` always writes a local follow-up task and queues an outbox row;
+        # `dispatch_task_to_jira` then returns without contacting anything unless JIRA_ENABLED
+        # and the .env are set. A screen that claims more than the system does is the exact
+        # failure this project exists to catch, and it was doing it on the one line that exists
+        # to warn a person before they act.
+        #
+        # The title is built by the dispatcher's own function rather than re-spelled here, so
+        # the preview cannot drift from the issue. `_build_summary` is private and lives in
+        # Luke's file; it is called read-only and pinned by tests/test_app_jira_preview.py.
+        task_title = task_dispatch._build_summary(
+            follow_up_for(row["document_type"]), row["file_name"], row["vendor_name"])
+        if jira_ready():
+            st.markdown(f"Approving creates a Jira issue immediately, titled `{task_title}`.")
+        else:
+            st.markdown(
+                f"Approving opens a task titled `{task_title}` and queues it for Jira. "
+                f"**Jira is not configured, so nothing is sent**: the row waits in the Outbox "
+                f"until `JIRA_ENABLED` is set.")
+        # Two identical full-width buttons made Reject look as inviting as Approve. Approve is
+        # filled and Reject is quiet, both at the right edge under the line that says what
+        # approving will do.
+        _spacer, reject, approve = st.columns([4, 1.1, 1.2], vertical_alignment="center")
+        if reject.button("Reject", key=f"reject-{row['id']}", width="stretch"):
+            record_decision(int(row["id"]), "Rejected")
+            st.rerun()
+        if approve.button("Approve", type="primary", key=f"approve-{row['id']}",
+                          width="stretch"):
+            record_decision(int(row["id"]), "Approved")
+            st.rerun()
+
+
+def dialog_meta(row) -> str:
+    parts = [row["invoice_number"] or "-"]
+    if row.get("invoice_date") and not pd.isna(row["invoice_date"]):
+        parts.append(f"issued {row['invoice_date']}")
+    waited = waiting_days(row)
+    if waited is not None:
+        parts.append(f"waiting {waited}d")
+    return " &middot; ".join(parts)
 
 
 DOC_ICON = (
