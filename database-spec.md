@@ -4,7 +4,7 @@
 Supersedes `database-redesign-spec.md` and `database-completion-spec.md`, both of which are folded
 into this document. Their earlier versions remain in git history.
 
-**Owner:** Neo. **Branch:** `neo/integrate-team`. **Schema version:** 12.
+**Owner:** Neo. **Branch:** `neo/integrate-team`. **Schema version:** 14.
 **Last verified:** 2026-09-17, by `./.venv/bin/python -m pytest tests/ -q` plus an
 end-to-end pipeline run. The test count is deliberately not quoted here: it changes on
 every push and a number in a document rots where a command does not.
@@ -664,6 +664,8 @@ better report line than a normaliser that guesses and is usually right.
 | 10 | `migrations/010_run_kind_and_threads.py` | Rebuilt `processing_runs` for a nullable `threshold` and a `run_kind`; added `thread_id` and `thread_source` to `email_messages`. | **Applied** |
 | 11 | `migrations/011_email_analysis.py` | Added `email_analysis`, `thread_analysis`, `email_action_items`, `thread_decisions`. Additive. | **Applied** |
 | 12 | `migrations/012_invoice_ai_fields.py` | Added `email_attachments` and `invoice_action_items`, and `invoices.category` / `invoices.summary`. Luke's SQL, re-landed at a free number. Additive. | **Applied** |
+| 13 | `migrations/013_reviewer_login.py` | Added `users` and `invoices.reviewed_by`. Written on `luke/team-tasks` as 010 and re-landed here because 010 was already taken. Additive. | **Applied** |
+| 14 | `migrations/014_must_change_password.py` | Added `users.must_change_password`. Written as 011 and re-landed for the same reason. Additive. | **Applied** |
 
 Every migration backs the database up first, refuses to run out of order, is idempotent, and prints
 a before/after report that proves no money moved.

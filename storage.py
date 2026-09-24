@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 14
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
@@ -138,6 +138,19 @@ CREATE TABLE email_attachments (
 
 CREATE INDEX ix_email_attachments_email ON email_attachments(email_id);
 
+-- Dashboard login. A reviewer is a row here; invoices.reviewed_by points at the person
+-- who approved or rejected the document. Passwords are hashes, never the .env plaintext.
+CREATE TABLE users (
+    user_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username        TEXT    NOT NULL UNIQUE,
+    display_name    TEXT    NOT NULL,
+    password_hash   TEXT    NOT NULL,
+    jira_account_id TEXT,
+    -- 1 until the person replaces the password that auth.py add stored. The dashboard
+    -- refuses the rest of the app while this is set.
+    must_change_password INTEGER NOT NULL DEFAULT 1 CHECK (must_change_password IN (0, 1))
+);
+
 CREATE TABLE invoices (
     invoice_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id            INTEGER NOT NULL REFERENCES processing_runs(run_id),
@@ -196,7 +209,11 @@ CREATE TABLE invoices (
     -- fail (Ollama unreachable, a validation error) independently of the main extraction,
     -- and a document should still be stored without it rather than not at all.
     category          TEXT,
-    summary           TEXT
+    summary           TEXT,
+    -- Who approved or rejected this document. NULL for auto-approval and for anything
+    -- still pending: same meaning as reviewed_at. Appended last so a migrated database
+    -- and a fresh one agree on column order.
+    reviewed_by       INTEGER REFERENCES users(user_id)
 );
 
 CREATE UNIQUE INDEX ux_invoices_content ON invoices(content_sha256);
@@ -834,8 +851,8 @@ class StorageManager:
         """Upserts one invoice and replaces its line items, in a single transaction.
 
         Keyed on content_sha256, so re-processing the same document updates its row instead
-        of appending a duplicate. approval_status and reviewed_at are never overwritten:
-        they record a human decision, not an extraction result.
+        of appending a duplicate. approval_status, reviewed_at and reviewed_by are never
+        overwritten: they record a human decision, not an extraction result.
 
         category, summary and action_items come from email_ai.py's document-intelligence
         pass (migration 009), run separately from the main extraction. All optional: that
@@ -1134,6 +1151,102 @@ class StorageManager:
             attachment_id = int(cursor.fetchone()["attachment_id"])
             conn.commit()
         return {"attachment_id": attachment_id, "was_created": True}
+
+    # -- users ---------------------------------------------------------
+    def upsert_user(
+        self,
+        username: str,
+        display_name: str,
+        password_hash: str,
+        jira_account_id: Optional[str] = None,
+    ) -> int:
+        """Inserts a dashboard user, or replaces the same username.
+
+        The hash is stored as given. Callers hash the password before this; the
+        plaintext never reaches the database.
+        """
+        username = (username or "").strip()
+        display_name = (display_name or "").strip()
+        if not username or not display_name or not password_hash:
+            raise ValueError("username, display_name and password_hash are required")
+        account_id = (jira_account_id or "").strip() or None
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                INSERT INTO users (
+                    username, display_name, password_hash, jira_account_id,
+                    must_change_password
+                ) VALUES (?, ?, ?, ?, 1)
+                ON CONFLICT(username) DO UPDATE SET
+                    display_name         = excluded.display_name,
+                    password_hash        = excluded.password_hash,
+                    jira_account_id      = excluded.jira_account_id,
+                    must_change_password = 1
+                RETURNING user_id
+                """,
+                (username, display_name, password_hash, account_id),
+            ).fetchone()
+            conn.commit()
+        return int(row["user_id"])
+
+    def user_by_username(self, username: str) -> Optional[sqlite3.Row]:
+        """The login lookup, including the password hash."""
+        with connect(self.db_path) as conn:
+            return conn.execute(
+                "SELECT user_id, username, display_name, password_hash, jira_account_id, "
+                "must_change_password FROM users WHERE username = ?",
+                ((username or "").strip(),),
+            ).fetchone()
+
+    def replace_password(self, user_id: int, password_hash: str) -> bool:
+        """Stores a password the person chose and clears the first-login flag."""
+        if not password_hash:
+            raise ValueError("password_hash is required")
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE users SET password_hash = ?, must_change_password = 0 "
+                "WHERE user_id = ?",
+                (password_hash, user_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def count_users(self) -> int:
+        with connect(self.db_path) as conn:
+            return int(conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"])
+
+    def user_by_id(self, user_id: int) -> Optional[sqlite3.Row]:
+        """Display name and Jira account id for a reviewer. No password hash."""
+        with connect(self.db_path) as conn:
+            return conn.execute(
+                "SELECT user_id, username, display_name, jira_account_id "
+                "FROM users WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+
+    def record_decision(self, invoice_id: int, decision: str, reviewed_by: int) -> bool:
+        """Records who approved or rejected an invoice.
+
+        Writes approval_status, reviewed_at and reviewed_by only. validation_status and
+        validation_score stay as the pipeline left them. An unknown user_id is rejected
+        rather than stored: a decision with no real reviewer is not a decision.
+        Returns whether a row changed.
+        """
+        if decision not in ("Approved", "Rejected", "Pending"):
+            raise ValueError(f"unknown decision {decision!r}")
+        with connect(self.db_path) as conn:
+            reviewer = conn.execute(
+                "SELECT user_id FROM users WHERE user_id = ?", (reviewed_by,)
+            ).fetchone()
+            if not reviewer:
+                raise ValueError(f"unknown reviewer {reviewed_by}")
+            cursor = conn.execute(
+                "UPDATE invoices SET approval_status = ?, reviewed_at = datetime('now'), "
+                "reviewed_by = ? WHERE invoice_id = ?",
+                (decision, reviewed_by, invoice_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     # -- tasks ---------------------------------------------------------
     def open_task(

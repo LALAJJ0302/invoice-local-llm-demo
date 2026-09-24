@@ -132,6 +132,89 @@ def create_invoice_pdf(output_path: str, data: Dict[str, Any]) -> None:
     print(f"  [Generated] {output_path}")
 
 
+def create_review_invoice_pdf(output_path: str) -> None:
+    """An invoice whose payable amount is not beside a grand-total label.
+
+    The gate only scores 1.00 when the amount sits next to a total label. Without
+    that label the amount is 'present' at best, the score stays below 1, and the
+    document waits for a person instead of auto-approving. The word 'total' is
+    absent on purpose: the column header 'Total' would itself count as a label.
+    """
+    doc = SimpleDocTemplate(
+        output_path, pagesize=letter,
+        rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40,
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        name="ReviewTitle", parent=styles["Heading1"], fontSize=24, leading=28,
+        textColor=colors.HexColor("#1E293B"), fontName="Helvetica-Bold",
+    )
+    body = ParagraphStyle(
+        name="ReviewBody", parent=styles["Normal"], fontSize=10, leading=14,
+        textColor=colors.HexColor("#475569"),
+    )
+    header = ParagraphStyle(
+        name="ReviewHeader", parent=styles["Normal"], fontSize=10, leading=12,
+        textColor=colors.white, fontName="Helvetica-Bold",
+    )
+    cell = ParagraphStyle(
+        name="ReviewCell", parent=styles["Normal"], fontSize=10, leading=12,
+        textColor=colors.HexColor("#1E293B"),
+    )
+
+    story = [
+        Paragraph("TAX INVOICE", title_style),
+        Spacer(1, 10),
+        Paragraph(
+            "<b>Vendor:</b> Harbour Review Supplies<br/>"
+            "<b>Address:</b> 12 Wharf Lane, Sydney NSW 2000<br/>"
+            "<b>Email:</b> accounts@harbourreview.example",
+            body,
+        ),
+        Spacer(1, 12),
+        Paragraph(
+            "<b>Invoice Number:</b> INV-2026-004<br/>"
+            "<b>Date of Issue:</b> 2026-09-01<br/>"
+            "<b>Bill To:</b> Enterprise Client Inc.<br/>"
+            "<b>Currency:</b> AUD",
+            body,
+        ),
+        Spacer(1, 20),
+    ]
+
+    table_data = [[
+        Paragraph("Description", header),
+        Paragraph("Qty", header),
+        Paragraph("Unit Price", header),
+        Paragraph("Line amount", header),
+    ]]
+    for description, qty, unit, line in (
+        ("On-site document review", "2", "400.00", "800.00"),
+        ("Travel to the client site", "1", "190.00", "190.00"),
+    ):
+        table_data.append([
+            Paragraph(description, cell),
+            Paragraph(qty, cell),
+            Paragraph(f"AUD {unit}", cell),
+            Paragraph(f"AUD {line}", cell),
+        ])
+
+    item_table = Table(table_data, colWidths=[240, 60, 110, 110])
+    item_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(item_table)
+    story.append(Spacer(1, 16))
+    story.append(Paragraph("<b>Amount payable:</b> AUD 990.00", body))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("Payment terms: due within 14 days.", body))
+    doc.build(story)
+    print(f"  [Generated] {output_path}")
+
+
 def generate_all_mock_invoices(target_dir: str = "./inbox") -> None:
     """Creates a sample set of mock invoice PDFs inside the target directory."""
     os.makedirs(target_dir, exist_ok=True)
@@ -190,7 +273,10 @@ def generate_all_mock_invoices(target_dir: str = "./inbox") -> None:
         filename = f"sample_invoice_{idx}_{data['invoice_number']}.pdf"
         output_file = os.path.join(target_dir, filename)
         create_invoice_pdf(output_file, data)
-    
+
+    review_path = os.path.join(target_dir, "sample_invoice_4_INV-2026-004.pdf")
+    create_review_invoice_pdf(review_path)
+
     print("=== All mock invoice PDFs successfully generated! ===\n")
 
 

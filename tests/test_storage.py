@@ -1003,9 +1003,10 @@ class TestAutoApprove:
         store.auto_approve(invoice_id)
         with connect(store.db_path) as conn:
             row = conn.execute(
-                "SELECT reviewed_at FROM invoices WHERE invoice_id=?", (invoice_id,)
+                "SELECT reviewed_at, reviewed_by FROM invoices WHERE invoice_id=?", (invoice_id,)
             ).fetchone()
         assert row["reviewed_at"] is None
+        assert row["reviewed_by"] is None
 
     def test_opens_the_same_post_approval_task_a_human_approval_would(self, store, run_id):
         invoice_id = save(store, run_id, validation_score=1.0,
@@ -1158,3 +1159,53 @@ class TestEmailBody:
                 "SELECT body_text, body_source FROM email_messages").fetchone()
         assert row["body_text"] == "Second"
         assert row["body_source"] == "intake"
+
+
+# =====================================================================
+# Dashboard reviewers
+# =====================================================================
+class TestRecordDecision:
+    def _user(self, store, username="luke"):
+        return store.upsert_user(username, username.title(), "hash", "acc-" + username)
+
+    def test_stores_the_reviewer(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        user_id = self._user(store)
+        assert store.record_decision(invoice_id, "Approved", user_id) is True
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, reviewed_at, reviewed_by FROM invoices "
+                "WHERE invoice_id = ?",
+                (invoice_id,),
+            ).fetchone()
+        assert row["approval_status"] == "Approved"
+        assert row["reviewed_at"] is not None
+        assert row["reviewed_by"] == user_id
+
+    def test_reprocess_keeps_the_reviewer(self, store, run_id):
+        first = save(store, run_id)
+        user_id = self._user(store)
+        store.record_decision(first["invoice_id"], "Rejected", user_id)
+        save(store, run_id)
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, reviewed_by FROM invoices"
+            ).fetchone()
+        assert row["approval_status"] == "Rejected"
+        assert row["reviewed_by"] == user_id
+
+    def test_unknown_reviewer_is_rejected(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        with pytest.raises(ValueError, match="unknown reviewer"):
+            store.record_decision(invoice_id, "Approved", 999)
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, reviewed_by FROM invoices WHERE invoice_id = ?",
+                (invoice_id,),
+            ).fetchone()
+        assert row["approval_status"] == "Pending"
+        assert row["reviewed_by"] is None
+
+    def test_missing_invoice_returns_false(self, store):
+        user_id = self._user(store)
+        assert store.record_decision(404, "Approved", user_id) is False

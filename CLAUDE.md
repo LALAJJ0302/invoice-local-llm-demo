@@ -37,6 +37,8 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python migrations/010_run_kind_and_threads.py
 ./.venv/bin/python migrations/011_email_analysis.py
 ./.venv/bin/python migrations/012_invoice_ai_fields.py
+./.venv/bin/python migrations/013_reviewer_login.py
+./.venv/bin/python migrations/014_must_change_password.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
 ./.venv/bin/python email_pipeline.py --threads   # analyse the stored mailbox -> SQLite
 ./.venv/bin/python query_db.py                   # inspect records
@@ -64,7 +66,7 @@ accumulating duplicates. It writes to SQLite first and archives only after the c
 
 The migrations are one-off and idempotent. 001 renames `workflow_records` to `workflow_records_v1`,
 keeps it, and takes a `.bak` copy of the database first. Running any of them twice is a no-op.
-Schema version is 12. 010 is the only one since 003 that rewrites an existing table.
+Schema version is 14. 010 is the only one since 003 that rewrites an existing table.
 **Never renumber a migration that is already on `main`.** 012 exists because Luke's
 008 and 009 were written against numbers that were already taken and already applied;
 the SQL was fine, the numbering was not, and a renumbered migration refuses to run on

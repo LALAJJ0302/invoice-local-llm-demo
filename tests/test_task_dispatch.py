@@ -258,6 +258,50 @@ class TestDispatchTaskToJira:
         assert outbox["state"] == "Sent"
         assert outbox["external_ref"] == "KAN-22"
 
+    def test_human_path_sets_the_reviewer_as_reporter(self, store, invoice_id):
+        user_id = store.upsert_user("luke", "Luke", "hash", "acc-luke")
+        task = store.open_task(invoice_id, "Payment", "approved invoice")
+        jira = MagicMock()
+        jira.is_configured.return_value = True
+        jira.resolve_assignee.return_value = "acc-default"
+        jira.create_issue.return_value = "KAN-30"
+
+        dispatch_task_to_jira(
+            store,
+            task["task_id"],
+            invoice_id,
+            "Payment",
+            "approved invoice",
+            approval_path="human",
+            reviewer_user_id=user_id,
+            jira=jira,
+        )
+
+        assert jira.create_issue.call_args.kwargs["reporter_account_id"] == "acc-luke"
+        assert "Reviewed by:" not in jira.create_issue.call_args.kwargs["description"]
+
+    def test_missing_account_id_still_creates_and_names_the_reviewer(self, store, invoice_id):
+        user_id = store.upsert_user("neo", "Neo", "hash", None)
+        task = store.open_task(invoice_id, "Payment", "approved invoice")
+        jira = MagicMock()
+        jira.is_configured.return_value = True
+        jira.resolve_assignee.return_value = "acc-default"
+        jira.create_issue.return_value = "KAN-31"
+
+        dispatch_task_to_jira(
+            store,
+            task["task_id"],
+            invoice_id,
+            "Payment",
+            "approved invoice",
+            reviewer_user_id=user_id,
+            jira=jira,
+        )
+
+        jira.create_issue.assert_called_once()
+        assert jira.create_issue.call_args.kwargs["reporter_account_id"] is None
+        assert "Reviewed by: Neo" in jira.create_issue.call_args.kwargs["description"]
+
 
 class TestSyncJiraAssignee:
     def test_syncs_when_external_ref_exists(self, store, invoice_id):
