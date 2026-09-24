@@ -43,7 +43,7 @@ schema silently produces empty fields, and the resulting output looks like a wor
 does follow, and is the more useful finding because it is a failure mode that survives any
 change of model.
 
-## 6.3 Five lessons, each attached to the evidence that produced it
+## 6.3 Seven lessons, each attached to the evidence that produced it
 
 These are recorded as lessons because each one cost the project time before it was understood,
 and each was established by measurement rather than by review.
@@ -79,7 +79,27 @@ one comparison. A fuller design showed the original prompt was an equally suffic
 first comparison was not wrong. It was incomplete, and it was reported with more confidence than
 its design supported, which is the harder error to notice because nothing in it is false.
 
-## 6.4 A sixth lesson, about how this report was produced
+**6. A measurement can be wrong in a way that hides exactly what it was built to find.** A check
+was written to count how often subject matching merges unrelated messages into one conversation.
+The first version counted threads containing more than one sender, which seemed obvious and was
+useless: a genuine reply chain almost always spans several senders, because a reply comes from a
+different address than the message it answers. It would have reported every real conversation as
+a defect, and the real collisions would have been indistinguishable inside that number. The
+version that works counts threads where no message announces itself as a reply, which is several
+originals sharing a subject. **It was caught because a test fixture contained one real
+conversation and one real collision, and the metric could not tell them apart.** A fixture with
+only collisions in it would have agreed with the broken metric.
+
+**7. Tests written by the people who wrote the code share its blind spots.** A field that may be
+absent was covered by twenty-eight tests. The model then returned the literal string `"null"`,
+which is text and not an absent value, and every one of those tests still passed, because nobody
+writing a test invents that input. It was found by running two real messages through the live
+model. Constructed inputs test what the author imagined; the system's actual output tests what
+it does. **This is an argument for running the real thing early and often, not for writing more
+tests of the same kind**, and it is the second time in this project that running something found
+what reading it had not, the first being lesson 1.
+
+## 6.4 An eighth lesson, about how this report was produced
 
 This project asks whether an AI system can be trusted with document work. It was itself built
 with an AI assistant, and the honest answer emerged from that collaboration rather than from the
@@ -124,3 +144,15 @@ decoding, not that they extract equally well.
 vendor the organisation does not use.** Every check it performs is internal to the document, so
 a well-formatted document that should not be paid scores exactly as well as one that should.
 §7.2 treats this as the most important open risk rather than a limitation of measurement.
+
+**The email half has no accuracy figure of any kind.** §5.9 reports what one run produced and
+says explicitly that none of it is a score. The classifier used one of its six labels on all 18
+messages, and this report does not know whether that is correct, because every message in the
+mailbox concerns an invoice. Nothing in section 6 draws a conclusion about how well that half
+works, and any sentence that appeared to would be unsupported.
+
+**One detail is worth separating from the rest.** The first four limitations are about
+insufficient or unrepresentative data, and more data would reduce them. The email limitation is
+different in kind: the data exists and the pipeline runs over it, but there is no ground truth
+to compare against, so the quantity of data does not help. The two need different remedies, and
+conflating them would make the second look closer to solved than it is.

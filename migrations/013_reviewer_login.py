@@ -1,6 +1,10 @@
-"""Migration 010: dashboard users and who reviewed each invoice.
+"""Migration 013: dashboard users and who reviewed each invoice.
 
-    ./.venv/bin/python migrations/010_reviewer_login.py [--db workflow_platform.db] [--dry-run]
+    ./.venv/bin/python migrations/013_reviewer_login.py [--db workflow_platform.db] [--dry-run]
+
+Written on luke/team-tasks as migration 010. Re-landed at 013 because 010 and 011
+were already on main. A migration that has been applied cannot be renumbered onto
+a version that no longer exists.
 
 users
     Local dashboard accounts. Passwords are hashes. The plaintext lives in .env and is
@@ -22,8 +26,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 from storage import connect, table_exists  # noqa: E402
 
-FROM_VERSION = 9
-TARGET_VERSION = 10
+FROM_VERSION = 12
+TARGET_VERSION = 13
 
 DDL_USERS = """
 CREATE TABLE users (
@@ -73,7 +77,7 @@ def migrate(db_path, dry_run=False):
         sum_before = conn.execute(
             "SELECT COALESCE(SUM(total_cents),0) s FROM invoices").fetchone()["s"]
 
-    print(f"=== Migration 010: reviewer login in {db_path} ===")
+    print(f"=== Migration 013: reviewer login in {db_path} ===")
     print(f"[*] {invoices_before} invoices at schema version {version}.")
 
     if dry_run:

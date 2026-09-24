@@ -102,7 +102,7 @@ def load_action_items(invoice_id: int) -> pd.DataFrame:
             deadline_text AS "Deadline",
             evidence_quote AS "Evidence",
             is_done
-        FROM action_items
+        FROM invoice_action_items
         WHERE invoice_id = ?
         ORDER BY line_no
         """,

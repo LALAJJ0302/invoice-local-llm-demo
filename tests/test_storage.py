@@ -780,7 +780,7 @@ class TestAIDocumentFields:
         ])["invoice_id"]
         with connect(store.db_path) as conn:
             conn.execute("DELETE FROM invoices WHERE invoice_id = ?", (invoice_id,))
-            assert conn.execute("SELECT COUNT(*) c FROM action_items").fetchone()["c"] == 0
+            assert conn.execute("SELECT COUNT(*) c FROM invoice_action_items").fetchone()["c"] == 0
 
 
 # =====================================================================

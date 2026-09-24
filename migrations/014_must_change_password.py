@@ -1,6 +1,9 @@
-"""Migration 011: first-login password change.
+"""Migration 014: first-login password change.
 
-    ./.venv/bin/python migrations/011_must_change_password.py [--db workflow_platform.db] [--dry-run]
+    ./.venv/bin/python migrations/014_must_change_password.py [--db workflow_platform.db] [--dry-run]
+
+Written on luke/team-tasks as migration 011, and re-landed here for the same reason
+as 013: 011 was already taken on main.
 
 users.must_change_password
     1 until the person replaces the password stored by `auth.py add`. Existing rows
@@ -18,8 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import storage  # noqa: E402
 from storage import connect, table_exists  # noqa: E402
 
-FROM_VERSION = 10
-TARGET_VERSION = 11
+FROM_VERSION = 13
+TARGET_VERSION = 14
 
 
 def current_version(conn):
@@ -54,7 +57,7 @@ def migrate(db_path, dry_run=False):
 
         users_before = conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
 
-    print(f"=== Migration 011: first-login password change in {db_path} ===")
+    print(f"=== Migration 014: first-login password change in {db_path} ===")
     print(f"[*] {users_before} users at schema version {version}.")
 
     if dry_run:

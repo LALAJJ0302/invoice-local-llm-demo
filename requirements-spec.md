@@ -73,10 +73,36 @@ Priority: **M** must have for the demonstration, **S** should have, **C** could 
 | ID | Requirement | Pri | Status |
 |---|---|---|---|
 | FR-2.1 | The system shall extract the text layer from a PDF | M | Implemented |
-| FR-2.2 | The system shall extract invoice number, vendor, date, total and currency into a typed structure | M | **Partial, 3/15 fields correct** |
+| FR-2.2 | The system shall extract invoice number, vendor, date, total and currency into a typed structure | M | **Implemented. 10/15 field-values from the model alone, 15/15 as shipped.** The gap is our own repair code, and `run_eval.py` switches every repair off by default so the model can always be measured alone. The earlier "3/15" in this row was the 2026-08-26 baseline and was left here after the prompt and the fallback changed it |
 | FR-2.3 | The system shall extract line items with description, quantity and unit price | M | Implemented |
 | FR-2.4 | The system shall run entirely on a local model with no external API call | M | Implemented |
 | FR-2.5 | The system shall process scanned or image-only PDFs | C | **Not implemented, no OCR** |
+
+### Phase 3, email understanding (JJ + Neo)
+
+Added 2026-09-17. **This group described nothing for six weeks while the module was built**,
+which mattered: `email_ai.py` has been on `main` since PR #5 and four tables hold its output,
+and none of it appeared anywhere in this document. Work that is not in the requirements is
+invisible to anyone reading them.
+
+| ID | Requirement | Pri | Status |
+|---|---|---|---|
+| FR-3.1 | The system shall classify an email into one of a fixed, closed set of categories | M | Implemented. Six labels, a `Literal` in `email_ai.py` and a CHECK in `email_analysis.category`, kept in step by a test |
+| FR-3.2 | The system shall summarise an email in one or two sentences | M | Implemented |
+| FR-3.3 | The system shall extract action items with their owner and deadline | M | Implemented |
+| FR-3.4 | Every extracted action item shall carry the sentence it was inferred from | M | Implemented as `evidence_quote`. This is what makes a wrong action item diagnosable rather than merely wrong |
+| FR-3.5 | An action item whose quote is not in the source shall be retried, and retained for measurement if it still fails | M | Implemented. Three attempts, then `NeedsReview` with a machine-readable reason and the attempt count. **Retained, never dropped**: the failure rate is a measurement |
+| FR-3.6 | A deadline shall be stored as written, and normalised only where it is unambiguous | S | Implemented as `deadline_text` plus a nullable `deadline_date`. "end of month" and `30/09/2026` both stay NULL |
+| FR-3.7 | Analysis shall be stored per run, so two models over the same mailbox can be compared | M | Implemented via `run_id` and `UNIQUE (email_id, run_id)` |
+| FR-3.8 | Messages shall be grouped into threads, and the grouping method recorded | S | **Partial.** `email_pipeline.py` groups by subject and writes `thread_source = 'subject'`. The correct key is `In-Reply-To` and `References`, which needs `email_listener.py`, and 1 of 16 threads in the mock mailbox is a known subject collision |
+| FR-3.9 | Classification, summarisation and action extraction shall be measured against ground truth | M | **Not implemented, and this is the real gap in this group.** There is no labelled set, so nothing here has a number. It can be run and inspected; it cannot be scored. Compare FR-7, where extraction has had ground truth since 2026-08-26 |
+
+**One measurement that exists without ground truth.** A full run over the 18-message mock
+mailbox on 2026-09-17 returned `category = "Invoice"` for **all 18**, using 1 of the 6 available
+labels. That does not prove the classifier is wrong, since every message in that mailbox is
+invoice-related. It does show the corpus cannot distinguish a working classifier from one that
+answers "Invoice" unconditionally, which is an argument about the test data as much as about the
+model, and it is what FR-3.9 would settle.
 
 ### Phase 4, storage (Neo)
 
@@ -129,7 +155,7 @@ Priority: **M** must have for the demonstration, **S** should have, **C** could 
 | NFR-1 | No document content leaves the machine | The reason for the local pivot. It is also a genuine privacy argument for the report | Met |
 | NFR-2 | The pipeline runs on a standard laptop with no GPU requirement | Every team member must be able to run it | Met |
 | NFR-3 | Any teammate can reproduce a run from a clean checkout | `requirements.txt` pins every direct dependency | Met |
-| NFR-4 | Claims about performance are reproducible by running something | The project's own standard | Met. `evaluation/` for extraction and its causes, 194 tests for storage |
+| NFR-4 | Claims about performance are reproducible by running something | The project's own standard | Met. `evaluation/` for extraction and its causes; `./.venv/bin/python -m pytest tests/ -q` for everything else. **The count is deliberately not written here**: it changes on every push, and a number in a document rots where a command does not |
 | NFR-5 | The dashboard remains readable while the pipeline writes | WAL is enabled on every connection | Met |
 | NFR-6 | Files owned by one team member are changed by pull request, not direct commit | Three people, one codebase | Process, currently observed |
 
@@ -177,8 +203,21 @@ the demonstration is acceptable when:
 1. The pipeline runs end to end, live, on one machine.
 2. The dashboard shows correct stored totals with derived values visibly labelled.
 3. The evaluation harness prints per-field accuracy with its limitations stated.
-4. We can explain **why** extraction scores 20% and what the fix is, with evidence.
+4. We can explain **what causes the extraction result**, with evidence, and say which part of
+   the shipped number is the model and which part is our own repair code.
 5. The schema and its constraints can be shown refusing invalid data.
+6. The email half runs live too: a mailbox is analysed and the result is stored and queryable.
+7. We can say plainly which of our results are scored against ground truth and which are only
+   inspected. As of 2026-09-17 extraction is scored and the email half is not.
 
-Point 4 matters more than a high score. A team that reports 20% and explains the cause
-demonstrates more understanding than a team that reports 90% and cannot say why.
+Point 4 matters more than a high score. A team that explains the cause demonstrates more
+understanding than a team that reports 90% and cannot say why. **It used to read "explain why
+extraction scores 20%", which was written when a single comparison was the only evidence.** The
+two-by-two in `evaluation/prompt_schema_2x2.py` replaced it: either the prompt or the schema
+alone reaches the ceiling and they are not additive. Point 7 is the same standard applied to the
+newer half of the project, where the honest answer is currently "not scored".
+
+**Open for the group, not for one lane.** O1 to O4 in §2 were written when this was an
+invoice-only project and none of them mentions reading email. The work now on `main` either
+belongs under O1's "end-to-end document workflow" or deserves an objective of its own. That is a
+decision for the three of us, so it is recorded here rather than answered.

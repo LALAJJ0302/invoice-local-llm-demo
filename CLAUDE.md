@@ -32,7 +32,15 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python migrations/005_rename_validation_status.py
 ./.venv/bin/python migrations/006_storage_completion.py
 ./.venv/bin/python migrations/007_post_approval.py
+./.venv/bin/python migrations/008_email_body.py
+./.venv/bin/python migrations/009_attachment_names.py
+./.venv/bin/python migrations/010_run_kind_and_threads.py
+./.venv/bin/python migrations/011_email_analysis.py
+./.venv/bin/python migrations/012_invoice_ai_fields.py
+./.venv/bin/python migrations/013_reviewer_login.py
+./.venv/bin/python migrations/014_must_change_password.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
+./.venv/bin/python email_pipeline.py --threads   # analyse the stored mailbox -> SQLite
 ./.venv/bin/python query_db.py                   # inspect records
 ./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
 ./.venv/bin/python evaluation/run_eval.py        # per-field accuracy vs ground truth
@@ -56,8 +64,13 @@ packaged way to run the same local stack.
 on a content hash, so regenerating the mocks and re-running updates the same three rows instead of
 accumulating duplicates. It writes to SQLite first and archives only after the commit.
 
-The migration is one-off and idempotent. It renames `workflow_records` to `workflow_records_v1`,
-keeps it, and takes a `.bak` copy of the database first. Running it twice is a no-op.
+The migrations are one-off and idempotent. 001 renames `workflow_records` to `workflow_records_v1`,
+keeps it, and takes a `.bak` copy of the database first. Running any of them twice is a no-op.
+Schema version is 14. 010 is the only one since 003 that rewrites an existing table.
+**Never renumber a migration that is already on `main`.** 012 exists because Luke's
+008 and 009 were written against numbers that were already taken and already applied;
+the SQL was fine, the numbering was not, and a renumbered migration refuses to run on
+any database that already has the original.
 
 ## Ownership
 
@@ -66,7 +79,8 @@ Three people, one codebase. Stay in your lane or say so first.
 | Area | Files | Owner |
 |---|---|---|
 | Intake (Phase 1) | `email_listener.py` | Luke |
-| Task assignment | tasks and routing | Luke |
+| Task assignment | tasks and routing, `task_dispatch.py`, `jira_client.py` | Luke |
+| Deployment | `Dockerfile`, `docker-compose.yml`, `.env.example` | Luke |
 | Extraction (Phases 2-3) | `DocumentExtractor` in `main.py` | **Neo + JJ** |
 | Validation gate (Phase 5) | `ConfidenceValidator` in `main.py` | **Neo + JJ** |
 | Storage & archive (Phase 4) | `storage.py`, `migrations/`, `query_db.py`, `reprocess.py` | **Neo + JJ** |
@@ -74,6 +88,14 @@ Three people, one codebase. Stay in your lane or say so first.
 | Evaluation | `evaluation/` | **Neo + JJ** |
 | RAG / real-document extraction | not yet created | **Neo + JJ** |
 | Schemas | `ExtractedInvoice` etc. in `main.py` | **Neo + JJ**, tell Luke before changing |
+| Email AI | `email_ai.py` | JJ, on `main` since PR #5 |
+| Email pipeline | `email_pipeline.py` | **Neo + JJ**. The only file importing both `email_ai` and `storage` |
+
+**Two tables of action items, and they are different things.** `invoice_action_items`
+holds what the model found inside an invoice document; `email_action_items` holds what it
+found in the message that carried it. Both were briefly called `action_items`, on two
+branches at once. Neither name said which parent it belonged to, so both were renamed
+before either reached `main`.
 
 **Changed 2026-09-03.** Neo and JJ merged their lanes and now work as one on extraction,
 validation, storage and the dashboard. Luke keeps a separate lane: intake and task assignment.

@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 14
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
@@ -29,6 +29,15 @@ VALID_RECONCILIATIONS = ("exact", "plausible", "short", "unknown")
 VALID_DOCUMENT_TYPES = ("Invoice", "Receipt", "Unknown")
 VALID_OUTBOUND_CHANNELS = ("Teams", "Jira", "Planner", "Email")
 VALID_OUTBOUND_STATES = ("Pending", "Sent", "Failed")
+VALID_RUN_KINDS = ("invoice", "email")
+VALID_THREAD_SOURCES = ("headers", "subject", "manual")
+
+# JJ's module owns this list; it is a Literal on EmailAnalysis in email_ai.py. Constrained
+# here because it is model output, and an LLM drifts to "Project Update" or "Meeting request"
+# given the chance. A free-text category cannot be aggregated across runs.
+VALID_EMAIL_CATEGORIES = (
+    "Project update", "Meeting", "Invoice", "Quotation", "Issue", "Other",
+)
 
 # What a document calls itself, usually on its first line. Checked against the opening lines
 # only, because these words also appear mid-document ("please pay this invoice") where they
@@ -63,8 +72,16 @@ CREATE TABLE processing_runs (
     started_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     finished_at TEXT,
     model_name  TEXT    NOT NULL,
-    threshold   REAL    NOT NULL CHECK (threshold BETWEEN 0 AND 1),
-    doc_count   INTEGER NOT NULL DEFAULT 0
+    -- Nullable since migration 010. A run of the email AI has no threshold, and writing a
+    -- meaningless 0.0 would put a number in a column that means nothing. The paired CHECK
+    -- below is what keeps that from becoming "sometimes NULL for no reason".
+    threshold   REAL    CHECK (threshold IS NULL OR threshold BETWEEN 0 AND 1),
+    doc_count   INTEGER NOT NULL DEFAULT 0,
+    -- Which pipeline this run belongs to. Without it SELECT AVG(threshold) silently mixes
+    -- invoice runs with email runs once both exist.
+    run_kind    TEXT    NOT NULL DEFAULT 'invoice'
+                        CHECK (run_kind IN ('invoice','email')),
+    CHECK ((run_kind = 'invoice') = (threshold IS NOT NULL))
 );
 
 CREATE TABLE email_messages (
@@ -89,7 +106,16 @@ CREATE TABLE email_messages (
     -- Comma-separated attachment file names, so a document read from inbox/ can be traced
     -- back to the message that delivered it. attachment_count alone cannot do that: it
     -- says how many arrived, not which.
-    attachment_names TEXT
+    attachment_names TEXT,
+    -- Thread identity, added by migration 010 so thread_analysis has something to join to.
+    -- Nullable because nothing populates it for a message dropped in by hand.
+    thread_id        TEXT,
+    -- How that grouping was formed. 'headers' is the RFC 5322 reply chain and is correct;
+    -- 'subject' is a guess that merges two unrelated "Monthly statement" emails and splits a
+    -- conversation whose subject someone edited. A summary computed over a guess must never
+    -- be reported as though it came from a real chain. Same reasoning as body_source.
+    thread_source    TEXT    CHECK (thread_source IS NULL OR
+                                    thread_source IN ('headers','subject','manual'))
 );
 
 CREATE INDEX ix_email_sender ON email_messages(sender);
@@ -176,7 +202,7 @@ CREATE TABLE invoices (
     -- reduce a total.
     reconciliation    TEXT    NOT NULL DEFAULT 'unknown'
                               CHECK (reconciliation IN ('exact','plausible','short','unknown')),
-    -- Added in migration 009, alongside the action_items table below. Both come from
+    -- Added in migration 012, alongside the invoice_action_items table below. Both come from
     -- email_ai.py's EmailAnalysis (JJ's jj/email-ai branch), run as a second pass over the
     -- same document text. category is one of email_ai.EmailOverview's Literal values;
     -- summary is its one-or-two-sentence plain-English summary. Nullable: this pass can
@@ -215,7 +241,10 @@ CREATE INDEX ix_line_items_invoice ON line_items(invoice_id);
 -- (Review/Approve/Payment/File); an action item is a claim about what the *document*
 -- itself asks for, with the model's supporting quote kept alongside it so a person can
 -- check the claim against the source without reopening the file.
-CREATE TABLE action_items (
+-- Actions found inside the invoice document itself, as opposed to email_action_items below,
+-- which holds actions found in the message that carried it. Both were briefly called
+-- `action_items`, on two branches at once. Neither name said which parent it belonged to.
+CREATE TABLE invoice_action_items (
     action_item_id  INTEGER PRIMARY KEY AUTOINCREMENT,
     invoice_id      INTEGER NOT NULL REFERENCES invoices(invoice_id) ON DELETE CASCADE,
     line_no         INTEGER NOT NULL,
@@ -227,7 +256,7 @@ CREATE TABLE action_items (
     UNIQUE (invoice_id, line_no)
 );
 
-CREATE INDEX ix_action_items_invoice ON action_items(invoice_id);
+CREATE INDEX ix_invoice_action_items_invoice ON invoice_action_items(invoice_id);
 
 CREATE TABLE tasks (
     task_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -274,6 +303,120 @@ CREATE TABLE outbound_messages (
 
 CREATE INDEX ix_outbound_state ON outbound_messages(state);
 CREATE INDEX ix_outbound_invoice ON outbound_messages(invoice_id);
+
+-- ---------------------------------------------------------------------
+-- The email AI module's output. Added by migration 011.
+--
+-- These four tables store what email_ai.py returns and nothing else. Storage does not
+-- import that module: it does `from ollama import chat` at module scope, so importing it
+-- would make the migrations and most of the test suite require Ollama to be installed.
+-- The save methods take a plain mapping, and the caller does record.model_dump().
+-- ---------------------------------------------------------------------
+
+CREATE TABLE email_analysis (
+    analysis_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    email_id          INTEGER NOT NULL REFERENCES email_messages(email_id) ON DELETE CASCADE,
+    run_id            INTEGER NOT NULL REFERENCES processing_runs(run_id),
+    category          TEXT    NOT NULL CHECK (category IN
+                              ('Project update','Meeting','Invoice','Quotation','Issue','Other')),
+    summary           TEXT,
+    -- The database allows three values to match invoices, but email_ai.py only ever emits
+    -- two. A retained result that failed evidence validation is NeedsReview; Failed would
+    -- mean no analysis exists at all, which is not a row. Storage never writes Failed.
+    validation_status TEXT    NOT NULL
+                              CHECK (validation_status IN ('Validated','NeedsReview','Failed')),
+    -- A machine-readable code, not a sentence. Two exist today, empty_evidence_quote and
+    -- evidence_quote_not_found, and a third will appear the first time the validator learns
+    -- a new failure, so the values are not pinned. Rejecting spaces is enough to keep
+    -- GROUP BY validation_reason countable, which is the point of having the column.
+    validation_reason TEXT    CHECK (validation_reason IS NULL OR validation_reason NOT GLOB '* *'),
+    -- Deliberately not capped at 3. email_ai.py already caps it in four places with
+    -- le=MAX_EVIDENCE_ATTEMPTS. Repeating the cap here means raising that constant breaks
+    -- every insert and costs a migration.
+    attempt_count     INTEGER NOT NULL CHECK (attempt_count >= 1),
+    processed_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (email_id, run_id),
+    CHECK ((validation_status = 'Validated') = (validation_reason IS NULL))
+);
+
+CREATE INDEX ix_email_analysis_status ON email_analysis(validation_status);
+CREATE INDEX ix_email_analysis_run ON email_analysis(run_id);
+
+CREATE TABLE thread_analysis (
+    thread_analysis_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id          TEXT    NOT NULL,
+    thread_source      TEXT    NOT NULL CHECK (thread_source IN ('headers','subject','manual')),
+    -- Nullable: ThreadAnalysisRecord.latest_message_id is str | None, because it reads
+    -- thread.messages[-1].message_id and that field is itself optional. A thread analysed
+    -- from text that was never in the mailbox has nothing to point at, and refusing the row
+    -- would lose the analysis rather than record its limits.
+    latest_email_id    INTEGER REFERENCES email_messages(email_id),
+    run_id             INTEGER NOT NULL REFERENCES processing_runs(run_id),
+    summary            TEXT,
+    validation_status  TEXT    NOT NULL
+                               CHECK (validation_status IN ('Validated','NeedsReview','Failed')),
+    validation_reason  TEXT    CHECK (validation_reason IS NULL OR validation_reason NOT GLOB '* *'),
+    attempt_count      INTEGER NOT NULL CHECK (attempt_count >= 1),
+    processed_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (thread_id, run_id),
+    CHECK ((validation_status = 'Validated') = (validation_reason IS NULL))
+);
+
+CREATE INDEX ix_thread_analysis_run ON thread_analysis(run_id);
+
+-- Named for the half of the project it belongs to. A separate invoice_action_items table
+-- holds the actions found inside an invoice document, and the two are different things with
+-- the same shape: this one hangs off an email or a thread, that one off an invoice. An
+-- unprefixed `action_items` would not say which, and both were briefly called that.
+--
+-- One table, two parents. ActionItem is a single Pydantic class used for both
+-- EmailAnalysis.action_items and ThreadSummary.outstanding_actions, so the row shape is
+-- identical and only the owner differs. That is why this is not the nullable foreign key
+-- rejected for tasks in email-analysis-schema-spec.md section 1: there the two kinds need
+-- different columns and half of every row would be NULL. Merging identical rows is
+-- normalisation; merging different rows is the flat table Phase 4 undid.
+--
+-- No state column on purpose. Re-running an analysis deletes the children and re-inserts
+-- them, the way save_invoice does with line_items, so a state column would reset a person's
+-- finished work to Open every time a model was re-run. This is a record of what the model
+-- said, and lifecycle belongs with tasks and the outbox.
+CREATE TABLE email_action_items (
+    action_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    analysis_id        INTEGER REFERENCES email_analysis(analysis_id) ON DELETE CASCADE,
+    thread_analysis_id INTEGER REFERENCES thread_analysis(thread_analysis_id) ON DELETE CASCADE,
+    item_no            INTEGER NOT NULL,
+    task               TEXT    NOT NULL,
+    owner              TEXT,
+    -- The wording exactly as the source put it. JJ's module copies it and does not convert.
+    deadline_text      TEXT,
+    -- Populated only where the wording is unambiguous. "end of month", "by Friday" and
+    -- "30/09/2026" all stay NULL. See coerce_deadline_date.
+    deadline_date      TEXT    CHECK (deadline_date IS NULL OR
+                                deadline_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    evidence_quote     TEXT    NOT NULL,
+    CHECK ((analysis_id IS NULL) <> (thread_analysis_id IS NULL)),
+    -- A normalised date can only exist where there was wording to normalise. This is what
+    -- stops storage producing a deadline with nothing behind it.
+    CHECK (deadline_date IS NULL OR deadline_text IS NOT NULL)
+);
+
+CREATE UNIQUE INDEX ux_email_action_items_analysis ON email_action_items(analysis_id, item_no)
+    WHERE analysis_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_email_action_items_thread ON email_action_items(thread_analysis_id, item_no)
+    WHERE thread_analysis_id IS NOT NULL;
+CREATE INDEX ix_email_action_items_owner ON email_action_items(owner);
+
+-- latest_decisions is list[str], so one row per string. decision_no preserves the order a
+-- list has and rows do not, the same job line_items.line_no does. Storing the list as a
+-- joined blob was the line_items mistake, and it cost a migration to undo.
+CREATE TABLE thread_decisions (
+    decision_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_analysis_id INTEGER NOT NULL
+                       REFERENCES thread_analysis(thread_analysis_id) ON DELETE CASCADE,
+    decision_no        INTEGER NOT NULL,
+    decision           TEXT    NOT NULL,
+    UNIQUE (thread_analysis_id, decision_no)
+);
 """
 
 
@@ -282,6 +425,14 @@ class SchemaMismatch(RuntimeError):
 
     Exists so that schema drift between teammates fails loudly instead of being papered
     over by CREATE TABLE IF NOT EXISTS.
+    """
+
+
+class UnknownEmail(LookupError):
+    """Raised when an analysis names a message_id the mailbox has never seen.
+
+    An analysis of an email that is not in the database is a real error, not a row to write
+    with a NULL foreign key. Failing here is what stops orphaned analyses accumulating.
     """
 
 
@@ -308,6 +459,26 @@ def connect(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
         # journal still works, it just serialises readers against the commit window.
         pass
     return conn
+
+
+def backup_path(db_path: str) -> str:
+    """A free name for a migration's .bak copy.
+
+    Every migration used to build this itself as `<db>.bak-%Y%m%d-%H%M%S`. The quickstart runs
+    them back to back, so two land in the same second and the second copy silently replaces the
+    first, leaving no way back to the state before the pair. Found on 2026-09-17 by running 010
+    and 011 in sequence and reading the two printed paths, which were identical.
+
+    Appending a counter is the whole fix. It lives here rather than in eleven files so that the
+    next migration inherits it instead of repeating the bug.
+    """
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    candidate = f"{db_path}.bak-{stamp}"
+    suffix = 2
+    while os.path.exists(candidate):
+        candidate = f"{db_path}.bak-{stamp}-{suffix}"
+        suffix += 1
+    return candidate
 
 
 def table_exists(conn: sqlite3.Connection, name: str) -> bool:
@@ -427,6 +598,68 @@ def coerce_date(value: Any) -> Optional[str]:
         except ValueError:
             continue
     return None
+
+
+# Wording that introduces a deadline without changing it. Stripped before parsing so that
+# "by 30 September 2026" reaches coerce_date as a date. Longest first, because "due by"
+# must be tried before "due".
+_DEADLINE_LEAD_INS = (
+    "no later than", "not later than", "due before", "due by", "due on",
+    "before", "due", "by", "on",
+)
+
+_ORDINAL = re.compile(r"\b(\d{1,2})(st|nd|rd|th)\b", re.IGNORECASE)
+
+
+# A model asked for a nullable string sometimes answers with the *word* rather than JSON null.
+# Seen on 2026-09-17 against llama3.2 on a real message: deadline_text came back as "null",
+# which stored four characters of text where the document said nothing.
+#
+# This is exactly the set email_ai.normalise_owner already maps to None, repeated rather than
+# extended so the two cannot disagree about what "absent" means. His validator covers `owner`
+# only, so without this every count of "action items carrying a deadline" is wrong: 'null' is
+# not NULL and SQL cannot tell the difference.
+ABSENT_STRINGS = frozenset({"", "null", "none", "unknown"})
+
+
+def absent_string(value: Any) -> Optional[Any]:
+    """Returns None where a string is the model's way of saying "nothing here"."""
+    if isinstance(value, str) and value.strip().lower() in ABSENT_STRINGS:
+        return None
+    return value
+
+
+def coerce_deadline_date(text: Any) -> Optional[str]:
+    """Normalises an action item's deadline wording to YYYY-MM-DD, or returns None.
+
+    JJ's module sends the original wording in deadline_text and does not convert it. This
+    fills deadline_date **only where the wording is unambiguous**, which is narrower than it
+    sounds: "end of month", "by Friday" and "30/09/2026" all return None and the wording
+    survives in deadline_text.
+
+    "by Friday" could in principle be resolved against the email's received_at. It is not,
+    because which Friday and in whose timezone are both guesses, and how often a deadline
+    cannot be normalised is a number worth reporting rather than one worth hiding.
+
+    Delegates to coerce_date rather than parsing again, which is also what keeps the ISO
+    passthrough honest: dateutil.parser.parse('2026-03-12', dayfirst=True) returns 3
+    December, because dayfirst is applied to the last two components whatever the shape of
+    the string. Nothing in this project may re-parse a value that is already ISO.
+    """
+    if text is None:
+        return None
+    candidate = str(text).strip().rstrip(".,;").strip()
+    if not candidate:
+        return None
+
+    lowered = candidate.lower()
+    for lead in _DEADLINE_LEAD_INS:
+        if lowered.startswith(lead + " "):
+            candidate = candidate[len(lead):].strip()
+            break
+
+    candidate = _ORDINAL.sub(r"\1", candidate)
+    return coerce_date(candidate)
 
 
 # =====================================================================
@@ -569,6 +802,21 @@ class StorageManager:
             cursor = conn.execute(
                 "INSERT INTO processing_runs (model_name, threshold) VALUES (?, ?)",
                 (model_name, threshold),
+            )
+            conn.commit()
+            return int(cursor.lastrowid)
+
+    def start_email_run(self, model_name: str) -> int:
+        """Opens a run of the email AI. No threshold, because there is no gate on this path.
+
+        Separate from start_run so that nothing has to invent a 0.0 to satisfy a NOT NULL
+        column. The paired CHECK on processing_runs enforces the pairing either way.
+        """
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "INSERT INTO processing_runs (model_name, threshold, run_kind) "
+                "VALUES (?, NULL, 'email')",
+                (model_name,),
             )
             conn.commit()
             return int(cursor.lastrowid)
@@ -731,14 +979,14 @@ class StorageManager:
             ]
             existing_tasks = [
                 r["task"] for r in conn.execute(
-                    "SELECT task FROM action_items WHERE invoice_id = ? ORDER BY line_no",
+                    "SELECT task FROM invoice_action_items WHERE invoice_id = ? ORDER BY line_no",
                     (invoice_id,)).fetchall()
             ]
             if action_rows and [r["task"] for r in action_rows] != existing_tasks:
-                conn.execute("DELETE FROM action_items WHERE invoice_id = ?", (invoice_id,))
+                conn.execute("DELETE FROM invoice_action_items WHERE invoice_id = ?", (invoice_id,))
                 conn.executemany(
                     """
-                    INSERT INTO action_items (
+                    INSERT INTO invoice_action_items (
                         invoice_id, line_no, task, owner, deadline_text, evidence_quote
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
@@ -1114,7 +1362,7 @@ class StorageManager:
         with connect(self.db_path) as conn:
             return conn.execute(
                 "SELECT action_item_id, line_no, task, owner, deadline_text, evidence_quote, "
-                "is_done FROM action_items WHERE invoice_id = ? ORDER BY line_no",
+                "is_done FROM invoice_action_items WHERE invoice_id = ? ORDER BY line_no",
                 (invoice_id,),
             ).fetchall()
 
@@ -1122,7 +1370,7 @@ class StorageManager:
         """Lets a person check off an action item in the dashboard. Returns whether it changed."""
         with connect(self.db_path) as conn:
             cursor = conn.execute(
-                "UPDATE action_items SET is_done = ? WHERE action_item_id = ?",
+                "UPDATE invoice_action_items SET is_done = ? WHERE action_item_id = ?",
                 (1 if is_done else 0, action_item_id),
             )
             conn.commit()
@@ -1270,3 +1518,283 @@ class StorageManager:
         sql += " ORDER BY t.created_at, t.task_id"
         with connect(self.db_path) as conn:
             return conn.execute(sql, params).fetchall()
+
+    # -- email AI analysis ---------------------------------------------
+    #
+    # These take a plain mapping, which is what record.model_dump() produces. Storage does
+    # not import email_ai: that module does `from ollama import chat` at import time, so
+    # depending on it would make the migrations and most of the test suite need Ollama
+    # installed. Same boundary storage.py already keeps against main.py.
+    #
+    # They also take message_id and thread_id rather than internal ids, and resolve them
+    # here, exactly as email_for_attachment resolves a file name. JJ's records key on the
+    # RFC 5322 string and should keep doing so.
+
+    def _resolve_email_id(self, conn: sqlite3.Connection, message_id: Optional[str],
+                          *, required: bool) -> Optional[int]:
+        if not message_id:
+            if required:
+                raise UnknownEmail("an analysis record needs a message_id")
+            return None
+        row = conn.execute(
+            "SELECT email_id FROM email_messages WHERE message_id = ?", (message_id,)
+        ).fetchone()
+        if row is None:
+            if required:
+                raise UnknownEmail(
+                    f"no email with message_id {message_id!r}. Record it with record_email() "
+                    "before storing an analysis of it."
+                )
+            return None
+        return int(row["email_id"])
+
+    @staticmethod
+    def _action_rows(items: Optional[Iterable[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """Turns ActionItem dicts into email_action_items rows, normalising the deadline."""
+        rows: List[Dict[str, Any]] = []
+        for item_no, item in enumerate(items or [], start=1):
+            deadline_text = absent_string(item.get("deadline_text"))
+            rows.append({
+                "item_no": item_no,
+                "task": item.get("task") or "",
+                "owner": absent_string(item.get("owner")),
+                "deadline_text": deadline_text,
+                "deadline_date": coerce_deadline_date(deadline_text),
+                "evidence_quote": item.get("evidence_quote") or "",
+            })
+        return rows
+
+    @staticmethod
+    def _write_email_action_items(conn: sqlite3.Connection, rows: List[Dict[str, Any]],
+                            *, analysis_id: Optional[int] = None,
+                            thread_analysis_id: Optional[int] = None) -> None:
+        """Replaces a parent's action items wholesale.
+
+        Delete and re-insert rather than merge, the way save_invoice handles line_items: a
+        re-run is a new answer to the same question, and merging would leave items behind
+        that the model no longer returns. This is also why email_action_items carries no state
+        column, since a state would be reset here on every re-run.
+        """
+        column = "analysis_id" if analysis_id is not None else "thread_analysis_id"
+        parent = analysis_id if analysis_id is not None else thread_analysis_id
+        conn.execute(f"DELETE FROM email_action_items WHERE {column} = ?", (parent,))
+        conn.executemany(
+            f"""
+            INSERT INTO email_action_items (
+                {column}, item_no, task, owner, deadline_text, deadline_date, evidence_quote
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (parent, r["item_no"], r["task"], r["owner"],
+                 r["deadline_text"], r["deadline_date"], r["evidence_quote"])
+                for r in rows
+            ],
+        )
+
+    def save_email_analysis(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Stores one EmailAnalysisRecord. Upserts on (email_id, run_id).
+
+        Re-running the same run updates in place instead of accumulating, which is the
+        defect Phase 4 fixed for invoices and should not be reintroduced here. Two different
+        run_ids over the same email are two rows on purpose: that is the comparison run_id
+        exists for.
+        """
+        analysis = record.get("analysis") or {}
+        rows = self._action_rows(analysis.get("action_items"))
+
+        with connect(self.db_path) as conn:
+            email_id = self._resolve_email_id(conn, record.get("message_id"), required=True)
+            run_id = record["run_id"]
+            existing = conn.execute(
+                "SELECT analysis_id FROM email_analysis WHERE email_id = ? AND run_id = ?",
+                (email_id, run_id),
+            ).fetchone()
+
+            cursor = conn.execute(
+                """
+                INSERT INTO email_analysis (
+                    email_id, run_id, category, summary,
+                    validation_status, validation_reason, attempt_count, processed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+                ON CONFLICT (email_id, run_id) DO UPDATE SET
+                    category          = excluded.category,
+                    summary           = excluded.summary,
+                    validation_status = excluded.validation_status,
+                    validation_reason = excluded.validation_reason,
+                    attempt_count     = excluded.attempt_count,
+                    processed_at      = excluded.processed_at
+                RETURNING analysis_id
+                """,
+                (
+                    email_id,
+                    run_id,
+                    analysis.get("category"),
+                    analysis.get("summary"),
+                    record.get("validation_status"),
+                    record.get("validation_reason"),
+                    record.get("attempt_count"),
+                    record.get("processed_at"),
+                ),
+            )
+            analysis_id = int(cursor.fetchone()["analysis_id"])
+            self._write_email_action_items(conn, rows, analysis_id=analysis_id)
+            conn.commit()
+
+        return {
+            "analysis_id": analysis_id,
+            "email_id": email_id,
+            "was_update": existing is not None,
+            "action_item_count": len(rows),
+            "dated_count": sum(1 for r in rows if r["deadline_date"]),
+            "undated_count": sum(
+                1 for r in rows if r["deadline_text"] and not r["deadline_date"]),
+        }
+
+    def save_thread_analysis(self, record: Dict[str, Any], *,
+                             thread_source: str) -> Dict[str, Any]:
+        """Stores one ThreadAnalysisRecord. Upserts on (thread_id, run_id).
+
+        thread_source is a keyword argument rather than a field of the record because it
+        describes how the grouping was formed and JJ's module does not know. Until intake
+        captures In-Reply-To and References it is 'subject' on every row, and every claim
+        about threads has to say so.
+        """
+        if thread_source not in VALID_THREAD_SOURCES:
+            raise ValueError(
+                f"thread_source must be one of {VALID_THREAD_SOURCES}, got {thread_source!r}")
+
+        analysis = record.get("analysis") or {}
+        rows = self._action_rows(analysis.get("outstanding_actions"))
+        decisions = list(analysis.get("latest_decisions") or [])
+
+        with connect(self.db_path) as conn:
+            # Not required: latest_message_id is str | None, and a thread analysed from text
+            # that was never in the mailbox has nothing to point at.
+            latest_email_id = self._resolve_email_id(
+                conn, record.get("latest_message_id"), required=False)
+            thread_id = record["thread_id"]
+            run_id = record["run_id"]
+            existing = conn.execute(
+                "SELECT thread_analysis_id FROM thread_analysis "
+                "WHERE thread_id = ? AND run_id = ?",
+                (thread_id, run_id),
+            ).fetchone()
+
+            cursor = conn.execute(
+                """
+                INSERT INTO thread_analysis (
+                    thread_id, thread_source, latest_email_id, run_id, summary,
+                    validation_status, validation_reason, attempt_count, processed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+                ON CONFLICT (thread_id, run_id) DO UPDATE SET
+                    thread_source     = excluded.thread_source,
+                    latest_email_id   = excluded.latest_email_id,
+                    summary           = excluded.summary,
+                    validation_status = excluded.validation_status,
+                    validation_reason = excluded.validation_reason,
+                    attempt_count     = excluded.attempt_count,
+                    processed_at      = excluded.processed_at
+                RETURNING thread_analysis_id
+                """,
+                (
+                    thread_id,
+                    thread_source,
+                    latest_email_id,
+                    run_id,
+                    analysis.get("summary"),
+                    record.get("validation_status"),
+                    record.get("validation_reason"),
+                    record.get("attempt_count"),
+                    record.get("processed_at"),
+                ),
+            )
+            thread_analysis_id = int(cursor.fetchone()["thread_analysis_id"])
+
+            self._write_email_action_items(conn, rows, thread_analysis_id=thread_analysis_id)
+            conn.execute(
+                "DELETE FROM thread_decisions WHERE thread_analysis_id = ?",
+                (thread_analysis_id,),
+            )
+            conn.executemany(
+                "INSERT INTO thread_decisions (thread_analysis_id, decision_no, decision) "
+                "VALUES (?, ?, ?)",
+                [(thread_analysis_id, n, text) for n, text in enumerate(decisions, start=1)],
+            )
+            conn.commit()
+
+        return {
+            "thread_analysis_id": thread_analysis_id,
+            "latest_email_id": latest_email_id,
+            "was_update": existing is not None,
+            "action_item_count": len(rows),
+            "decision_count": len(decisions),
+        }
+
+    @staticmethod
+    def _read_email_action_items(conn: sqlite3.Connection, *, analysis_id: Optional[int] = None,
+                           thread_analysis_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        column = "analysis_id" if analysis_id is not None else "thread_analysis_id"
+        parent = analysis_id if analysis_id is not None else thread_analysis_id
+        return [
+            dict(r) for r in conn.execute(
+                f"""
+                SELECT item_no, task, owner, deadline_text, deadline_date, evidence_quote
+                FROM email_action_items WHERE {column} = ? ORDER BY item_no
+                """,
+                (parent,),
+            )
+        ]
+
+    def email_analysis_for(self, message_id: str,
+                           run_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """The stored analysis of one email, with its action items in order.
+
+        With no run_id, returns the most recent run's. Passing one is how two models are
+        compared over the same mailbox.
+        """
+        with connect(self.db_path) as conn:
+            sql = """
+                SELECT a.*, e.message_id, e.subject, e.sender
+                FROM email_analysis a
+                JOIN email_messages e ON e.email_id = a.email_id
+                WHERE e.message_id = ?
+            """
+            params: List[Any] = [message_id]
+            if run_id is not None:
+                sql += " AND a.run_id = ?"
+                params.append(run_id)
+            sql += " ORDER BY a.run_id DESC LIMIT 1"
+
+            row = conn.execute(sql, params).fetchone()
+            if row is None:
+                return None
+            result = dict(row)
+            result["action_items"] = self._read_email_action_items(
+                conn, analysis_id=result["analysis_id"])
+            return result
+
+    def thread_analysis_for(self, thread_id: str,
+                            run_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """The stored analysis of one thread, with its decisions and outstanding actions."""
+        with connect(self.db_path) as conn:
+            sql = "SELECT * FROM thread_analysis WHERE thread_id = ?"
+            params: List[Any] = [thread_id]
+            if run_id is not None:
+                sql += " AND run_id = ?"
+                params.append(run_id)
+            sql += " ORDER BY run_id DESC LIMIT 1"
+
+            row = conn.execute(sql, params).fetchone()
+            if row is None:
+                return None
+            result = dict(row)
+            result["outstanding_actions"] = self._read_email_action_items(
+                conn, thread_analysis_id=result["thread_analysis_id"])
+            result["latest_decisions"] = [
+                r["decision"] for r in conn.execute(
+                    "SELECT decision FROM thread_decisions WHERE thread_analysis_id = ? "
+                    "ORDER BY decision_no",
+                    (result["thread_analysis_id"],),
+                )
+            ]
+            return result
