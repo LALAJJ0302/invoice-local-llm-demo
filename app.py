@@ -5,7 +5,8 @@ import pandas as pd
 import streamlit as st
 
 import task_dispatch
-from review_signals import risk_detail, risk_signal
+from review_signals import (GATE_THRESHOLD, SCORE_NOTE, SCORE_NOTE_SHORT, risk_detail,
+                            risk_signal, verdict_word)
 from line_item_check import contradiction
 from storage import DEFAULT_DB_PATH, StorageManager, connect
 
@@ -219,6 +220,10 @@ def load_history() -> pd.DataFrame:
         SELECT i.invoice_id, i.invoice_number, i.vendor_name, i.document_type,
                i.total_cents / 100.0 AS total_amount, i.currency,
                i.approval_status, i.reviewed_at,
+               -- SC-4. A decision looked at after the fact should show what the machine scored
+               -- at the time the person decided, otherwise History records the verdict and
+               -- loses the evidence it was made against.
+               i.validation_score, i.validation_status,
                t.task_type, t.state AS task_state, t.resolved_at
         FROM invoices i
         -- The task the decision actually resolved, which is the most recently resolved one.
@@ -364,6 +369,29 @@ st.markdown("""
 .card-meta { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-muted); }
 .card-head .amount { font-family:'IBM Plex Mono',monospace; font-size:22px; font-weight:500;
                      text-align:right; white-space:nowrap; color:var(--text); }
+.amount-stack { display:flex; flex-direction:column; align-items:flex-end; gap:12px; }
+
+/* The validation score. fe-score-spec.md. The rail is 4px of track, which is a rule rather
+   than a block, so the risk strip stays the only filled band on the card per
+   fe-theme-v2-spec.md §0.1. Colour sits on the rail only: the number and the verdict wear ink
+   tokens, and the verdict word repeats in text what the colour says, so neither greyscale nor
+   colour blindness loses it. --positive and --caution are judged here against WCAG 1.4.11's
+   3:1 for non-text components, which is the same basis as the dots. */
+.score { display:flex; flex-direction:column; gap:5px; width:138px; }
+.score-label { font-size:11px; color:var(--text-muted); }
+.score-read { display:flex; align-items:baseline; gap:8px; }
+.score-value { font-family:'IBM Plex Mono',monospace; font-size:16px; font-weight:500;
+               font-variant-numeric:tabular-nums; color:var(--text-strong); }
+.score-verdict { font-size:12px; color:var(--text-muted); }
+.score-track { position:relative; display:block; height:4px; border-radius:2px; }
+.score-fill { position:absolute; left:0; top:0; bottom:0; border-radius:2px; }
+/* The gate mark is a notch cut in the surface colour rather than a line drawn over the rail.
+   Drawn in --text-muted it was legible on the unfilled track and almost invisible where it
+   mattered most, which is inside the fill: a near miss like 0.85 puts the mark under the green.
+   A notch reads against the fill and the track alike, because it is the absence of both. */
+.score-tick { position:absolute; top:0; bottom:0; width:2px; background:var(--surface);
+              box-shadow:0 0 0 0.5px rgba(31,41,66,.18); }
+.score-gate { font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-muted); }
 
 .chip { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--text-strong);
         background:var(--fill-subtle); border-radius:7px; padding:4px 10px; margin-right:8px; }
@@ -463,6 +491,11 @@ st.markdown("""
 .dense-doc { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-muted); }
 .dense-amount { font-family:'IBM Plex Mono',monospace; font-size:13px;
                 font-variant-numeric:tabular-nums; min-width:112px; text-align:right; color:var(--text); }
+/* The score column. Tabular figures and a fixed width, because a column of numbers that does
+   not align is a column that cannot be scanned, which is the whole reason it is here. */
+.dense-score { font-family:'IBM Plex Mono',monospace; font-size:12.5px;
+               font-variant-numeric:tabular-nums; min-width:44px; text-align:right;
+               color:var(--text-strong); }
 .dense-right { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-muted);
                min-width:44px; text-align:right; }
 
@@ -520,6 +553,8 @@ st.markdown("""
 .hist-vendor { font-size:13.5px; color:var(--text); }
 .hist-doc { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-muted); }
 .hist-amount { font-family:'IBM Plex Mono',monospace; font-size:13px; font-variant-numeric:tabular-nums; color:var(--text); }
+.hist-score { font-family:'IBM Plex Mono',monospace; font-size:12.5px;
+              font-variant-numeric:tabular-nums; color:var(--text-muted); }
 .hist-when { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-muted); margin-left:auto; }
 .hist-task { font-size:12px; color:var(--text-muted); }
 
@@ -623,6 +658,7 @@ st.markdown("""
               margin-left:auto; font-variant-numeric:tabular-nums; color:var(--text); }
 .dlg-meta { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-muted);
             margin-top:5px; }
+.dlg-score { display:flex; justify-content:flex-end; margin-top:10px; }
 /* The risk band is still the only filled band on the screen. */
 .dlg-risk { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-top:14px;
             padding:12px 16px; border-radius:12px; background:var(--caution-wash); }
@@ -662,6 +698,10 @@ st.markdown("""
 .field-note { font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--text-muted);
               background:var(--fill-subtle); border-radius:5px; padding:1px 6px; margin-left:8px; }
 .field-rule { height:1px; background:var(--fill-subtle); margin:8px 0; }
+/* The sentence saying what the score measures. It comes from review_signals.py, like every
+   other sentence on this screen, and tests/test_app_signal_copy.py stops a copy of it being
+   written here. */
+.field-foot { font-size:11.5px; line-height:1.55; color:var(--text-muted); margin:6px 0 0; }
 .field-miss { color:var(--caution-text); font-weight:500; }
 
 /* Focus has to be visible on every control, not just the ones Streamlit decides to mark.
@@ -779,7 +819,11 @@ def review_dialog(row):
             f"<span class='dlg-vendor'>{row['vendor_name'] or 'Unknown vendor'}</span>"
             f"{chip(row['document_type'], 'var(--text-faint)')}"
             f"<span class='dlg-amount'>{money(row['total_amount'], row['currency'])}</span>"
-            f"</div><div class='dlg-meta'>{dialog_meta(row)}</div>",
+            f"</div><div class='dlg-meta'>{dialog_meta(row)}</div>"
+            # SC-2. Under the amount and above the risk strip, which is the order the six
+            # questions run in: what am I approving, then how far off is it, then what is the
+            # concern in words.
+            f"<div class='dlg-score'>{score_block(row)}</div>",
             unsafe_allow_html=True)
 
         signal, detail = risk_signal(row), risk_detail(row)
@@ -822,6 +866,14 @@ def review_dialog(row):
                         row.get("total_source") or "")
             + field_row("Vendor", "read from the document"
                         if row.get("vendor_source") == "model" else "recovered by our code")
+            # SC-3. The panel lists what the model stored, so it should also list what our own
+            # check made of it. This is the one place with room for the full sentence, which is
+            # why the note is visible here and only a tooltip on the card.
+            + field_row("Validation score",
+                        "-" if pd.isna(row.get("validation_score"))
+                        else f"{float(row['validation_score']):.2f}",
+                        verdict_word(row))
+            + f"<p class='field-foot'>{SCORE_NOTE_SHORT}</p>"
             + "<div class='field-rule'></div>"
             + field_row("Line items",
                         f"<span class='field-miss'>{stored}</span>" if clash else stored)
@@ -970,6 +1022,58 @@ def chip(text: str, dot: str | None) -> str:
     return f"<span class='chip'>{mark}{text}</span>"
 
 
+def score_block(row) -> str:
+    """The gate's own number, as a meter against the threshold it is judged by. SC-1.
+
+    `fe-screen-spec.md` §3 excluded the raw score from the card and §4 argued the reason: a
+    person reading `0.85` cannot act on it, while "no line items to check the total against"
+    tells them to open the document. That argument is kept and this does not contradict it. The
+    sentence stays where it is, at the same weight, and this is added beside it. They answer
+    different questions: the sentence says what to do, the number says how far off it is. Two
+    documents carrying the same sentence can be 0.85 and 0.40 apart and the screen could not
+    tell them apart until now. See fe-score-spec.md §2.
+
+    A meter rather than a bare figure because a ratio against a limit is what this is, and the
+    limit is the whole point: `0.85` alone means nothing, `0.85` with the gate mark just behind
+    it reads as a near miss before the digits are parsed.
+
+    The rail is a rail, not a band. `fe-theme-v2-spec.md` §0.1 keeps one constraint from the
+    original design system, that risk is the only thing on the screen with a filled background,
+    and the risk strip below this keeps it. 4px of track is a rule, not a block.
+
+    Colour carries state and never carries it alone: the verdict word beside the number says
+    the same thing in text, so the meaning survives greyscale and colour blindness. The track is
+    a lighter step of the fill's own ramp rather than neutral grey, so the state reads across
+    the whole bar. The digits and the word wear ink tokens, not the state colour: only the rail
+    is coloured, which is what keeps this quiet enough to sit under the amount.
+    """
+    score = row.get("validation_score")
+    verdict = verdict_word(row)
+    label = "<span class='score-label'>Validation score</span>"
+
+    # Nullable in the schema, see database-spec.md. A row that was never scored draws the
+    # label and a dash, and no rail: an empty track would read as a score of zero.
+    if score is None or pd.isna(score):
+        return (f"<div class='score' title='{SCORE_NOTE}'>{label}"
+                f"<span class='score-read'><span class='score-value'>-</span>"
+                f"<span class='score-verdict'>not scored</span></span></div>")
+
+    passed = row.get("validation_status") == "Validated"
+    fill = "var(--positive)" if passed else "var(--caution)"
+    track = "var(--positive-wash)" if passed else "var(--caution-wash)"
+    width = max(0.0, min(1.0, float(score))) * 100
+
+    return (
+        f"<div class='score' title='{SCORE_NOTE}'>{label}"
+        f"<span class='score-read'><span class='score-value'>{float(score):.2f}</span>"
+        f"<span class='score-verdict'>{verdict}</span></span>"
+        f"<span class='score-track' style='background:{track}'>"
+        f"<span class='score-fill' style='width:{width:.1f}%;background:{fill}'></span>"
+        f"<span class='score-tick' style='left:{GATE_THRESHOLD * 100:.1f}%'></span></span>"
+        f"<span class='score-gate'>gate {GATE_THRESHOLD:.2f}</span></div>"
+    )
+
+
 def provenance(row) -> str:
     """Where the vendor name and the total came from, as two chips.
 
@@ -1037,7 +1141,9 @@ def document_card(row, *, actionable: bool, context: str = "queue"):
             f"{chip(row['document_type'], 'var(--text-faint)')}</div>"
             f"<div class='card-meta'>{' · '.join(meta)}</div>"
             f"</div>"
+            f"<div class='amount-stack'>"
             f"<div class='amount'>{money(row['total_amount'], row['currency'])}</div>"
+            f"{score_block(row)}</div>"
             f"</div>{signal_html}",
             unsafe_allow_html=True,
         )
@@ -1113,8 +1219,12 @@ def document_rows(frame, *, actionable: bool, context: str = "queue",
                   controls: bool = True, limit: int | None = None):
     """The queue, as cards.
 
-    Deliberately excluded from the card: file name, ingestion time, run_id and the raw
-    validation score. All are available and none of them changes a decision.
+    Deliberately excluded from the card: file name, ingestion time and run_id. All are
+    available and none of them changes a decision.
+
+    The validation score was on that list until 2026-09-24 and is now on the card. The reason
+    it was excluded, that a bare number cannot be acted on, is answered by showing it against
+    the gate's threshold rather than by hiding it. See fe-score-spec.md §2.
     """
     if frame.empty:
         # Under a filter the queue being empty says nothing about the work. Claiming otherwise
@@ -1439,6 +1549,8 @@ def history_body(frame):
         "so it never reaches the system tab.</p>", unsafe_allow_html=True)
     for _, row in frame.iterrows():
         rejected = row["approval_status"] == "Rejected"
+        score = row.get("validation_score")
+        scored = "-" if score is None or pd.isna(score) else f"{float(score):.2f}"
         with st.container(border=True, key=f"hist-{row['invoice_id']}", gap=None):
             st.markdown(
                 f"<div class='hist'>"
@@ -1448,6 +1560,8 @@ def history_body(frame):
                 f"<span class='hist-vendor'>{row['vendor_name'] or '-'}</span>"
                 f"<span class='hist-doc'>{row['invoice_number'] or '-'}</span>"
                 f"<span class='hist-amount'>{money(row['total_amount'], row['currency'])}</span>"
+                f"<span class='hist-score' title='{SCORE_NOTE}'>{scored} · "
+                f"{verdict_word(row)}</span>"
                 f"<span class='hist-when'>{row['reviewed_at']}</span>"
                 f"<span class='hist-task'>task {row['task_state'] or 'none'}</span>"
                 f"</div>", unsafe_allow_html=True)
@@ -1536,13 +1650,20 @@ def dense_rows(rows) -> str:
 
     Each row carries its own currency symbol and no total is drawn beneath them, because the
     documents in these sections do not share one.
+
+    Rows are five items, or six where the panel carries a validation score. SC-6 needed a
+    column here and the two other callers, vendors and pipeline runs, have no score to show:
+    a vendor is a group of documents and a run is not scored at all. An optional sixth item
+    was the change that left both of them untouched.
     """
     out = []
-    for dot, left, doc, amount, right in rows:
+    for row in rows:
+        dot, left, doc, amount, right = row[:5]
+        score = f"<span class='dense-score'>{row[5]}</span>" if len(row) > 5 else ""
         out.append(f"<div class='dense'><span class='dot' style='background:{dot}'></span>"
                    f"<span class='dense-left'>{left}</span>"
                    f"<span class='dense-doc'>{doc}</span>"
-                   f"<span class='dense-amount'>{amount}</span>"
+                   f"<span class='dense-amount'>{amount}</span>{score}"
                    f"<span class='dense-right'>{right}</span></div>")
     return f"<div class='dense-panel'>{''.join(out)}</div>"
 
@@ -1593,11 +1714,15 @@ def overview_body(pending, auto, outbox, history):
           for _, r in auto.iterrows():
             # The score belongs on the row. This section exists to show what was approved
             # without a person, and the number behind that decision was only in the caption.
+            #
+            # SC-5, 2026-09-24: it read "score 1.00", which does not say which score. Every
+            # other surface now names it, and a number the reader has to guess the meaning of
+            # is the misreading fe-score-spec.md §3 exists to prevent.
             score = "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}"
             record_row(key=f"ovauto-{r['id']}", dot="var(--positive)",
                        left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
                        value=money(r["total_amount"], r["currency"]),
-                       right=f"score {score} · {str(r['system_processed_at'])[11:16]}",
+                       right=f"validation score {score} · {str(r['system_processed_at'])[11:16]}",
                        action="Open", on_action=lambda row=r: review_dialog(row))
 
     if outbox.empty:
@@ -1716,11 +1841,15 @@ def documents_panel(frame):
     st.markdown("<p class='tab-note'>Every document the pipeline has stored. The approval card "
                 "leaves these fields out because none of them changes a decision, which is not "
                 "the same as them being worth hiding.</p>", unsafe_allow_html=True)
+    # SC-6. This is the one panel that shows every document at once, so it is the only place
+    # the spread of scores is visible: a column of 1.00, 1.00, 0.85 says something no single
+    # card can, which is that the gate clears almost everything it is given.
     rows = [("var(--caution)" if r["approval_status"] == "Pending" else "var(--positive)",
              r["vendor_name"] or "Unknown vendor",
              r["file_name"] or "-",
              money(r["total_amount"], r["currency"]),
-             f"run {int(r['run_id'])} &middot; {str(r['system_processed_at'])[:16]}")
+             f"run {int(r['run_id'])} &middot; {str(r['system_processed_at'])[:16]}",
+             "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}")
             for _, r in frame.sort_values("id").iterrows()]
     st.markdown(dense_rows(rows), unsafe_allow_html=True)
 

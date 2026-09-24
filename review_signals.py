@@ -88,3 +88,59 @@ def risk_signal(row: Mapping[str, Any]) -> Optional[str]:
 
 def has_signal(row: Mapping[str, Any]) -> bool:
     return risk_signal(row) is not None
+
+
+# =====================================================================
+# The score itself. Added 2026-09-24, see fe-score-spec.md.
+# =====================================================================
+#
+# The docstring at the top of this file argues that a bare 0.85 is not worth showing, and that
+# argument still stands. What it got wrong was treating the choice as either the sentence or
+# the number. They answer different questions: the sentence says what to do about this document,
+# the number says how far off it is. Two documents can carry the same sentence and be 0.85 and
+# 0.40 apart, and until now the screen could not tell them apart.
+#
+# The number therefore never ships alone. It ships against this threshold and beside the word
+# below, and the note says what it measures. That is what keeps it from being read as the
+# model's confidence, which it is not, and which is the most damaging misreading available on
+# this screen.
+
+# The gate's pass mark, mirrored from ConfidenceValidator so that app.py can draw the tick
+# without importing main.py. main.py imports ollama at module level, and the dashboard running
+# on a machine that never pulled a model is a property worth keeping.
+# tests/test_review_signals.py asserts the two stay equal.
+GATE_THRESHOLD = 0.80
+
+# The gate's verdict in words. `validation_status` holds these three values and no others; see
+# database-spec.md §5.9. NeedsReview is one token in the database and two words to a reader.
+VERDICT = {
+    "Validated": "Validated",
+    "NeedsReview": "Needs review",
+    "Failed": "Failed",
+}
+
+# What the number measures, in one sentence, for the places that have room for it.
+#
+# It says "our checks" rather than "the AI" for the same reason risk_detail does: the score is
+# computed by ConfidenceValidator from the document, deterministically. It is a judgement about
+# the model's output rather than anything the model claimed about itself. CLAUDE.md records the
+# confusion this sentence exists to prevent: the column was called confidence_score once, and it
+# never measured confidence.
+SCORE_NOTE = (
+    "This is how much of our own check the extraction passed: whether every field was filled "
+    "and whether the values appear in the document. It is not the model's confidence. The gate "
+    "passes at 0.80."
+)
+
+# The same thing in one line, for the review dialog.
+#
+# The long version was tried there first and was wrong: four lines of grey text landed in the
+# middle of the stored-field list and pushed "Line items: none" and the contradiction panel
+# under it. The contradiction is the most important thing in that dialog and a footnote about
+# scoring was outranking it on screen. The full sentence survives as the hover text.
+SCORE_NOTE_SHORT = "How much of our own check it passed. Not the model's confidence."
+
+
+def verdict_word(row: Mapping[str, Any]) -> str:
+    """The gate's verdict as a reader sees it, or an em-less dash when there is none."""
+    return VERDICT.get(row.get("validation_status") or "", "-")

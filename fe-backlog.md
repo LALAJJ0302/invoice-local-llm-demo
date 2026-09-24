@@ -295,6 +295,40 @@ implemented from what is not.
 
 ---
 
+## Group H. The validation score, 2026-09-24
+
+Spec: `fe-score-spec.md`. Raised by Neo after looking at the card and the dialog and finding no
+score on either. Audited at nine surfaces where a document appears: **the number was on one of
+them.** It reverses `fe-screen-spec.md` §3, which had excluded it deliberately, and both §3 and
+§4 carry a dated amendment rather than a rewrite.
+
+The condition that makes the reversal safe is that the number never appears alone: it is always
+labelled `Validation score`, always drawn against the gate's 0.80, and the sentence saying what
+it measures lives in `review_signals.py`. 17 tests in `tests/test_score_block.py` pin all three.
+
+| id | Work | Done when |
+|---|---|---|
+| ~~SC-1~~ ✅ | The score on the document card | A meter under the amount, reaching Awaiting approval, Approved by the system and the Overview section, since all three call `document_card()` |
+| ~~SC-2~~ ✅ | The score in the review dialog | The same block in `dlg-head`, under the amount and above the risk strip |
+| ~~SC-3~~ ✅ | The score in the stored panel | A `field_row` beside what the model stored, so the panel also says what our own check made of it |
+| ~~SC-4~~ ✅ | The score in History | `load_history()` now selects both columns. Asserted on the frame rather than the screen, because every row in the database has `reviewed_at IS NULL` and a screen test would pass by rendering nothing |
+| ~~SC-5~~ ✅ | The Overview auto row names its number | It read `score 1.00`, which does not say which score |
+| ~~SC-6~~ ✅ | A score column in Documents | `dense_rows()` takes an optional sixth item. Vendors and pipeline runs pass five and are untouched: a vendor is a group of documents and a run is not scored |
+
+**One defect surfaced while verifying, and only in a screenshot.** The threshold mark was drawn
+in `--text-muted`, which is legible on the unfilled track and close to invisible inside the
+fill. Invoice 1 scores 0.85 against a gate at 0.80, so the mark sits under the green: the near
+miss is the exact case the mark exists for, and that is where it failed. It is now a notch cut
+in the surface colour, which reads against the fill and the track alike.
+
+**One thing was shortened for the same reason.** The full sentence explaining the score ran four
+lines in the dialog's stored panel and pushed the contradiction panel down. FE-11 and
+`fe-screen-spec.md` both call that contradiction the most important thing on the screen, and a
+footnote about scoring was outranking it. The short form is in the panel and the full sentence
+is the hover text.
+
+---
+
 | **FE-31** | The decision is still below the fold | Measured at a 1000px viewport with the dialog as opened: Approve sits at 1006 and needs 41px of scroll, and a real laptop viewport is shorter. The artboard solved this with a sticky footer and **`position:sticky` does not work inside `st.dialog`**: it computes, and the element still scrolls away, because an ancestor inside the dialog carries `overflow:hidden` and sticky positions against the nearest scrollport rather than the element that scrolls. `display:contents` on the wrapper fixes the travel and changes nothing. Overriding the dialog's own clipping is the `data-testid` dependency `fe-theme-spec.md` §1 warns about. Options: shorten further by moving the note into an expander, or accept that a person scrolls past the evidence to reach the decision, which is arguably what this screen is for |
 | **FE-27** | The ⌘K hint is drawn and not wired | The search field carries the shortcut badge the design draws, and nothing listens for the keystroke. It is a hint rather than a control, but it still promises something the app does not do. Either bind it or remove the badge |
 

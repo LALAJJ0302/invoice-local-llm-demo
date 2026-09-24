@@ -82,8 +82,13 @@ Six columns. The current table has eleven and overflows the right edge.
 
 **No approve button in the row.** See §5.
 
-Deliberately excluded: file name, ingestion time, `run_id`, raw `validation_score`, invoice
+Deliberately excluded: file name, ingestion time, `run_id`, ~~raw `validation_score`~~, invoice
 date. All are available and none of them changes a decision.
+
+> **Amended 2026-09-24.** `validation_score` is struck from that list and is now on the card,
+> in the dialog, in History and in Documents. It is left struck rather than deleted because the
+> exclusion was argued, not assumed, and the argument is answered rather than abandoned: see the
+> note under §4 and `fe-score-spec.md`. Everything else on the list stays excluded.
 
 ---
 
@@ -92,6 +97,24 @@ date. All are available and none of them changes a decision.
 Instead of the raw `0.85`, the row states in words what the gate was unhappy about. A person
 reading `0.85` cannot act on it; a person reading "no line items to check the total against"
 knows to open the document.
+
+> **Amended 2026-09-24. The sentence is unchanged; it is no longer the only thing shown.**
+>
+> The paragraph above is still true and the sentence still leads. What it got wrong was the
+> word *instead*: it treated the choice as either the sentence or the number, and they answer
+> different questions. The sentence says **what to do** about this document. The number says
+> **how far off it is**, and two documents carrying the identical sentence can be 0.85 and 0.40
+> apart, which this screen could not distinguish until now.
+>
+> The second reason the original gave, that the weights moved twice so the score is not
+> comparable across dates, is also still true. It is a reason not to draw a trend, a delta or a
+> sparkline, and none is drawn. It is not a reason to hide the current value from the person
+> being asked to approve on it.
+>
+> Three conditions make the reversal safe, and `tests/test_score_block.py` pins all three: the
+> number is always labelled `Validation score`, never `Confidence`; it is always drawn against
+> the gate's threshold rather than free-floating; and the sentence saying what it measures lives
+> in `review_signals.py` with the rest of the copy. See `fe-score-spec.md` §2 and §3.
 
 **Computed from the invoice's current columns, in this order. The first match wins.**
 
