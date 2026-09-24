@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+import auth
 import task_dispatch
 from storage import APPROVAL_TASK_TYPES, DEFAULT_DB_PATH, StorageManager, connect
 
@@ -38,6 +39,7 @@ def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
             i.validation_status,
             i.approval_status,
             i.reviewed_at,
+            u.display_name AS reviewer_name,
             i.validation_score,
             i.total_source,
             i.document_type,
@@ -57,6 +59,7 @@ def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
             e.received_at AS email_received_at
         FROM invoices i
         LEFT JOIN email_messages e ON e.email_id = i.email_id
+        LEFT JOIN users u ON u.user_id = i.reviewed_by
         ORDER BY i.invoice_id DESC
     """
     df = pd.read_sql_query(query, conn)
@@ -123,7 +126,7 @@ def assign_task(task_id: int, assignee: str):
 def record_decision(record_id: int, decision: str):
     """Records a human decision about an invoice.
 
-    Writes approval_status and reviewed_at only. It deliberately does NOT touch:
+    Writes approval_status, reviewed_at and reviewed_by (the signed-in user). It deliberately does NOT touch:
 
       status            what the pipeline judged about data quality. Overwriting it would
                         destroy the record that the extractor was not confident.
@@ -137,19 +140,13 @@ def record_decision(record_id: int, decision: str):
     """
     if decision not in ("Approved", "Rejected", "Pending"):
         raise ValueError(f"unknown decision {decision!r}")
-    conn = connect(DB_PATH)
-    conn.execute(
-        "UPDATE invoices SET approval_status = ?, reviewed_at = datetime('now') "
-        "WHERE invoice_id = ?",
-        (decision, record_id),
-    )
-    conn.commit()
-    conn.close()
+    reviewer_id = int(st.session_state["user_id"])
 
     # The work the task stood for is finished, so it leaves the queue. A rejection cancels
     # rather than completes: the document was not accepted, so nothing downstream should
     # treat it as processed.
     store = StorageManager(DB_PATH)
+    store.record_decision(record_id, decision, reviewer_id)
     store.resolve_tasks(record_id, state="Done" if decision == "Approved" else "Cancelled")
 
     # The hand-off to post-approval work. Approving opens what the document needs next: an
@@ -166,6 +163,7 @@ def record_decision(record_id: int, decision: str):
                 followup["task_type"],
                 followup.get("reason") or f"Invoice {record_id} approved.",
                 approval_path="human",
+                reviewer_user_id=reviewer_id,
             )
 
 
@@ -197,6 +195,66 @@ def load_open_tasks() -> pd.DataFrame:
 # =====================================================================
 # 2. Main Dashboard UI
 # =====================================================================
+def require_password_change(store: StorageManager) -> None:
+    """Stops the page until a first-time user replaces the temporary password."""
+    st.title("⚡ Enterprise AI Workflow Automation Dashboard")
+    st.caption(
+        f"Signed in as **{st.session_state['display_name']}**. "
+        "This is the first login for this account. Choose a new password to continue."
+    )
+    with st.form("change_password"):
+        new_password = st.text_input("New password", type="password")
+        confirm = st.text_input("Confirm new password", type="password")
+        submitted = st.form_submit_button("Save password")
+    if submitted:
+        if not new_password or new_password != confirm:
+            st.error("Enter the new password twice, and make sure both match.")
+        else:
+            try:
+                auth.change_password(store, int(st.session_state["user_id"]), new_password)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                st.session_state["must_change_password"] = False
+                st.rerun()
+    if st.button("Log out"):
+        st.session_state.clear()
+        st.rerun()
+    st.stop()
+
+
+def require_login() -> None:
+    """Stops the page until a configured user signs in, then until they set a password."""
+    store = StorageManager(DB_PATH)
+    auth.ensure_default_users(store)
+    if st.session_state.get("user_id"):
+        if st.session_state.get("must_change_password"):
+            require_password_change(store)
+        return
+
+    st.title("⚡ Enterprise AI Workflow Automation Dashboard")
+    st.caption("Sign in to review documents. Your name is recorded on each decision.")
+    with st.form("login"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Log in")
+    if submitted:
+        user = auth.authenticate(store, username, password)
+        if user:
+            st.session_state["user_id"] = user["user_id"]
+            st.session_state["display_name"] = user["display_name"]
+            st.session_state["must_change_password"] = user["must_change_password"]
+            st.rerun()
+        st.error("Unknown username or password.")
+    st.stop()
+
+
+require_login()
+st.sidebar.caption(f"Signed in as **{st.session_state['display_name']}**")
+if st.sidebar.button("Log out"):
+    st.session_state.clear()
+    st.rerun()
+
 st.title("⚡ Enterprise AI Workflow Automation Dashboard")
 st.caption("End-to-end Document Ingestion, Ollama Local Extraction & Real-time Analytics")
 
@@ -450,6 +508,8 @@ if selected_id:
                     f"at score `{row['validation_score']:.2f}`")
         st.markdown(f"**Approval (human):** `{row['approval_status']}`")
         if row["reviewed_at"]:
+            reviewer = row["reviewer_name"] or "unknown"
+            st.markdown(f"**Reviewed By:** `{reviewer}`")
             st.markdown(f"**Reviewed At:** `{row['reviewed_at']}`")
         elif row["approval_status"] == "Approved":
             st.caption("✅ Approved automatically — validation score was 1.00, no human "

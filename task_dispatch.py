@@ -6,7 +6,7 @@ row but never abort invoice processing.
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Tuple
 
 ApprovalPath = Literal["auto", "human"]
 
@@ -28,6 +28,7 @@ def _build_description(
     validation_score: Optional[float],
     document_type: Optional[str],
     total_cents: Optional[int],
+    reviewer_name: Optional[str] = None,
 ) -> str:
     total = from_cents(total_cents)
     total_line = "no total" if total is None else f"{total:,.2f}"
@@ -41,7 +42,28 @@ def _build_description(
         "",
         reason or "No reason recorded.",
     ]
+    if reviewer_name:
+        lines.extend(["", f"Reviewed by: {reviewer_name}"])
     return "\n".join(lines)
+
+
+def _reviewer_for_jira(
+    store: StorageManager, reviewer_user_id: Optional[int]
+) -> Tuple[Optional[str], Optional[str]]:
+    """Name for the description, and the Jira account id for the reporter field.
+
+    A missing account id still creates the issue. The description then names the
+    reviewer, and Jira keeps the API user as reporter.
+    """
+    if reviewer_user_id is None:
+        return None, None
+    user = store.user_by_id(reviewer_user_id)
+    if user is None:
+        return None, None
+    account_id = (user["jira_account_id"] or "").strip()
+    if account_id:
+        return None, account_id
+    return user["display_name"], None
 
 
 def _apply_approval_status(
@@ -67,6 +89,7 @@ def dispatch_task_to_jira(
     *,
     assignee: Optional[str] = None,
     approval_path: ApprovalPath = "human",
+    reviewer_user_id: Optional[int] = None,
     jira: Optional[JiraClient] = None,
 ) -> None:
     """Queue a Jira dispatch and create the issue when configured."""
@@ -79,6 +102,7 @@ def dispatch_task_to_jira(
         return
 
     file_name = invoice["file_name"] or f"invoice-{invoice_id}"
+    reviewer_name, reporter_account_id = _reviewer_for_jira(store, reviewer_user_id)
     summary = _build_summary(task_type, file_name, invoice["vendor_name"])
     description = _build_description(
         task_type=task_type,
@@ -88,6 +112,7 @@ def dispatch_task_to_jira(
         validation_score=invoice["validation_score"],
         document_type=invoice["document_type"],
         total_cents=invoice["total_cents"],
+        reviewer_name=reviewer_name,
     )
     payload = f"{summary}. {reason or ''}".strip()
     with connect(store.db_path) as conn:
@@ -113,6 +138,7 @@ def dispatch_task_to_jira(
             description=description,
             labels=["invoice", task_type.lower(), path_label],
             assignee_account_id=assignee_id,
+            reporter_account_id=reporter_account_id,
         )
     except JiraError as error:
         store.mark_outbound_failed(outbox_id, str(error))

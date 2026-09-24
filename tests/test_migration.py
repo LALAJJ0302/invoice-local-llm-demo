@@ -41,6 +41,8 @@ m006 = load_migration("006_storage_completion.py")
 m007 = load_migration("007_post_approval.py")
 m008 = load_migration("008_email_body_and_attachments.py")
 m009 = load_migration("009_ai_document_fields.py")
+m010 = load_migration("010_reviewer_login.py")
+m011 = load_migration("011_must_change_password.py")
 
 
 LEGACY_DDL = """
@@ -118,6 +120,8 @@ def migrated_db(legacy_db):
     assert m007.migrate(legacy_db) == 0
     assert m008.migrate(legacy_db) == 0
     assert m009.migrate(legacy_db) == 0
+    assert m010.migrate(legacy_db) == 0
+    assert m011.migrate(legacy_db) == 0
     return legacy_db
 
 
@@ -409,6 +413,8 @@ class TestEmailBodyAndAttachments:
     def test_attachment_dedup_is_scoped_to_one_email(self, at_v7):
         m008.migrate(at_v7)
         m009.migrate(at_v7)  # StorageManager requires the current SCHEMA_VERSION
+        m010.migrate(at_v7)
+        m011.migrate(at_v7)
         store = StorageManager(at_v7)
         email = store.record_email("<x@mail>", "a@b.com", attachment_count=1)
         assert store.has_seen_attachment(email["email_id"], "a" * 64) is False
@@ -486,6 +492,8 @@ class TestAIDocumentFields:
 
     def test_action_items_round_trip_through_save_invoice(self, at_v8):
         m009.migrate(at_v8)
+        m010.migrate(at_v8)  # StorageManager requires the current SCHEMA_VERSION
+        m011.migrate(at_v8)
         store = StorageManager(at_v8)
         run_id = store.start_run("llama3.2", 0.8)
         result = store.save_invoice(
@@ -552,6 +560,37 @@ class TestAIDocumentFields:
 
 
 # =====================================================================
+# Migration 010
+# =====================================================================
+class TestReviewerLogin:
+    @pytest.fixture
+    def at_v9(self, legacy_db):
+        for m in (m001, m002, m003, m004, m005, m006, m007, m008, m009):
+            assert m.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_adds_users_and_reviewed_by(self, at_v9):
+        m010.migrate(at_v9)
+        with connect(at_v9) as conn:
+            tables = {r["name"] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            columns = [r["name"] for r in conn.execute("PRAGMA table_info(invoices)")]
+            reviewed = conn.execute(
+                "SELECT COUNT(*) c FROM invoices WHERE reviewed_by IS NOT NULL"
+            ).fetchone()["c"]
+        assert "users" in tables
+        assert columns[-1] == "reviewed_by"
+        assert reviewed == 0
+
+    def test_is_idempotent(self, at_v9):
+        m010.migrate(at_v9)
+        assert m010.migrate(at_v9) == 0
+
+    def test_refuses_to_run_out_of_order(self, legacy_db):
+        assert m010.migrate(legacy_db) == 1
+
+
+# =====================================================================
 # The whole chain
 # =====================================================================
 class TestChain:
@@ -564,7 +603,7 @@ class TestChain:
         with connect(migrated_db) as conn:
             versions = [r["version"] for r in
                         conn.execute("SELECT version FROM schema_version ORDER BY version")]
-        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
     def test_migrated_matches_fresh(self, migrated_db, tmp_path):
         """A replayed migration chain and a fresh storage.DDL database must agree.
@@ -580,7 +619,7 @@ class TestChain:
                 tables = {}
                 for table in ("processing_runs", "invoices", "line_items",
                               "email_messages", "email_attachments", "tasks",
-                              "outbound_messages", "action_items"):
+                              "outbound_messages", "action_items", "users"):
                     tables[table] = [
                         (r["name"], r["type"], r["notnull"], r["dflt_value"])
                         for r in conn.execute(f"PRAGMA table_info({table})")
@@ -623,5 +662,5 @@ class TestChain:
     def test_rerunning_the_whole_sequence_is_a_clean_no_op(self, migrated_db):
         """A teammate following the quickstart runs every migration in order. Doing that
         twice must succeed, not report failure on the ones already applied."""
-        for module in (m001, m002, m003, m004, m005, m006, m007, m008, m009):
+        for module in (m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011):
             assert module.migrate(migrated_db) == 0, f"{module.__name__} failed on re-run"
