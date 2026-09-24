@@ -19,12 +19,45 @@ different claims.
 
 ## Setup and run
 
-Requires Ollama serving and a virtualenv (both already set up on Neo's machine).
+### First run on a new machine
+
+**Verified end to end on 2026-09-24** against a clean copy with no database, no PDFs and no
+`.env`: this sequence ends with 587 tests passing. Nothing else is needed and nothing here is
+optional.
 
 ```bash
-ollama serve &                                   # must be running before main.py
-./.venv/bin/python generate_mock_invoices.py     # writes 3 sample PDFs to inbox/
+python3 -m venv .venv
 ./.venv/bin/python -m pip install -r requirements.txt
+ollama serve &                                   # separate install, https://ollama.com
+ollama pull llama3.2
+./.venv/bin/python generate_mock_invoices.py     # writes 3 sample PDFs to inbox/
+./.venv/bin/python seed_mock_emails.py           # loads the mock mailbox into email_messages
+./.venv/bin/python main.py                       # 3/3 stored in about 30s
+./.venv/bin/python -m pytest tests/ -q           # 587 passed
+./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
+```
+
+**Do not run the migrations on a new machine.** They upgrade an existing database and a fresh
+clone has none. `StorageManager.__init__` creates the whole schema at the current version on
+first use, which is what `main.py` triggers. Running them anyway is harmless, they detect the
+missing database and stop, but it wastes a step and suggests they are part of setup.
+
+**`seed_mock_emails.py` is not optional.** Without it every invoice stores `email_id = NULL`,
+the covering-email chip never appears on a card, and
+`test_the_card_carries_everything_the_approved_design_carries` fails. It is idempotent, keyed on
+the RFC 5322 Message-ID, and reads the tracked `evaluation/mock_mailbox.json`, so it needs no
+mail credentials. It was missing from this list until 2026-09-24.
+
+**The database is gitignored, so a clone has no data.** Until `main.py` has run, the dashboard
+renders "No documents have been processed yet" and stops. That is correct behaviour, not a
+failure. Screen tests that need a document will fail until the sequence above is complete; the
+suite no longer dies at collection, which it did before 2026-09-24.
+
+### Everything else
+
+Requires Ollama serving and a virtualenv.
+
+```bash
 ./.venv/bin/python migrations/001_normalise.py   # one-off: flat table -> normalised schema
 ./.venv/bin/python migrations/002_rename_total_source.py
 ./.venv/bin/python migrations/003_fix_date_check.py
@@ -37,6 +70,7 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python migrations/010_run_kind_and_threads.py
 ./.venv/bin/python migrations/011_email_analysis.py
 ./.venv/bin/python migrations/012_invoice_ai_fields.py
+./.venv/bin/python migrations/013_review_note.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
 ./.venv/bin/python email_pipeline.py --threads   # analyse the stored mailbox -> SQLite
 ./.venv/bin/python query_db.py                   # inspect records
@@ -64,7 +98,8 @@ accumulating duplicates. It writes to SQLite first and archives only after the c
 
 The migrations are one-off and idempotent. 001 renames `workflow_records` to `workflow_records_v1`,
 keeps it, and takes a `.bak` copy of the database first. Running any of them twice is a no-op.
-Schema version is 12. 010 is the only one since 003 that rewrites an existing table.
+Schema version is 13, and `storage.SCHEMA_VERSION` is the authority on that number rather
+than this sentence. 010 is the only one since 003 that rewrites an existing table.
 **Never renumber a migration that is already on `main`.** 012 exists because Luke's
 008 and 009 were written against numbers that were already taken and already applied;
 the SQL was fine, the numbering was not, and a renumbered migration refuses to run on
