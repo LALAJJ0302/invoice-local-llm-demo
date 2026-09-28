@@ -38,7 +38,7 @@ to be written, and the third column says what it is assembled from rather than i
 
 | # | Section | Status | Source material | Blocked on |
 |---|---|---|---|---|
-| 1 | Introduction and PoC Scope | **Have**, needs a scope statement | §1.1–1.3 plus §3.1–3.2 on the pivot; `requirements-spec.md` §4 | Nobody |
+| 1 | Introduction and PoC Scope | **Have.** §1.4, the dated scope boundary, written 2026-09-28. Still needs the pivot narrative merged in and a citation for §1.1 | §1.1–1.4 plus §3.1–3.2 on the pivot | Nobody, except §1.1 which needs outside literature |
 | 2 | Literature and Environmental Review | **Have** | §2, six subsections, 19 sources | Nobody |
 | 3 | Requirements | **New**, drafted 2026-09-28 | `requirements-spec.md`, 41 functional and 6 non-functional requirements with status | Nobody |
 | 4 | System Architecture and Data Flow | **Have** | §4.1 Architecture, §4.2 Data model; `database-spec.md` | Nobody |
@@ -97,7 +97,7 @@ Ordered by dependency, so that nothing waits on a person who has not delivered y
 | Mon 28 Sep | §8 gains §5.11, where the validation score comes from and what it decides | Nobody. **Written, ~1,480 words**, with `evaluation/score_breakdown.py` and 17 tests behind it |
 | Mon 28 Sep | §10 Limitations, consolidated from six places | Nobody. **Written, 1,752 words** |
 | Tue 29 Sep | The renumbering pass and the §4/§6 split | The structure being agreed |
-| Tue 29 Sep | §1 gains an explicit in-scope and out-of-scope statement | The scope freeze |
+| Mon 28 Sep | §1 gains an explicit in-scope and out-of-scope statement | Nobody. **Written as §1.4, 660 words** |
 | Wed 30 to Thu 1 Oct | §5 Security and Privacy, §9 Deployment | Luke |
 | Thu 1 Oct | §7 RAG Method, §8 extended with the comparison | JJ |
 
