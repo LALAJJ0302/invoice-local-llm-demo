@@ -154,13 +154,6 @@ def run(db_path: str = "workflow_platform.db", model: str = email_ai.MODEL_NAME,
     store = StorageManager(db_path)
 
     print(f"=== Email analysis over {db_path} ===")
-    grouping = assign_threads(store)
-    print(f"[*] {grouping['emails']} emails grouped into {grouping['threads']} threads by "
-          f"subject, {grouping['collision_threads']} of them a probable collision")
-    if grouping["collision_threads"]:
-        print("[!] A thread whose messages never say 'Re:' is several originals sharing a "
-              "subject, not a conversation. thread_source says 'subject' for this reason.")
-
     rows = analysable_emails(store, limit)
     print(f"[*] {len(rows)} emails with a body to analyse, model {model}")
 
@@ -172,6 +165,13 @@ def run(db_path: str = "workflow_platform.db", model: str = email_ai.MODEL_NAME,
                 print(f"    would summarise thread {key!r} over {len(members)} messages")
         print("\nDry run only. No model called, nothing written.")
         return 0, {"planned": len(rows)}
+
+    grouping = assign_threads(store)
+    print(f"[*] {grouping['emails']} emails grouped into {grouping['threads']} threads by "
+          f"subject, {grouping['collision_threads']} of them a probable collision")
+    if grouping["collision_threads"]:
+        print("[!] A thread whose messages never say 'Re:' is several originals sharing a "
+              "subject, not a conversation. thread_source says 'subject' for this reason.")
 
     if not rows:
         print("[*] Nothing to analyse.")

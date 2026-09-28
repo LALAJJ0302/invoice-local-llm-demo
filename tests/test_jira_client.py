@@ -63,6 +63,23 @@ class TestJiraClientHTTP:
             )
         assert key == "INV-42"
 
+    def test_create_issue_sets_reporter_only_when_given(self, configured_client):
+        captured = {}
+
+        def fake_urlopen(request, timeout=15):
+            captured["body"] = json.loads(request.data.decode())
+            return _FakeResponse(BytesIO(json.dumps({"key": "INV-1"}).encode()))
+
+        with patch("jira_client.urlopen", side_effect=fake_urlopen):
+            configured_client.create_issue("s", "d", assignee_account_id="acc-luke")
+        assert "reporter" not in captured["body"]["fields"]
+
+        with patch("jira_client.urlopen", side_effect=fake_urlopen):
+            configured_client.create_issue(
+                "s", "d", reporter_account_id="acc-luke"
+            )
+        assert captured["body"]["fields"]["reporter"] == {"accountId": "acc-luke"}
+
     def test_create_issue_raises_on_http_error(self, configured_client):
         from urllib.error import HTTPError
 

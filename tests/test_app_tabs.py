@@ -13,11 +13,13 @@ import re
 
 from streamlit.testing.v1 import AppTest
 
+from signed_in import sign_in
+
 APP = str(pathlib.Path(__file__).resolve().parents[1] / "app.py")
 
 
 def run():
-    at = AppTest.from_file(APP, default_timeout=120).run()
+    at = sign_in(AppTest.from_file(APP, default_timeout=120)).run()
     assert not at.exception, [str(e.value) for e in at.exception]
     return at
 

@@ -3,7 +3,9 @@ from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
+from streamlit.runtime.scriptrunner import get_script_run_ctx
 
+import auth
 import task_dispatch
 from review_signals import (GATE_THRESHOLD, SCORE_NOTE, SCORE_NOTE_SHORT, risk_detail,
                             risk_signal, verdict_word)
@@ -60,9 +62,15 @@ def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
             i.processed_at AS system_processed_at,
             e.sender AS email_sender,
             e.subject AS email_subject,
-            e.received_at AS email_received_at
+            e.received_at AS email_received_at,
+            -- Who signed the decision. Luke's migration 013 added invoices.reviewed_by; this
+            -- resolves it to a name so History can show a person rather than an integer.
+            -- LEFT JOIN because reviewed_by is NULL for everything the system approved on its
+            -- own, which is most of the table.
+            u.display_name AS reviewer_name
         FROM invoices i
         LEFT JOIN email_messages e ON e.email_id = i.email_id
+        LEFT JOIN users u ON u.user_id = i.reviewed_by
         ORDER BY i.invoice_id DESC
     """
     df = pd.read_sql_query(query, conn)
@@ -126,9 +134,9 @@ def set_action_item_done(action_item_id: int, is_done: bool):
     StorageManager(DB_PATH).set_action_item_done(action_item_id, is_done)
 
 def record_decision(record_id: int, decision: str):
-    """Records a human decision about an invoice.
+    """Records a human decision about an invoice, then opens the work that follows it.
 
-    Writes approval_status and reviewed_at only. It deliberately does NOT touch:
+    Writes approval_status, reviewed_at and reviewed_by only. It deliberately does NOT touch:
 
       status            what the pipeline judged about data quality. Overwriting it would
                         destroy the record that the extractor was not confident.
@@ -139,17 +147,20 @@ def record_decision(record_id: int, decision: str):
     meaningful: the pipeline was not confident, and a person approved it anyway. The two
     columns are labelled "Data Quality" and "Approval" in the UI so it does not read as a
     contradiction.
+
+    The invoice row itself is written by `StorageManager.record_decision`, which is Luke's and
+    arrived with the authentication work. Two branches moved this logic in opposite directions,
+    his into storage and ours into the follow-up tasks below, and this keeps both: his method
+    refuses a decision from an unknown user id, because a decision with no real reviewer is not
+    a decision, and the hand-off underneath it is unchanged.
     """
-    if decision not in ("Approved", "Rejected", "Pending"):
-        raise ValueError(f"unknown decision {decision!r}")
-    conn = connect(DB_PATH)
-    conn.execute(
-        "UPDATE invoices SET approval_status = ?, reviewed_at = datetime('now') "
-        "WHERE invoice_id = ?",
-        (decision, record_id),
-    )
-    conn.commit()
-    conn.close()
+    reviewer_id = st.session_state.get("user_id")
+    if reviewer_id is None:
+        # Unreachable through the interface, because require_login() stops the page before any
+        # of it renders. It is checked anyway: the alternative is an approval recorded against
+        # nobody, which is the one thing reviewed_by exists to prevent.
+        raise RuntimeError("no signed-in user: record_decision must not be called before login")
+    StorageManager(DB_PATH).record_decision(record_id, decision, int(reviewer_id))
 
     # The work the task stood for is finished, so it leaves the queue. A rejection cancels
     # rather than completes: the document was not accepted, so nothing downstream should
@@ -1397,14 +1408,103 @@ def sidebar(frame, pending, auto, outbox, history):
                           label_visibility="collapsed",
                           format_func=lambda key: dest[key]["label"])
 
+        # Was "Local session / No sign-in on this machine", which stopped being true the
+        # moment require_login() landed. A footer that denies the login the user just passed
+        # through is worse than no footer.
+        who = st.session_state.get("display_name") or "Unknown"
+        initials = "".join(part[0] for part in who.split()[:2]).upper() or "?"
         st.markdown(
-            "<div class='side-foot'><span class='side-avatar'>NP</span>"
-            "<span class='side-name'><span class='side-who'>Local session</span>"
-            "<span class='side-sub'>No sign-in on this machine</span></span></div>",
+            f"<div class='side-foot'><span class='side-avatar'>{initials}</span>"
+            f"<span class='side-name'><span class='side-who'>{who}</span>"
+            f"<span class='side-sub'>Signed in on this machine</span></span></div>",
             unsafe_allow_html=True)
+        if st.button("Log out", key="logout", width="stretch"):
+            st.session_state.clear()
+            st.rerun()
 
     return chosen, query
 
+
+# =====================================================================
+# Authentication. Luke's, arriving with migrations 013 and 014.
+# =====================================================================
+#
+# Kept as he wrote it, including the two titles, which name the dashboard this branch replaced.
+# The wording is his and the inconsistency is cosmetic and reversible in one line, so it is
+# raised on the pull request rather than decided for him. See merge-resolution-spec.md Q2.
+#
+# Both functions end in st.stop(), which is what makes them a gate rather than a suggestion.
+# That is also why every test rendering this file seeds st.session_state before running it:
+# without a session there is nothing to assert against but a login form.
+
+def require_password_change(store: StorageManager) -> None:
+    """Stops the page until a first-time user replaces the temporary password."""
+    st.title("⚡ Enterprise AI Workflow Automation Dashboard")
+    st.caption(
+        f"Signed in as **{st.session_state['display_name']}**. "
+        "This is the first login for this account. Choose a new password to continue."
+    )
+    with st.form("change_password"):
+        new_password = st.text_input("New password", type="password")
+        confirm = st.text_input("Confirm new password", type="password")
+        submitted = st.form_submit_button("Save password")
+    if submitted:
+        if not new_password or new_password != confirm:
+            st.error("Enter the new password twice, and make sure both match.")
+        else:
+            try:
+                auth.change_password(store, int(st.session_state["user_id"]), new_password)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                st.session_state["must_change_password"] = False
+                st.rerun()
+    if st.button("Log out"):
+        st.session_state.clear()
+        st.rerun()
+    st.stop()
+
+
+def require_login() -> None:
+    """Stops the page until a configured user signs in, then until they set a password.
+
+    Returns immediately when there is no script run context, which means the module was
+    imported rather than served. Four test modules do `import app` to reach its helpers, and
+    without this guard the import draws a login form into no page at all: `st.stop()` is a
+    no-op outside a run, so execution falls through it and Streamlit is left holding an open
+    form. The next AppTest run then fails with "st.button() can't be used in an st.form()",
+    which names neither the cause nor the file.
+
+    AppTest does provide a context, so this does not weaken the gate under test. Nobody is
+    being authenticated here; there is simply no page to gate.
+    """
+    if get_script_run_ctx() is None:
+        return
+    store = StorageManager(DB_PATH)
+    auth.ensure_default_users(store)
+    if st.session_state.get("user_id"):
+        if st.session_state.get("must_change_password"):
+            require_password_change(store)
+        return
+
+    st.title("⚡ Enterprise AI Workflow Automation Dashboard")
+    st.caption("Sign in to review documents. Your name is recorded on each decision.")
+    with st.form("login"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Log in")
+    if submitted:
+        user = auth.authenticate(store, username, password)
+        if user:
+            st.session_state["user_id"] = user["user_id"]
+            st.session_state["display_name"] = user["display_name"]
+            st.session_state["must_change_password"] = user["must_change_password"]
+            st.rerun()
+        st.error("Unknown username or password.")
+    st.stop()
+
+
+require_login()
 
 df = load_data()
 if df.empty:

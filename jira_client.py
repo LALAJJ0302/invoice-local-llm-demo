@@ -108,8 +108,13 @@ class JiraClient:
         description: str,
         labels: Optional[List[str]] = None,
         assignee_account_id: Optional[str] = None,
+        reporter_account_id: Optional[str] = None,
     ) -> str:
-        """Create a Task issue and return its key (e.g. INV-14)."""
+        """Create a Task issue and return its key (e.g. INV-14).
+
+        reporter_account_id sets the Jira reporter. The API user needs Modify Reporter;
+        omit it and Jira records the API user instead.
+        """
         fields: Dict[str, Any] = {
             "project": {"key": self.project_key},
             "summary": summary,
@@ -119,6 +124,8 @@ class JiraClient:
         }
         if assignee_account_id:
             fields["assignee"] = {"accountId": assignee_account_id}
+        if reporter_account_id:
+            fields["reporter"] = {"accountId": reporter_account_id}
         payload = self._request("POST", "/rest/api/2/issue", {"fields": fields})
         key = payload.get("key")
         if not key:

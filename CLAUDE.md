@@ -70,7 +70,9 @@ Requires Ollama serving and a virtualenv.
 ./.venv/bin/python migrations/010_run_kind_and_threads.py
 ./.venv/bin/python migrations/011_email_analysis.py
 ./.venv/bin/python migrations/012_invoice_ai_fields.py
-./.venv/bin/python migrations/013_review_note.py
+./.venv/bin/python migrations/013_reviewer_login.py
+./.venv/bin/python migrations/014_must_change_password.py
+./.venv/bin/python migrations/015_review_note.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
 ./.venv/bin/python email_pipeline.py --threads   # analyse the stored mailbox -> SQLite
 ./.venv/bin/python query_db.py                   # inspect records
@@ -98,12 +100,18 @@ accumulating duplicates. It writes to SQLite first and archives only after the c
 
 The migrations are one-off and idempotent. 001 renames `workflow_records` to `workflow_records_v1`,
 keeps it, and takes a `.bak` copy of the database first. Running any of them twice is a no-op.
-Schema version is 13, and `storage.SCHEMA_VERSION` is the authority on that number rather
-than this sentence. 010 is the only one since 003 that rewrites an existing table.
+`storage.SCHEMA_VERSION` is the authority on the current version, not this sentence. 010 is
+the only one since 003 that rewrites an existing table.
 **Never renumber a migration that is already on `main`.** 012 exists because Luke's
 008 and 009 were written against numbers that were already taken and already applied;
 the SQL was fine, the numbering was not, and a renumbered migration refuses to run on
 any database that already has the original.
+
+**It happened a second time, 2026-09-24, and the rule decided it the same way.** The review
+note was written as 013 against a main that had no 013. Luke's `013_reviewer_login.py` and
+`014_must_change_password.py` landed on main first, so the review note moved rather than his,
+and it is now `015_review_note.py` starting at version 14. The rule is about which branch
+reached main, not about who wrote what or when.
 
 ## Ownership
 
@@ -245,9 +253,22 @@ only merged `main` into itself, so it added nothing. It runs locally on `neo/ema
 at 13.4s for 3 calls. Its thread summary returned the subject line instead of a summary, which is
 the first labelled failure case the group has for summarisation.
 
-**Luke has authored no commit under that name.** `email_listener.py`, his assigned lane, was
-written by JJ in the initial prototype. Contributor counts across all branches: Neo 40, JJ 5,
-`zethio44` 2.
+**`email_listener.py`, his assigned lane, was written by JJ in the initial prototype.** That
+was still true on 2026-09-12 and the sentence that used to sit here, "Luke has authored no commit
+under that name", is not: he has been committing steadily since 2026-09-03.
+
+**Contributor counts are deliberately not written here any more.** The figure recorded on
+2026-09-12 was `zethio44` 2, which was accurate then and had decayed sevenfold by 2026-09-28.
+Count it when you need it, and prefer the first-parent history, because that is what separates a
+direct push from a reviewed one:
+
+```bash
+git log --all --author=zethio44 --oneline | wc -l          # everything they authored
+git log --first-parent --pretty="%h %an %s" upstream/main   # what landed without review
+```
+
+On 2026-09-28 that showed fifteen commits, of which two, both on 2026-09-03, were pushed
+straight to main and thirteen arrived through pull requests.
 
 **Current direction, agreed 2026-09-03:** Luke takes task assignment. Neo and JJ work together
 on RAG, feeding real invoice PDFs rather than the three generated samples.

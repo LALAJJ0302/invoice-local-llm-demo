@@ -4,6 +4,7 @@ import pathlib
 import pytest
 
 from line_item_check import contradiction, rows_in
+from storage import connect
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 pypdf = pytest.importorskip("pypdf")
@@ -69,8 +70,28 @@ def test_the_dialog_draws_the_contradiction_rather_than_only_exposing_it():
 
     from streamlit.testing.v1 import AppTest
 
-    at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=120).run()
-    review = next(b for b in at.button if b.key and b.key.startswith("rev-"))
+    from signed_in import sign_in
+
+    at = sign_in(AppTest.from_file(str(ROOT / "app.py"), default_timeout=120)).run()
+
+    # Open the document the contradiction is about, not whichever card happens to be first.
+    # It used to take the first `rev-` button, which worked only while the queue held exactly
+    # one pending document. It now holds two, because a fourth mock invoice arrived with
+    # luke/team-tasks, and the first button became a document whose rows were stored correctly.
+    # A test that silently changes subject is worse than one that fails.
+    with connect(str(ROOT / "workflow_platform.db")) as conn:
+        without_rows = [
+            r["invoice_id"] for r in conn.execute(
+                "SELECT i.invoice_id FROM invoices i "
+                "LEFT JOIN line_items l ON l.invoice_id = i.invoice_id "
+                "WHERE i.approval_status = 'Pending' "
+                "GROUP BY i.invoice_id HAVING COUNT(l.line_item_id) = 0")
+        ]
+    assert without_rows, "no pending document is missing its line items, so there is nothing to draw"
+    target = without_rows[0]
+
+    review = next(b for b in at.button
+                  if b.key and b.key.startswith("rev-") and b.key.endswith(f"-{target}"))
     review.click().run()
     assert not at.exception, [str(e.value) for e in at.exception]
 

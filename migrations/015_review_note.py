@@ -1,6 +1,12 @@
-"""Migration 013: a note an approver leaves for whoever opens the document next.
+"""Migration 015: a note an approver leaves for whoever opens the document next.
 
-    ./.venv/bin/python migrations/013_review_note.py [--db workflow_platform.db] [--dry-run]
+    ./.venv/bin/python migrations/015_review_note.py [--db workflow_platform.db] [--dry-run]
+
+Numbered 015 and not 013. It was written as 013 against a main branch that did not yet have one,
+and by the time it was merged Luke's 013_reviewer_login.py and 014_must_change_password.py were
+already applied on main. CLAUDE.md's rule decides which one moves: never renumber a migration
+that is already on main, because a renumbered migration refuses to run on any database that
+already has the original. Luke's stay, this one moved, and it now starts at 14 rather than 12.
 
 Replaces a control that did nothing useful. `invoice_action_items.is_done` is written by a
 checkbox in the review dialog and read by nothing: not the validation score, not the approval,
@@ -32,8 +38,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage import backup_path as make_backup_path  # noqa: E402
 from storage import connect, table_exists  # noqa: E402
 
-FROM_VERSION = 12
-TARGET_VERSION = 13
+FROM_VERSION = 14
+TARGET_VERSION = 15
 
 INVOICE_COLUMNS = [
     ("review_note", "TEXT"),
@@ -69,7 +75,7 @@ def migrate(db_path, dry_run=False):
             return 1
         invoices_before = conn.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
 
-    print(f"=== Migration 013: the review note in {db_path} ===")
+    print(f"=== Migration 015: the review note in {db_path} ===")
     print(f"[*] {invoices_before} invoices at schema version {version}.")
 
     if dry_run:

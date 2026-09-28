@@ -44,7 +44,9 @@ m009 = load_migration("009_attachment_names.py")
 m010 = load_migration("010_run_kind_and_threads.py")
 m011 = load_migration("011_email_analysis.py")
 m012 = load_migration("012_invoice_ai_fields.py")
-m013 = load_migration("013_review_note.py")
+m013 = load_migration("013_reviewer_login.py")
+m014 = load_migration("014_must_change_password.py")
+m015 = load_migration("015_review_note.py")
 
 
 LEGACY_DDL = """
@@ -126,6 +128,8 @@ def migrated_db(legacy_db):
     assert m011.migrate(legacy_db) == 0
     assert m012.migrate(legacy_db) == 0
     assert m013.migrate(legacy_db) == 0
+    assert m014.migrate(legacy_db) == 0
+    assert m015.migrate(legacy_db) == 0
     return legacy_db
 
 
@@ -423,8 +427,9 @@ class TestEmailBodyAndAttachments:
 
     def test_attachment_dedup_is_scoped_to_one_email(self, at_v7):
         m012.migrate(at_v7)
-        m013.migrate(at_v7)
-        m009.migrate(at_v7)  # StorageManager requires the current SCHEMA_VERSION
+        m013.migrate(at_v7)  # StorageManager requires the current SCHEMA_VERSION
+        m014.migrate(at_v7)
+        m015.migrate(at_v7)
         store = StorageManager(at_v7)
         email = store.record_email("<x@mail>", "a@b.com", attachment_count=1)
         assert store.has_seen_attachment(email["email_id"], "a" * 64) is False
@@ -509,7 +514,9 @@ class TestAIDocumentFields:
 
     def test_action_items_round_trip_through_save_invoice(self, at_v8):
         m012.migrate(at_v8)
-        m013.migrate(at_v8)
+        m013.migrate(at_v8)  # StorageManager requires the current SCHEMA_VERSION
+        m014.migrate(at_v8)
+        m015.migrate(at_v8)
         store = StorageManager(at_v8)
         run_id = store.start_run("llama3.2", 0.8)
         result = store.save_invoice(
@@ -590,7 +597,7 @@ class TestChain:
         with connect(migrated_db) as conn:
             versions = [r["version"] for r in
                         conn.execute("SELECT version FROM schema_version ORDER BY version")]
-        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 
     def test_migrated_matches_fresh(self, migrated_db, tmp_path):
         """A replayed migration chain and a fresh storage.DDL database must agree.
@@ -608,7 +615,7 @@ class TestChain:
                               "email_messages", "email_attachments", "tasks",
                               "outbound_messages", "invoice_action_items",
                               "email_analysis", "thread_analysis", "email_action_items",
-                              "thread_decisions"):
+                              "thread_decisions", "users"):
                     tables[table] = [
                         (r["name"], r["type"], r["notnull"], r["dflt_value"])
                         for r in conn.execute(f"PRAGMA table_info({table})")
@@ -652,7 +659,7 @@ class TestChain:
         """A teammate following the quickstart runs every migration in order. Doing that
         twice must succeed, not report failure on the ones already applied."""
         for module in (m001, m002, m003, m004, m005, m006, m007,
-                       m008, m009, m010, m011, m012):
+                       m008, m009, m010, m011, m012, m013, m014, m015):
             assert module.migrate(migrated_db) == 0, f"{module.__name__} failed on re-run"
 
 
@@ -870,6 +877,8 @@ class TestEmailAnalysisTables:
         m011.migrate(before_011)
         m012.migrate(before_011)
         m013.migrate(before_011)
+        m014.migrate(before_011)
+        m015.migrate(before_011)
         store = StorageManager(before_011)
         store.record_email("<m@mail>", "pm@client.com", "Budget")
         run_id = store.start_email_run("llama3.2:latest")
@@ -884,3 +893,70 @@ class TestEmailAnalysisTables:
         })
         assert result["was_update"] is False
         assert result["dated_count"] == 1
+
+
+# =====================================================================
+# Migration 013
+# =====================================================================
+class TestReviewerLogin:
+    """Dashboard accounts. Written as migration 010 on luke/team-tasks and re-landed at 013."""
+
+    @pytest.fixture
+    def at_v12(self, legacy_db):
+        for m in (m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012):
+            assert m.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_adds_users_and_reviewed_by(self, at_v12):
+        m013.migrate(at_v12)
+        with connect(at_v12) as conn:
+            tables = {r["name"] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            columns = [r["name"] for r in conn.execute("PRAGMA table_info(invoices)")]
+            reviewed = conn.execute(
+                "SELECT COUNT(*) c FROM invoices WHERE reviewed_by IS NOT NULL"
+            ).fetchone()["c"]
+        assert "users" in tables
+        assert columns[-1] == "reviewed_by"
+        assert reviewed == 0
+
+    def test_is_idempotent(self, at_v12):
+        m013.migrate(at_v12)
+        assert m013.migrate(at_v12) == 0
+
+    def test_refuses_to_run_out_of_order(self, legacy_db):
+        assert m013.migrate(legacy_db) == 1
+
+
+# =====================================================================
+# Migration 014
+# =====================================================================
+class TestMustChangePassword:
+    @pytest.fixture
+    def at_v13(self, legacy_db):
+        for m in (m001, m002, m003, m004, m005, m006, m007,
+                  m008, m009, m010, m011, m012, m013):
+            assert m.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_existing_users_must_change_password(self, at_v13):
+        with connect(at_v13) as conn:
+            conn.execute(
+                "INSERT INTO users (username, display_name, password_hash) "
+                "VALUES ('luke', 'Luke', 'hash')")
+            conn.commit()
+        m014.migrate(at_v13)
+        with connect(at_v13) as conn:
+            columns = [r["name"] for r in conn.execute("PRAGMA table_info(users)")]
+            flag = conn.execute(
+                "SELECT must_change_password FROM users WHERE username = 'luke'"
+            ).fetchone()["must_change_password"]
+        assert columns[-1] == "must_change_password"
+        assert flag == 1
+
+    def test_is_idempotent(self, at_v13):
+        m014.migrate(at_v13)
+        assert m014.migrate(at_v13) == 0
+
+    def test_refuses_to_run_out_of_order(self, legacy_db):
+        assert m014.migrate(legacy_db) == 1

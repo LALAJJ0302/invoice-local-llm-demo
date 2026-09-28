@@ -168,11 +168,26 @@ class TestSelection:
             raise AssertionError("the model must not be called on a dry run")
 
         monkeypatch.setattr(email_pipeline.email_ai, "analyse_email", explode)
+        with connect(mailbox.db_path) as conn:
+            messages_before = [
+                tuple(row) for row in conn.execute(
+                    "SELECT email_id, thread_id, thread_source "
+                    "FROM email_messages ORDER BY email_id"
+                )
+            ]
+
         code, summary = email_pipeline.run(db_path=mailbox.db_path, dry_run=True)
 
         assert code == 0
         assert summary == {"planned": 5}
         with connect(mailbox.db_path) as conn:
+            messages_after = [
+                tuple(row) for row in conn.execute(
+                    "SELECT email_id, thread_id, thread_source "
+                    "FROM email_messages ORDER BY email_id"
+                )
+            ]
+            assert messages_after == messages_before
             assert conn.execute("SELECT COUNT(*) c FROM email_analysis").fetchone()["c"] == 0
             assert conn.execute("SELECT COUNT(*) c FROM processing_runs").fetchone()["c"] == 0
 

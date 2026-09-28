@@ -9,6 +9,8 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
+from signed_in import sign_in
+
 import app
 
 DESTINATIONS = ["overview", "awaiting", "auto", "outbox", "history",
@@ -32,7 +34,7 @@ BASE = [
 
 
 def run():
-    at = AppTest.from_file(str(app.__file__), default_timeout=120).run()
+    at = sign_in(AppTest.from_file(str(app.__file__), default_timeout=120)).run()
     assert not at.exception, [str(e.value) for e in at.exception]
     return at
 
