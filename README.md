@@ -143,6 +143,11 @@ Check it worked:
 python3 -m pytest tests/ -q
 ```
 
+**The dashboard asks you to sign in.** The accounts are created automatically on first run.
+Use `neo`, `luke` or `jj` with the password `changeme`; the first login makes you choose a new
+one. It is a local prototype with no network exposure, which is the only reason a default
+password like that is acceptable.
+
 **The database is not in the repository**, because it is generated and git cannot merge it.
 Before `main.py` has run, the dashboard opens and says "No documents have been processed
 yet", which is correct rather than broken. There is no migration to run on a new machine

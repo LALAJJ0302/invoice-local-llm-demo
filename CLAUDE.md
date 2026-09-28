@@ -53,6 +53,23 @@ renders "No documents have been processed yet" and stops. That is correct behavi
 failure. Screen tests that need a document will fail until the sequence above is complete; the
 suite no longer dies at collection, which it did before 2026-09-24.
 
+**The dashboard asks you to sign in.** Since Luke's authentication landed, `app.py` stops at a
+login form before anything renders. The accounts are created on first run by
+`auth.ensure_default_users`, so there is nothing to set up:
+
+| Username | Password | Then |
+|---|---|---|
+| `luke`, `neo` or `jj` | `changeme` | The first login forces a password change |
+
+`changeme` is `auth.DEFAULT_PASSWORD`. It is a hardcoded default in a local prototype with no
+network exposure, which is acceptable here and would not be anywhere else; the report's Security
+and Privacy section is where that gets discussed rather than quietly fixed.
+
+Tests do not use this login. They seed a session through `tests/signed_in.py`, so that `app.py`
+keeps exactly one way in. Verified 2026-09-28 on a clean copy: bare clone is 585 passed with 18
+failing for lack of documents and no collection error, and the sequence above reaches **609
+passed**.
+
 ### Everything else
 
 Requires Ollama serving and a virtualenv.
