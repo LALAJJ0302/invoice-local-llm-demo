@@ -44,8 +44,8 @@ to be written, and the third column says what it is assembled from rather than i
 | 4 | System Architecture and Data Flow | **Have** | §4.1 Architecture, §4.2 Data model; `database-spec.md` | Nobody |
 | 5 | Security and Privacy | **New** | §2.5 local inference argument; `.env` handling; NFR-1 | **Luke**: what stays local, what reaches Jira |
 | 6 | Implementation | **Have** | §4.3, thirteen numbered design decisions; §4.4 development process | Nobody |
-| 7 | RAG Method | **New** | §4.3.10 on why retrieval uses keyword and hybrid and no embeddings; `evaluation/retrieval_eval.py` | **JJ**: the experiment itself |
-| 8 | Evaluation | **Have**, extend | §5, eleven subsections, 5,326 words. §5.11 answers the supervisor's question about where the score comes from and should lead this section after renumbering | **JJ** for the RAG comparison only |
+| 7 | RAG Method | **New** | JJ's PR #12: `rag-poc.md`, `rag_retrieval.py`, six result files. §4.3.10 on why retrieval uses keyword and hybrid and no embeddings | **JJ**, and the null result must be reported as a ceiling effect, see §5.12.3 |
+| 8 | Evaluation | **Have**, extend | §5, twelve subsections, 6,159 words. §5.11 answers the supervisor's question about where the score comes from; §5.12 carries the prompt-label finding, which is the largest single effect the project has measured | **JJ** for the RAG comparison only |
 | 9 | Deployment and System Requirements | **New** | `deployment-spec.md`, `Dockerfile`, `docker-compose.yml`, README Option C | **Luke**: clean-environment run and hardware figures |
 | 10 | Limitations and Future Work | **Have**, scattered | §5.2, §5.10, §6.5, §7.1–7.3 | Nobody, it is a consolidation |
 | 11 | Discussion and Lessons | **Have** | §6, including seven lessons each attached to its evidence | Nobody |

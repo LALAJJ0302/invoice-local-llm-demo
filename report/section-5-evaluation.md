@@ -614,3 +614,107 @@ and internally corroborated. Every check reads the document itself, so a duplica
 invoice from an unknown vendor, and a well-formatted forgery all score 1.00. Nothing in the gate
 looks outside the page. This is the most important limitation in the system and §7.2 returns to
 it, because it is the gap that no amount of extraction accuracy closes.
+
+---
+
+## 5.12 One word in the prompt, and what it cost to not notice it
+
+Measured 2026-09-28. Reproduce with:
+
+```bash
+./.venv/bin/python evaluation/prompt_label_ablation.py
+```
+
+This is the largest single effect the project has measured, and it was found by reading a diff
+rather than by looking for it.
+
+### 5.12.1 The defect
+
+The extraction prompt contains a worked example followed by the document to be read. Both were
+introduced with the same words:
+
+```
+        Example:
+        Document Content:
+        """
+        Vendor: Bright Star Media Pty Ltd
+        ...
+        """
+        Expected JSON:
+        {...}
+
+        Document Content:
+        """{raw_text}"""
+```
+
+**The label `Document Content:` appears twice and means two different things.** The first
+introduces an invented invoice the model should imitate the handling of. The second introduces
+the real invoice it must extract from. Nothing in the prompt distinguishes them.
+
+### 5.12.2 The measurement
+
+Changing the second label to `Current Document Content:`, and changing nothing else, was run
+three times in each configuration against the same three documents, same model, same
+temperature, with every field repair disabled:
+
+| Prompt label | Runs | Overall |
+|---|---|---|
+| `Document Content:` | 10/15, 10/15, 10/15 | **10/15, 66.7%** |
+| `Current Document Content:` | 15/15, 15/15, 15/15 | **15/15, 100%** |
+
+Nine runs, no variance in either arm. The gate's automation pass rate moves from 2/3 to 3/3 at
+the same time.
+
+**Every one of the five failures was on one document**, `sample_invoice_1`, which returned
+`None` for the vendor, the invoice number and the date, `0.0` for the total and `Unknown` for
+the currency. A model that finds a document hard returns some fields and misses others. A model
+that returns nothing usable for a single document, while handling two others perfectly, is not
+struggling with the document. It is reading the wrong block.
+
+### 5.12.3 What this does to the rest of the evaluation
+
+Three earlier results in this report have to be read differently in light of it.
+
+**The gap this report attributes to repair code closes to zero.** §5.3 and §5.5 are built on the
+distinction between what the model produces alone, 10/15, and what the system ships, 15/15,
+with the difference credited to a 92-line regex fallback and a caption stripper. With the label
+corrected, the model alone returns 15/15, and running the evaluation with every repair enabled
+also returns 15/15. **On this sample set the repair code now repairs nothing.** It is not
+removed, because three synthetic documents are not evidence that it is unnecessary in general,
+but the claim that it is what produces the shipped figure is no longer true here.
+
+**It is a third confirmation of §5.4.2's conclusion.** The two-by-two in
+`evaluation/prompt_schema_2x2.py` found that either an improved prompt or a required schema
+alone reaches the ceiling, and that the two are not additive. This is the cleanest instance of
+the prompt half of that finding available: not a rewritten prompt, one word.
+
+**It is the direct cause of a null result elsewhere.** The retrieval experiment described in §7
+compared a baseline against a retrieval-augmented arm and found no difference, both at 100%.
+The reason both reached 100% is that this label change shipped in the same branch as the
+retrieval work. The comparison therefore measured retrieval against a baseline already at the
+ceiling, which is a ceiling effect rather than a finding about retrieval. §7 states this
+explicitly rather than reporting the null result at face value.
+
+### 5.12.4 Why it matters beyond this project
+
+The finding generalises further than most in this report, and it is uncomfortable.
+
+**The defect is invisible to every form of testing this project performs.** The prompt is
+syntactically fine. The schema is satisfied. The output parses, validates, and passes type
+checking. The pipeline reports success. Two of the three documents extract perfectly, so the
+system does not look broken. The only visible symptom is an accuracy figure that is lower than
+it should be, and there is no baseline that says what it should be.
+
+**It was found by reading a diff, not by measurement.** Nobody was looking for it. It surfaced
+because an unrelated pull request happened to touch that line for an unrelated reason, and
+because the diff was read closely enough to ask what the changed word did. Had the same change
+arrived in a larger commit, it would have landed silently and the project's headline numbers
+would have moved with no recorded cause.
+
+That is the practical argument for a discipline this report has otherwise applied to itself: a
+figure is worth only as much as the procedure that reproduces it. This project keeps its
+evaluation runnable, so the effect could be isolated in minutes once suspected. What it did not
+have was anything that would have raised the suspicion. **For a system whose output is a
+confident, well-formed, wrong answer, a passing test suite is not evidence of correctness**, and
+the gap between "the pipeline ran" and "the pipeline was right" is exactly where this defect
+lived for the length of the project.
