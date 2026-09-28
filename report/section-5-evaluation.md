@@ -454,3 +454,163 @@ inputs had not.
   ground truth. The email half in §5.9 is not scored at all. Presenting them side by side risks
   implying the second is as well evidenced as the first, and it is not. Every figure in §5.9 is
   a count of what the pipeline did, never of what it got right.
+
+---
+
+## 5.11 Where the validation score comes from, and what it actually decides
+
+Added after the supervisor asked for the reasoning behind the score to be made explicit. It is
+placed here for now and belongs early in the evaluation section once the report is renumbered,
+because everything in §5.3 to §5.5 is a statement about extraction quality and this is the
+mechanism that judges it.
+
+Every figure below is reproduced by:
+
+```bash
+./.venv/bin/python evaluation/score_breakdown.py
+```
+
+which recomputes each score from the archived PDF and the stored extraction rather than reading
+the number back out of the database.
+
+### 5.11.1 It is not the model's confidence
+
+The system never asks the model how sure it is. A language model's self-reported certainty is
+not a measurement of anything, and treating it as one would put the pipeline's most important
+safety decision in the hands of the component being checked.
+
+Instead the score is computed by `ConfidenceValidator`, deterministically, after extraction.
+Every term compares the model's output back against the text of the document it came from. The
+database column was renamed from `confidence_score` to `validation_score` for exactly this
+reason: the original name described something the system does not measure.
+
+### 5.11.2 Seven terms, in two families
+
+The score is a weighted sum out of 1.00.
+
+| Term | Maximum | The question it asks |
+|---|---|---|
+| Completeness, 0.06 for each of five header fields | 0.30 | Is the field non-empty? |
+| Line items stored | 0.10 | Were any rows extracted at all? |
+| Invoice number appears in the document | 0.10 | Does the value exist in the source? |
+| Vendor appears in the document | 0.08 | The same question for the vendor |
+| Vendor is not a field label | 0.07 | Did extraction capture `Vendor:` instead of the name? |
+| **Amount check** | **0.25** | `verified` 0.25, `present` 0.125, `absent` 0 |
+| Reconciliation | 0.10 | `exact`/`plausible` 0.10, `unknown` 0.05, `short` 0 |
+
+The two families are worth naming because they fail differently. **Completeness, 0.40 of the
+total, asks whether anything is missing.** **Agreement with the document, 0.60, asks whether
+anything is invented.** A field left empty is a visible failure that a person can see and
+correct. A field filled with a plausible value that is not in the document is an invisible one,
+which is why the second family carries more weight.
+
+The amount check is the heaviest single term. `verified` requires the extracted total to appear
+within two lines of a grand-total label. `present` means the value is somewhere on the page but
+not beside such a label, which is what a line-item total looks like. That distinction is not
+theoretical: on one of the sample documents the true total is 2,350.00 while 1,500.00 also
+appears, as a line item.
+
+### 5.11.3 The score does not decide. Four conditions do
+
+```python
+passes = (score >= self.threshold
+          and amount_state == "verified"
+          and reconciliation != "short"
+          and checks["vendor_is_not_a_label"])
+```
+
+**Three of those four have nothing to do with the score.** The design note in the source states
+the reason: *"Hard rules, not weightings. A weighted score that happens to land below the
+threshold is fragile: change one weight and the guarantee disappears silently."*
+
+If the gate were only `score >= 0.80`, then the guarantee that unverified money is never
+auto-approved would be an accident of arithmetic. Anyone retuning a weight, for any reason,
+could remove it without noticing. Stating the conditions separately makes the guarantee
+independent of the weights, and makes it reviewable: a reader can check what the system promises
+without recomputing a weighted sum.
+
+### 5.11.4 A worked pair: 0.87 is refused and 0.85 is approved
+
+The current sample set contains the clearest available demonstration that the score and the
+verdict are different measurements. Two documents sit side by side in the review queue:
+
+| | Harbour Review Supplies, INV-2026-004 | Apex Cloud Solutions, INV-2026-001 |
+|---|---|---|
+| Score | **0.87** | **0.85** |
+| Verdict | **NeedsReview** | **Validated** |
+
+Both are perfect on five of the seven terms. They differ in one place each.
+
+**Harbour loses 0.125 on a single term.** Its stated total of 990.00 does appear in the
+document, but not within two lines of a grand-total label, so the amount check returns `present`
+rather than `verified`. Everything else, including reconciliation, is full marks.
+
+**Apex loses 0.15 across two linked terms.** No line items were stored, which costs 0.10
+directly and a further 0.05 through reconciliation, because with no rows there is nothing to
+check the total against and the state falls to `unknown`. Its total, however, is `verified`.
+
+So Harbour scores higher for an arithmetically ordinary reason: one missing location check costs
+less than missing rows plus the reconciliation that depends on them.
+
+The verdict inverts that, and the second condition is why:
+
+| Condition | Harbour 0.87 | Apex 0.85 |
+|---|---|---|
+| score at or above 0.80 | pass | pass |
+| **amount located beside a grand-total label** | **fail**, `present` | pass, `verified` |
+| rows do not exceed the total | pass, `exact` | pass, `unknown` |
+| vendor is a name, not a caption | pass | pass |
+
+**A reader shown only the two numbers would rank these documents the wrong way round.** That is
+the argument for showing the gate's verdict beside the score wherever the score appears, and it
+is the reason the approval screen never displays the number on its own.
+
+It is also a direct answer to Objective O2, which asks the project to show where automation is
+safe and where a person must intervene. The score measures how complete and how corroborated an
+extraction is. The conditions decide whether it is safe to act on unattended. Harbour
+demonstrates that a high score is not the same as a safe one.
+
+### 5.11.5 One score in the current set sits on a rounding boundary
+
+Found on 2026-09-28 by the test that checks the breakdown against the gate, and recorded
+because it is a property of the arithmetic rather than a defect in either.
+
+Harbour's seven terms are `0.30 + 0.10 + 0.10 + 0.08 + 0.07 + 0.125 + 0.10`, which is exactly
+0.875. Summed in the order the validator evaluates them, floating-point representation gives
+0.8749999999999999, and Python rounds that to **0.87**. Summed as a list of the same seven
+values it gives exactly 0.875, which rounds to **0.88**.
+
+The terms are identical and the difference is one part in ten thousand million million. It is
+visible only because the value lands precisely on a half-cent boundary, and only because the
+score is displayed to two decimals.
+
+**Nothing downstream depends on which side it falls.** Both 0.87 and 0.88 clear the 0.80
+threshold, and the document was refused for an unrelated reason. The finding is reported for
+two narrower purposes: a reader reproducing the figure by hand will get 0.88 and should know
+why, and it is a small illustration of the standard this report is written to, which is that a
+figure is worth only as much as the procedure that produced it. The test asserts the terms
+account for the score to a tolerance tighter than the displayed precision rather than asserting
+an exact match, because an exact match would fail on any document that lands on a boundary.
+
+### 5.11.6 What the score cannot do
+
+Three limits, each of which constrains how far §5.11.4 generalises.
+
+**Two of the three text checks are substring matches.** `invoice_number` and `vendor_name` are
+counted as corroborated if the value appears anywhere in the document. Only `total_amount`
+receives real location verification. This is recorded as a partial requirement rather than a met
+one, and it was deliberately not hardened: a matching rule tuned against three synthetic
+invoices would encode the generator rather than the domain.
+
+**A computed value defeats the check by construction.** The question the gate asks is whether an
+extracted value appears in the document. A model that adds two numbers together and produces a
+sum which happens to appear on the page will pass that test. §5.5.1 records exactly this
+behaviour on a payment statement, where every required-schema variant returned 2,000.00 as the
+total of a document that states no total, by adding 1,200.00 and 800.00. A fabricated string can
+be caught by asking whether it is on the page. A computed one cannot.
+
+**A score of 1.00 does not mean the document is genuine.** It means the extraction is complete
+and internally corroborated. Every check reads the document itself, so a duplicate invoice, an
+invoice from an unknown vendor, and a well-formatted forgery all score 1.00. Nothing in the gate
+looks outside the page. This is the most important limitation in the system and §7.2 returns to
+it, because it is the gap that no amount of extraction accuracy closes.

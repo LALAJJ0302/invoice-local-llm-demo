@@ -126,14 +126,21 @@ Approving therefore never modifies `validation_score`. An earlier version overwr
 
 ### 4.3.5 The gate fails toward a person
 
-Two rules are hard rules rather than weightings, and the distinction is deliberate. An
-amount that cannot be located beside a grand-total label is never auto-approved regardless
-of its score, and a vendor value that is actually a field caption is never auto-approved
-either.
+Passing the gate requires four conditions to hold, and **three of them are not about the
+score at all**. An amount that cannot be located beside a grand-total label is never
+auto-approved regardless of its score; line items that add up to more than the total they
+belong to are never auto-approved; and a vendor value that is actually a field caption is
+never auto-approved. The fourth condition is the score threshold itself.
 
 Stated as rules because a weighted score that merely happens to land below a threshold is
 fragile: change one weight and the guarantee disappears with no test failing. §5.7 records
 the case that made this concrete.
+
+The consequence is that the score and the verdict are different measurements and can rank two
+documents in opposite orders. §5.11 works through a pair from the current sample set where the
+document scoring 0.87 is refused and the one scoring 0.85 is approved, and
+`evaluation/score_breakdown.py` prints every term and every condition for any stored
+document.
 
 ### 4.3.6 A perfect score means a complete extraction
 
