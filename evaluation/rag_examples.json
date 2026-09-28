@@ -1,0 +1,175 @@
+{
+    "schema_version": 1,
+    "examples": [
+      {
+        "example_id": "cloud-services-001",
+        "document_type": "invoice",
+        "vendor_family": "cloud-services",
+        "keywords": [
+          "cloud",
+          "compute",
+          "storage",
+          "managed service",
+          "tax invoice"
+        ],
+        "document_text": "TAX INVOICE\nSupplier: Northstar Infrastructure Ltd\nTax Invoice No: NIS-1042\nIssued Date: 2026-07-15\nCurrency: AUD\nCloud Compute Subscription 2 x AUD 400.00 = AUD 800.00\nManaged Storage Service 4 x AUD 120.00 = AUD 480.00\nBalance Payable AUD 1280.00",
+        "expected_output": {
+          "invoice_number": "NIS-1042",
+          "vendor_name": "Northstar Infrastructure Ltd",
+          "date": "2026-07-15",
+          "total_amount": 1280.0,
+          "currency": "AUD",
+          "items": [
+            {
+              "description": "Cloud Compute Subscription",
+              "quantity": 2.0,
+              "unit_price": 400.0,
+              "total": 800.0
+            },
+            {
+              "description": "Managed Storage Service",
+              "quantity": 4.0,
+              "unit_price": 120.0,
+              "total": 480.0
+            }
+          ]
+        }
+      },
+      {
+        "example_id": "hardware-001",
+        "document_type": "invoice",
+        "vendor_family": "hardware",
+        "keywords": [
+          "hardware",
+          "equipment",
+          "network",
+          "device",
+          "unit price"
+        ],
+        "document_text": "COMMERCIAL INVOICE\nSeller: Meridian Hardware Group\nInvoice Ref: MH-8703\nBilling Date: 2026-06-18\nCurrency: AUD\nNetwork Gateway 3 x AUD 350.00 = AUD 1050.00\nWireless Access Point 5 x AUD 140.00 = AUD 700.00\nTotal Payable AUD 1750.00",
+        "expected_output": {
+          "invoice_number": "MH-8703",
+          "vendor_name": "Meridian Hardware Group",
+          "date": "2026-06-18",
+          "total_amount": 1750.0,
+          "currency": "AUD",
+          "items": [
+            {
+              "description": "Network Gateway",
+              "quantity": 3.0,
+              "unit_price": 350.0,
+              "total": 1050.0
+            },
+            {
+              "description": "Wireless Access Point",
+              "quantity": 5.0,
+              "unit_price": 140.0,
+              "total": 700.0
+            }
+          ]
+        }
+      },
+      {
+        "example_id": "consulting-001",
+        "document_type": "invoice",
+        "vendor_family": "consulting",
+        "keywords": [
+          "consulting",
+          "professional services",
+          "hours",
+          "advisory",
+          "service"
+        ],
+        "document_text": "PROFESSIONAL SERVICES INVOICE\nProvider: Redgum Advisory Partners\nBill No: RGA-2207\nService Date: 2026-05-30\nCurrency: USD\nTechnical Consulting 20 hours x USD 90.00 = USD 1800.00\nProject Review 5 hours x USD 80.00 = USD 400.00\nAmount Due USD 2200.00",
+        "expected_output": {
+          "invoice_number": "RGA-2207",
+          "vendor_name": "Redgum Advisory Partners",
+          "date": "2026-05-30",
+          "total_amount": 2200.0,
+          "currency": "USD",
+          "items": [
+            {
+              "description": "Technical Consulting",
+              "quantity": 20.0,
+              "unit_price": 90.0,
+              "total": 1800.0
+            },
+            {
+              "description": "Project Review",
+              "quantity": 5.0,
+              "unit_price": 80.0,
+              "total": 400.0
+            }
+          ]
+        }
+      },
+      {
+        "example_id": "office-supplies-001",
+        "document_type": "invoice",
+        "vendor_family": "office-supplies",
+        "keywords": [
+          "office",
+          "stationery",
+          "paper",
+          "printer",
+          "supplies"
+        ],
+        "document_text": "SALES INVOICE\nSupplier: Paperlane Office Products\nDocument No: POS-7731\nInvoice Date: 2026-04-12\nCurrency: GBP\nPrinter Paper 10 x GBP 8.00 = GBP 80.00\nInk Cartridge 4 x GBP 25.00 = GBP 100.00\nNet Amount Payable GBP 180.00",
+        "expected_output": {
+          "invoice_number": "POS-7731",
+          "vendor_name": "Paperlane Office Products",
+          "date": "2026-04-12",
+          "total_amount": 180.0,
+          "currency": "GBP",
+          "items": [
+            {
+              "description": "Printer Paper",
+              "quantity": 10.0,
+              "unit_price": 8.0,
+              "total": 80.0
+            },
+            {
+              "description": "Ink Cartridge",
+              "quantity": 4.0,
+              "unit_price": 25.0,
+              "total": 100.0
+            }
+          ]
+        }
+      },
+      {
+        "example_id": "software-subscription-001",
+        "document_type": "invoice",
+        "vendor_family": "software-subscription",
+        "keywords": [
+          "software",
+          "subscription",
+          "licence",
+          "platform",
+          "saas"
+        ],
+        "document_text": "SUBSCRIPTION INVOICE\nCompany: Lakeview Business Software\nInvoice ID: LBS-5088\nCreated On: 2026-03-05\nCurrency: EUR\nAnnual Platform Subscription 1 x EUR 960.00 = EUR 960.00\nAdditional User Licences 8 x EUR 30.00 = EUR 240.00\nTotal Due EUR 1200.00",
+        "expected_output": {
+          "invoice_number": "LBS-5088",
+          "vendor_name": "Lakeview Business Software",
+          "date": "2026-03-05",
+          "total_amount": 1200.0,
+          "currency": "EUR",
+          "items": [
+            {
+              "description": "Annual Platform Subscription",
+              "quantity": 1.0,
+              "unit_price": 960.0,
+              "total": 960.0
+            },
+            {
+              "description": "Additional User Licences",
+              "quantity": 8.0,
+              "unit_price": 30.0,
+              "total": 240.0
+            }
+          ]
+        }
+      }
+    ]
+  }

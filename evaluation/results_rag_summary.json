@@ -1,0 +1,29 @@
+{
+  "model": "llama3.2:latest",
+  "runs_per_configuration": 3,
+  "documents_per_run": 3,
+  "evaluated_fields_per_run": 15,
+  "fallbacks": "disabled",
+  "rag_limit": 1,
+  "baseline": {
+    "accuracy_runs_percent": [100.0, 100.0, 100.0],
+    "mean_accuracy_percent": 100.0,
+    "validation_runs_percent": [100.0, 100.0, 100.0],
+    "mean_validation_percent": 100.0,
+    "latency_runs_seconds": [4.071, 4.236, 3.957],
+    "mean_latency_seconds": 4.088,
+    "latency_range_seconds": [3.957, 4.236]
+  },
+  "rag": {
+    "accuracy_runs_percent": [100.0, 100.0, 100.0],
+    "mean_accuracy_percent": 100.0,
+    "validation_runs_percent": [100.0, 100.0, 100.0],
+    "mean_validation_percent": 100.0,
+    "latency_runs_seconds": [4.628, 4.688, 3.623],
+    "mean_latency_seconds": 4.313,
+    "latency_range_seconds": [3.623, 4.688]
+  },
+  "rag_latency_difference_seconds": 0.225,
+  "rag_latency_difference_percent": 5.5,
+  "interpretation": "RAG matched baseline accuracy and validation on this small dataset. It selected domain-relevant examples but did not demonstrate an accuracy improvement because the baseline already reached 100 percent."
+}

@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+import time
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EVAL_DIR = os.path.join(REPO_ROOT, "evaluation")
@@ -115,19 +116,41 @@ def main():
              "working, not the model, and counting it inflates the score.",
     )
     parser.add_argument("--threshold", type=float, default=0.80)
+    parser.add_argument(
+        "--rag",
+        action="store_true",
+        help="Retrieve local anonymised examples and add them to the extraction prompt.",
+    )
+    parser.add_argument(
+        "--rag-limit",
+        type=int,
+        default=1,
+        help="Maximum number of retrieved examples added to each prompt.",
+    )
+    parser.add_argument(
+        "--rag-examples",
+        default=os.path.join(EVAL_DIR, "rag_examples.json"),
+        help="Path to the local RAG example repository.",
+    )
     parser.add_argument("--save", help="Write the results to a JSON file for before/after comparison")
     args = parser.parse_args()
 
     truth = json.load(open(os.path.join(EVAL_DIR, "ground_truth.json")))["samples"]
     ensure_samples(quiet=False)
 
-    extractor = DocumentExtractor(model_name=args.model)
+    extractor = DocumentExtractor(
+        model_name=args.model,
+        use_rag=args.rag,
+        rag_limit=args.rag_limit,
+        rag_examples_path=args.rag_examples,
+    )
     disabled = [] if args.with_fallback else disable_fallbacks(extractor)
 
     validator = ConfidenceValidator(threshold=args.threshold)
 
     hits = {f: 0 for f in FIELDS}
     rows, validated = [], 0
+    latencies = []
 
     for file_name in sorted(truth):
         path = os.path.join(SAMPLES_DIR, file_name)
@@ -136,10 +159,28 @@ def main():
             continue
 
         raw_text = "\n".join((p.extract_text() or "") for p in PdfReader(path).pages).strip()
+        started_at = time.perf_counter()
         data = extractor.extract_invoice_data(raw_text, file_name)
+        latency_seconds = round(time.perf_counter() - started_at, 3)
+        latencies.append(latency_seconds)
+        retrieval = [
+            {
+                "example_id": item["example_id"],
+                "score": item["retrieval_score"],
+                "reason": item["retrieval_reason"],
+            }
+            for item in extractor.last_retrieval
+        ]
         if data is None:
             print(f"[fail] extraction returned nothing for {file_name}")
-            rows.append({"file": file_name, "fields": {f: False for f in FIELDS}, "score": 0.0, "status": "Failed"})
+            rows.append({
+                "file": file_name,
+                "fields": {f: False for f in FIELDS},
+                "score": 0.0,
+                "status": "Failed",
+                "latency_seconds": latency_seconds,
+                "retrieval": retrieval,
+            })
             continue
 
         score, status = validator.evaluate(data, raw_text)
@@ -151,7 +192,14 @@ def main():
             ok = matches(f, truth[file_name][f], actual)
             hits[f] += ok
             result[f] = {"expected": truth[file_name][f], "actual": actual, "correct": ok}
-        rows.append({"file": file_name, "fields": result, "score": score, "status": status})
+        rows.append({
+            "file": file_name,
+            "fields": result,
+            "score": score,
+            "status": status,
+            "latency_seconds": latency_seconds,
+            "retrieval": retrieval,
+        })
 
     total = len(rows)
     if not total:
@@ -159,11 +207,13 @@ def main():
         return 1
 
     mode = "enabled" if args.with_fallback else "disabled"
+    rag_mode = "enabled" if args.rag else "disabled"
     # Name what was switched off rather than asserting a state, so a pasted result
     # can be checked by whoever reads it.
     detail = ", ".join(disabled) if disabled else "none, measuring shipped behaviour"
     print(f"\n=== Extraction accuracy: {args.model} ===")
     print(f"    fallbacks {mode}: {detail}\n")
+    print(f"    RAG {rag_mode}: limit {args.rag_limit if args.rag else 0}\n")
     print(f"{'Field':<16}{'Correct':>10}{'Accuracy':>12}")
     print("-" * 38)
     for f in FIELDS:
@@ -173,6 +223,8 @@ def main():
     print(f"{'OVERALL':<16}{f'{got}/{poss}':>10}{got / poss * 100:>11.1f}%")
     print(f"\nGate outcome: {validated}/{total} Validated "
           f"({validated / total * 100:.1f}% automation pass rate, threshold {args.threshold})")
+    average_latency = round(sum(latencies) / len(latencies), 3)
+    print(f"Average model latency: {average_latency:.3f} seconds per document")
 
     misses = [(r["file"], f, r["fields"][f]) for r in rows if isinstance(r["fields"].get("vendor_name"), dict)
               for f in FIELDS if not r["fields"][f]["correct"]]
@@ -185,6 +237,9 @@ def main():
         # "fallbacks" is kept for compatibility with the frozen results_*.json files.
         payload = {"model": args.model, "fallbacks": mode,
                    "fallbacks_disabled": disabled, "threshold": args.threshold,
+                   "rag": rag_mode, "rag_limit": args.rag_limit if args.rag else 0,
+                   "rag_examples": args.rag_examples if args.rag else None,
+                   "average_latency_seconds": average_latency,
                    "per_field": {f: {"correct": hits[f], "total": total} for f in FIELDS},
                    "overall": {"correct": got, "total": poss},
                    "validated": validated, "documents": total, "rows": rows}

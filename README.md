@@ -33,6 +33,7 @@ Following supervisor feedback, the project was de-scoped into a local-first work
 - Mock invoice generation for testing
 - PDF text extraction with `pypdf`
 - Local LLM extraction through Ollama
+- Optional local RAG using anonymised invoice examples
 - Structured invoice fields stored in SQLite
 - Confidence scoring and `Validated` / `NeedsReview` status
 - Streamlit dashboard with KPIs, tables, filters, charts, and review actions
@@ -46,6 +47,8 @@ Following supervisor feedback, the project was de-scoped into a local-first work
 | `.env.example` | Template for local email configuration. Copy this to `.env`. |
 | `inbox/` | Local folder for incoming invoice files. Ignored by Git. |
 | `main.py` | Core processing pipeline: reads files, extracts text, calls Ollama, validates confidence, saves records, and archives files. |
+| `rag_retrieval.py` | Selects relevant anonymised invoice examples for optional prompt augmentation. |
+| `rag-poc.md` | Describes the RAG design, evaluation method, results, and limitations. |
 | `workflow_platform.db` | Local SQLite database. Ignored by Git. |
 | `query_db.py` | Utility script for inspecting SQLite records. |
 | `app.py` | Streamlit dashboard for viewing processed invoice results. |
@@ -122,6 +125,12 @@ Process the invoices:
 
 ```bash
 python3 main.py
+```
+
+Process the invoices with local RAG enabled:
+
+```bash
+python3 main.py --rag --rag-limit 1
 ```
 
 Open the dashboard:
