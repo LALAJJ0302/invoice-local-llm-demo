@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 9
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
@@ -882,7 +882,9 @@ class StorageManager:
 
         with connect(self.db_path) as conn:
             existing = conn.execute(
-                "SELECT invoice_id FROM invoices WHERE content_sha256 = ?", (content_sha256,)
+                "SELECT invoice_id, approval_status, reviewed_at FROM invoices "
+                "WHERE content_sha256 = ?",
+                (content_sha256,),
             ).fetchone()
 
             cursor = conn.execute(
@@ -944,6 +946,23 @@ class StorageManager:
                 ),
             )
             invoice_id = int(cursor.fetchone()["invoice_id"])
+
+            # Re-processing can worsen the gate verdict. Auto-approval (Approved with no
+            # reviewer) must not survive that; a human decision (reviewed_at set) does.
+            if validation_status == "NeedsReview" and existing:
+                if existing["approval_status"] == "Approved" and existing["reviewed_at"] is None:
+                    conn.execute(
+                        "UPDATE invoices SET approval_status = 'Pending' WHERE invoice_id = ?",
+                        (invoice_id,),
+                    )
+                    open_ph = ",".join("?" for _ in OPEN_TASK_STATES)
+                    conn.execute(
+                        f"UPDATE tasks SET state = 'Cancelled', "
+                        f"resolved_at = datetime('now') "
+                        f"WHERE invoice_id = ? AND task_type IN ('Payment', 'File') "
+                        f"AND state IN ({open_ph})",
+                        (invoice_id, *OPEN_TASK_STATES),
+                    )
 
             conn.execute("DELETE FROM line_items WHERE invoice_id = ?", (invoice_id,))
             conn.executemany(

@@ -379,6 +379,15 @@ else:
             assign_task(int(row["Task"]), row["Assignee"])
         st.rerun()
 
+    st.caption("Open a task in the Detail Inspector below:")
+    inspect_cols = st.columns(min(len(open_tasks_df), 4))
+    for index, task_row in enumerate(open_tasks_df.itertuples(index=False)):
+        with inspect_cols[index % len(inspect_cols)]:
+            label = f"Invoice {task_row.Invoice} ({task_row.Type})"
+            if st.button(label, key=f"inspect_task_{task_row.Task}", use_container_width=True):
+                st.session_state["inspect_invoice_id"] = int(task_row.Invoice)
+                st.rerun()
+
 st.divider()
 
 # =====================================================================
@@ -441,9 +450,20 @@ st.dataframe(
 # 6. Detail Inspector & Human-in-the-loop Approval
 # =====================================================================
 st.subheader("🔍 Document Detail Inspector")
+_id_options = filtered_df["id"].tolist() if not filtered_df.empty else []
+_default_index = 0
+_pref = st.session_state.get("inspect_invoice_id")
+if _pref is not None and _pref in _id_options:
+    _default_index = _id_options.index(_pref)
+elif not open_tasks_df.empty:
+    for _oid in open_tasks_df["Invoice"].tolist():
+        if _oid in _id_options:
+            _default_index = _id_options.index(_oid)
+            break
 selected_id = st.selectbox(
     "Select an ID to inspect or manually approve:",
-    options=filtered_df["id"].tolist() if not filtered_df.empty else []
+    options=_id_options,
+    index=_default_index if _id_options else None,
 )
 
 if selected_id:
@@ -512,11 +532,17 @@ if selected_id:
             st.markdown(f"**Reviewed By:** `{reviewer}`")
             st.markdown(f"**Reviewed At:** `{row['reviewed_at']}`")
         elif row["approval_status"] == "Approved":
-            st.caption("✅ Approved automatically — validation score was 1.00, no human "
-                       "review needed.")
+            st.caption("✅ Approved automatically — validation score was 1.00 with a verified "
+                       "amount; no human review was required.")
 
         if row["validation_status"] == "NeedsReview":
-            st.warning("⚠️ The pipeline was not confident about this document. Check it before approving.")
+            if row["approval_status"] == "Approved" and row["reviewed_at"]:
+                st.info("This document was **approved by a reviewer** while data quality was "
+                        "NeedsReview. Re-running `main.py` does not undo that decision. "
+                        "Use **Reject** if you need to reopen review.")
+            else:
+                st.warning("⚠️ The pipeline was not confident about this document. "
+                           "Check it before approving.")
 
         decision_col1, decision_col2 = st.columns(2)
         with decision_col1:
