@@ -47,7 +47,7 @@ to be written, and the third column says what it is assembled from rather than i
 | 7 | RAG Method | **New** | JJ's PR #12: `rag-poc.md`, `rag_retrieval.py`, six result files. §4.3.10 on why retrieval uses keyword and hybrid and no embeddings | **JJ**, and the null result must be reported as a ceiling effect, see §5.12.3 |
 | 8 | Evaluation | **Have**, extend | §5, twelve subsections, 6,159 words. §5.11 answers the supervisor's question about where the score comes from; §5.12 carries the prompt-label finding, which is the largest single effect the project has measured | **JJ** for the RAG comparison only |
 | 9 | Deployment and System Requirements | **New** | `deployment-spec.md`, `Dockerfile`, `docker-compose.yml`, README Option C | **Luke**: clean-environment run and hardware figures |
-| 10 | Limitations and Future Work | **Have**, scattered | §5.2, §5.10, §6.5, §7.1–7.3 | Nobody, it is a consolidation |
+| 10 | Limitations and Future Work | **Written 2026-09-28**, `section-10-limitations.md`, 1,752 words | Consolidates §5.2, §5.10, §6.5, §7.1–7.3, and adds §10.6 on the decision §5.12 created | Nobody |
 | 11 | Discussion and Lessons | **Have** | §6, including seven lessons each attached to its evidence | Nobody |
 | 12 | Conclusion | **Have** | §8 | Nobody |
 | n/a | References | **Have** | §9 | Nobody |
@@ -77,7 +77,7 @@ done twice.
 | 7 | `section-07-rag-method.md` *(to write)* |
 | 8 | `section-5-evaluation.md` |
 | 9 | `section-09-deployment.md` *(to write)* |
-| 10 | consolidated from `section-5-evaluation.md` and `section-7-recommendations.md` |
+| 10 | `section-10-limitations.md` **(new, written)**. The passages it consolidates still exist in `section-5-evaluation.md` and `section-7-recommendations.md` and are cut at renumber time, not before |
 | 11 | `section-6-discussion.md` |
 | 12 | `section-8-conclusion.md` |
 | References | `section-9-references.md` |
@@ -95,7 +95,7 @@ Ordered by dependency, so that nothing waits on a person who has not delivered y
 |---|---|---|
 | Mon 28 Sep | §3 Requirements | Nobody. **Drafted, 2,099 words** |
 | Mon 28 Sep | §8 gains §5.11, where the validation score comes from and what it decides | Nobody. **Written, ~1,480 words**, with `evaluation/score_breakdown.py` and 17 tests behind it |
-| Mon 28 to Tue 29 | §10 Limitations, consolidated from three places | Nobody |
+| Mon 28 Sep | §10 Limitations, consolidated from six places | Nobody. **Written, 1,752 words** |
 | Tue 29 Sep | The renumbering pass and the §4/§6 split | The structure being agreed |
 | Tue 29 Sep | §1 gains an explicit in-scope and out-of-scope statement | The scope freeze |
 | Wed 30 to Thu 1 Oct | §5 Security and Privacy, §9 Deployment | Luke |
