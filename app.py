@@ -182,6 +182,11 @@ def record_decision(record_id: int, decision: str):
                 followup["task_type"],
                 followup.get("reason") or f"Invoice {record_id} approved.",
                 approval_path="human",
+                # Reported by Luke on 2026-09-28. Without this the issue is labelled
+                # human-reviewed and attributed to nobody: _reviewer_for_jira returns an empty
+                # reviewer and no reporter account, so the one field that says a person was
+                # involved is the one field with no person in it.
+                reviewer_user_id=int(reviewer_id),
             )
 
 def load_outbox() -> pd.DataFrame:
@@ -235,8 +240,13 @@ def load_history() -> pd.DataFrame:
                -- at the time the person decided, otherwise History records the verdict and
                -- loses the evidence it was made against.
                i.validation_score, i.validation_status,
+               -- The name, not the id. Reported by Luke on 2026-09-28: it was being stored
+               -- by record_decision and shown nowhere, so History carried the time of a
+               -- decision and not the person who made it.
+               u.display_name AS reviewer_name,
                t.task_type, t.state AS task_state, t.resolved_at
         FROM invoices i
+        LEFT JOIN users u ON u.user_id = i.reviewed_by
         -- The task the decision actually resolved, which is the most recently resolved one.
         -- Joining on every matching task and grouping let SQLite pick an arbitrary row: an
         -- approved document showed "task Cancelled" because invoice 1 carries a Review task
@@ -566,6 +576,7 @@ st.markdown("""
 .hist-amount { font-family:'IBM Plex Mono',monospace; font-size:13px; font-variant-numeric:tabular-nums; color:var(--text); }
 .hist-score { font-family:'IBM Plex Mono',monospace; font-size:12.5px;
               font-variant-numeric:tabular-nums; color:var(--text-muted); }
+.hist-who { font-size:12.5px; color:var(--text); }
 .hist-when { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-muted); margin-left:auto; }
 .hist-task { font-size:12px; color:var(--text-muted); }
 
@@ -1429,9 +1440,10 @@ def sidebar(frame, pending, auto, outbox, history):
 # Authentication. Luke's, arriving with migrations 013 and 014.
 # =====================================================================
 #
-# Kept as he wrote it, including the two titles, which name the dashboard this branch replaced.
-# The wording is his and the inconsistency is cosmetic and reversible in one line, so it is
-# raised on the pull request rather than decided for him. See merge-resolution-spec.md Q2.
+# The two titles were left as Luke wrote them through the merge, naming the dashboard this
+# branch replaces, and raised on the pull request rather than decided for him. He answered on
+# 2026-09-28: use Invoice approvals on both, with no lightning bolt, and leave the Payables
+# sidebar, the design HTML and the briefing alone. Done here and nowhere else.
 #
 # Both functions end in st.stop(), which is what makes them a gate rather than a suggestion.
 # That is also why every test rendering this file seeds st.session_state before running it:
@@ -1439,7 +1451,7 @@ def sidebar(frame, pending, auto, outbox, history):
 
 def require_password_change(store: StorageManager) -> None:
     """Stops the page until a first-time user replaces the temporary password."""
-    st.title("⚡ Enterprise AI Workflow Automation Dashboard")
+    st.title("Invoice approvals")
     st.caption(
         f"Signed in as **{st.session_state['display_name']}**. "
         "This is the first login for this account. Choose a new password to continue."
@@ -1487,7 +1499,7 @@ def require_login() -> None:
             require_password_change(store)
         return
 
-    st.title("⚡ Enterprise AI Workflow Automation Dashboard")
+    st.title("Invoice approvals")
     st.caption("Sign in to review documents. Your name is recorded on each decision.")
     with st.form("login"):
         username = st.text_input("Username")
@@ -1651,6 +1663,11 @@ def history_body(frame):
         rejected = row["approval_status"] == "Rejected"
         score = row.get("validation_score")
         scored = "-" if score is None or pd.isna(score) else f"{float(score):.2f}"
+        # A decision with no name against it is the state reviewed_by exists to prevent, so
+        # say so rather than rendering an empty span. Rows decided before the users table
+        # existed legitimately have none.
+        who = row.get("reviewer_name")
+        decided_by = "no name recorded" if not who or pd.isna(who) else who
         with st.container(border=True, key=f"hist-{row['invoice_id']}", gap=None):
             st.markdown(
                 f"<div class='hist'>"
@@ -1662,6 +1679,7 @@ def history_body(frame):
                 f"<span class='hist-amount'>{money(row['total_amount'], row['currency'])}</span>"
                 f"<span class='hist-score' title='{SCORE_NOTE}'>{scored} · "
                 f"{verdict_word(row)}</span>"
+                f"<span class='hist-who'>{decided_by}</span>"
                 f"<span class='hist-when'>{row['reviewed_at']}</span>"
                 f"<span class='hist-task'>task {row['task_state'] or 'none'}</span>"
                 f"</div>", unsafe_allow_html=True)

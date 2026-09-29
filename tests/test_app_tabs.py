@@ -268,3 +268,66 @@ def test_the_review_note_replaces_the_checkbox():
             "clearing a note must clear its timestamp, so 'has a note' stays one condition")
     finally:
         store.set_review_note(invoice_id, "" if before is None or str(before) == "nan" else before)
+
+
+# =====================================================================
+# Reviewer tracking and the product name. Reported by Luke, 2026-09-28.
+# =====================================================================
+
+def test_history_shows_who_decided_and_not_only_when():
+    """The name was stored by record_decision and rendered nowhere.
+
+    History carried the timestamp of a decision and not the person who made it, which makes
+    `reviewed_by` a column that costs a migration and answers nothing. Asserted on the frame
+    rather than the screen because every row in this database has `reviewed_at IS NULL`, so a
+    screen-level test would pass by rendering no rows at all.
+    """
+    import app
+
+    assert "reviewer_name" in app.load_history().columns, (
+        "History cannot reach the reviewer's name, so it can only ever show the time")
+
+    source = pathlib.Path(app.__file__).read_text(encoding="utf-8")
+    assert "hist-who" in source, "the name is available to History and still not rendered"
+
+
+def test_the_human_jira_dispatch_names_the_reviewer():
+    """An issue labelled human-reviewed and attributed to nobody is worse than no label.
+
+    `task_dispatch._reviewer_for_jira` returns an empty reviewer and no reporter account when
+    `reviewer_user_id` is None, so the approval path says a person was involved while the one
+    field naming that person stays blank.
+    """
+    import re
+
+    import app
+
+    source = pathlib.Path(app.__file__).read_text(encoding="utf-8")
+    call = re.search(r"dispatch_task_to_jira\((.*?)\n            \)", source, re.S)
+    assert call, "the human dispatch call could not be found"
+    assert "approval_path=\"human\"" in call.group(1)
+    assert "reviewer_user_id=" in call.group(1), (
+        "the human approval path dispatches to Jira without saying which human")
+
+
+def test_the_auth_screens_carry_the_product_name():
+    """Luke's call, 2026-09-28: Invoice approvals on both, no lightning bolt.
+
+    Scoped to `app.py` deliberately. The Payables sidebar, the design HTML and the briefing
+    keep their own wording, and a test that forbade the old name everywhere would fail on
+    files he asked to be left alone.
+    """
+    import app
+
+    source = pathlib.Path(app.__file__).read_text(encoding="utf-8")
+    assert "Enterprise AI Workflow Automation Dashboard" not in source
+    assert "⚡" not in source
+
+    # Asserted per function rather than by counting. The title also appears on the
+    # empty-database notice and on the page itself, so a global count says nothing about
+    # whether the two screens Luke named are the ones that carry it.
+    import inspect
+
+    for screen in (app.require_login, app.require_password_change):
+        body = inspect.getsource(screen)
+        assert 'st.title("Invoice approvals")' in body, screen.__name__
