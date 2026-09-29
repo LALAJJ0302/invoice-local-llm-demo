@@ -17,7 +17,7 @@ no stamps, no multi-column layouts and no handwriting. They contain the layouts 
 of. SROIE, a standard benchmark for the same task, provides 347 real scanned receipts in its
 test split alone and labels four fields where this project labels five.
 
-**Three is too few to separate a real difference from chance**, and §5.12 showed exactly how
+**Three is too few to separate a real difference from chance**, and §8.12 showed exactly how
 that bites. Changing one word in the prompt moved the result from 10/15 to 15/15, which reads as
 a decisive 33 percentage points. What actually happened is that **one document went from 0/5 to
 5/5 and the other two did not move.** The entire effect is a single observation. It reproduced
@@ -68,7 +68,7 @@ scores exactly as well as one that should. §10.4 returns to this.
 
 **Construct validity.** `validation_score` measures field completeness and agreement with the
 source text. It is not a confidence score and does not estimate the probability that an
-extraction is correct. §5.11 sets out what it does measure, and the column was renamed in the
+extraction is correct. §8.11 sets out what it does measure, and the column was renamed in the
 database for this reason.
 
 **Score comparability.** The gate's weighting changed on 28 August and again on 3 September 2026.
@@ -97,7 +97,7 @@ invoice is a duplicate, whether the vendor is one the organisation buys from, or
 document is a well-formatted fraud. All three score 1.00 today. Reading accuracy is not payment
 authority, and no amount of the former produces the latter.
 
-The clearest demonstration is the statement of account in §5.5.1. Presented with a document
+The clearest demonstration is the statement of account in §8.5.1. Presented with a document
 containing no total, every required-family schema returned `2000.00`, arrived at by adding an
 opening balance of 1,200.00 to payments received of 800.00. The model is not fabricating a value
 from nothing; it is performing arithmetic on the page, and the arithmetic is wrong in kind, since
@@ -118,14 +118,14 @@ work rather than omissions is the accurate framing.
 
 | Change | Evidence | Why it was held |
 |---|---|---|
-| Adopt the nullable-required schema | §5.5.1 | Matches the best accuracy of any schema tested and produces the fewest classified errors, but not for the reason originally argued: it does not end invented values |
+| Adopt the nullable-required schema | §8.5.1 | Matches the best accuracy of any schema tested and produces the fewest classified errors, but not for the reason originally argued: it does not end invented values |
 | Verify the date and currency in the gate | Preview run | Both are checked for non-emptiness only, so a wrong date and an invented currency both pass today |
 | Fix the subtotal defect in the same change | Not yet fired | The label matcher tests `total` as a substring and `total` occurs inside `subtotal`, so a pre-tax subtotal is accepted as a grand total. It will fire on the first real invoice carrying GST |
 | Ship hybrid retrieval | Retrieval evaluation | Neither shipped strategy dominates; hybrid is the only one that is never worst on either query type |
 
 ## 10.6 A decision the report cannot make for the group
 
-§5.12 removed the justification for a component that is currently shipped. The regex fallback and
+§8.12 removed the justification for a component that is currently shipped. The regex fallback and
 the caption stripper exist to repair the model's output, and the report credits them with the
 difference between 10/15 and 15/15. With the prompt label corrected, the model alone returns
 15/15 and the run with every repair enabled returns 15/15 as well. **On this sample set the

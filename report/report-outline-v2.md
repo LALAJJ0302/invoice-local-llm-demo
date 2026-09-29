@@ -38,19 +38,19 @@ to be written, and the third column says what it is assembled from rather than i
 
 | # | Section | Status | Source material | Blocked on |
 |---|---|---|---|---|
-| 1 | Introduction and PoC Scope | **Have.** §1.4, the dated scope boundary, written 2026-09-28. Still needs the pivot narrative merged in and a citation for §1.1 | §1.1–1.4 plus §3.1–3.2 on the pivot | Nobody, except §1.1 which needs outside literature |
+| 1 | Introduction and PoC Scope | **Have.** Pivot narrative merged in 2026-09-29 as §1.5 and §1.6. Still needs a citation for §1.1 | §1.1–1.6 | Nobody, except §1.1 which needs outside literature |
 | 2 | Literature and Environmental Review | **Have** | §2, six subsections, 19 sources | Nobody |
 | 3 | Requirements | **New**, drafted 2026-09-28 | `requirements-spec.md`, 41 functional and 6 non-functional requirements with status | Nobody |
 | 4 | System Architecture and Data Flow | **Have** | §4.1 Architecture, §4.2 Data model; `database-spec.md` | Nobody |
 | 5 | Security and Privacy | **New** | §2.5 local inference argument; `.env` handling; NFR-1 | **Luke**: what stays local, what reaches Jira |
-| 6 | Implementation | **Have** | §4.3, thirteen numbered design decisions; §4.4 development process | Nobody |
-| 7 | RAG Method | **New** | JJ's PR #12: `rag-poc.md`, `rag_retrieval.py`, six result files. §4.3.10 on why retrieval uses keyword and hybrid and no embeddings | **JJ**, and the null result must be reported as a ceiling effect, see §5.12.3 |
-| 8 | Evaluation | **Have**, extend | §5, twelve subsections, 6,159 words. §5.11 answers the supervisor's question about where the score comes from; §5.12 carries the prompt-label finding, which is the largest single effect the project has measured | **JJ** for the RAG comparison only |
+| 6 | Implementation | **Have** | §6.1, thirteen numbered design decisions; §6.2 development process | Nobody |
+| 7 | RAG Method | **New** | JJ's PR #12: `rag-poc.md`, `rag_retrieval.py`, six result files. §6.1.10 on why retrieval uses keyword and hybrid and no embeddings | **JJ**, and the null result must be reported as a ceiling effect, see §8.12.3 |
+| 8 | Evaluation | **Have**, extend | Twelve subsections, 6,287 words. §8.11 answers the supervisor's question about where the score comes from; §8.12 carries the prompt-label finding, which is the largest single effect the project has measured | **JJ** for the RAG comparison only |
 | 9 | Deployment and System Requirements | **New** | `deployment-spec.md`, `Dockerfile`, `docker-compose.yml`, README Option C | **Luke**: clean-environment run and hardware figures |
-| 10 | Limitations and Future Work | **Written 2026-09-28**, `section-10-limitations.md`, 1,752 words | Consolidates §5.2, §5.10, §6.5, §7.1–7.3, and adds §10.6 on the decision §5.12 created | Nobody |
-| 11 | Discussion and Lessons | **Have** | §6, including seven lessons each attached to its evidence | Nobody |
-| 12 | Conclusion | **Have** | §8 | Nobody |
-| n/a | References | **Have** | §9 | Nobody |
+| 10 | Limitations and Future Work | **Written 2026-09-28**, 1,752 words | Absorbed the old §7.1–7.3 and §5.10, and adds §10.6 on the decision §8.12 created | Nobody |
+| 11 | Discussion and Lessons | **Have** | Seven lessons each attached to its evidence, plus §11.6 on what transfers past invoices | Nobody |
+| 12 | Conclusion | **Have** | 998 words | Nobody |
+| n/a | References | **Have** | 841 words, APA | Nobody |
 
 ### What that totals
 
@@ -61,31 +61,39 @@ to be written, and the third column says what it is assembled from rather than i
 
 ## File naming
 
-New sections use a zero-padded number matching this outline: `section-03-requirements.md`. The
-existing files keep their old single-digit names until the renumbering pass, which is one
-mechanical rename per file and is deliberately left until the structure is agreed rather than
-done twice.
+Every section file uses a zero-padded number matching this outline:
+`section-03-requirements.md`. References is `section-99-references.md` so that a plain
+lexical sort puts it last.
 
-| New | Current file |
-|---|---|
-| 1 | `section-1-introduction.md` plus material from `section-3-problem-analysis.md` |
-| 2 | `section-2-literature.md` |
-| 3 | `section-03-requirements.md` **(new, written)** |
-| 4 | `section-4-design.md` §4.1–4.2 |
-| 5 | `section-05-security-privacy.md` *(to write)* |
-| 6 | `section-4-design.md` §4.3–4.4 |
-| 7 | `section-07-rag-method.md` *(to write)* |
-| 8 | `section-5-evaluation.md` |
-| 9 | `section-09-deployment.md` *(to write)* |
-| 10 | `section-10-limitations.md` **(new, written)**. The passages it consolidates still exist in `section-5-evaluation.md` and `section-7-recommendations.md` and are cut at renumber time, not before |
-| 11 | `section-6-discussion.md` |
-| 12 | `section-8-conclusion.md` |
-| References | `section-9-references.md` |
+| New | File | State |
+|---|---|---|
+| 1 | `section-01-introduction.md` | Written. Gained §1.5 and §1.6, the pivot narrative, from the dissolved problem-analysis file |
+| 2 | `section-02-literature.md` | Written |
+| 3 | `section-03-requirements.md` | Written. §3.3 gained the three workflow roles |
+| 4 | `section-04-architecture.md` | Written. The §4.1–4.2 half of the old design file |
+| 5 | `section-05-security-privacy.md` | **Not written.** Waiting on Luke |
+| 6 | `section-06-implementation.md` | Written. The §4.3–4.4 half, renumbered to §6.1 and §6.2 |
+| 7 | `section-07-rag-method.md` | **Not written.** Waiting on JJ |
+| 8 | `section-08-evaluation.md` | Written. Gained §8.3.1, the first-version defects. §8.10 is now a pointer into §10.3 |
+| 9 | `section-09-deployment.md` | **Not written.** Waiting on Luke |
+| 10 | `section-10-limitations.md` | Written |
+| 11 | `section-11-discussion.md` | Written. Gained §11.6 from the dissolved recommendations file |
+| 12 | `section-12-conclusion.md` | Written |
+| References | `section-99-references.md` | Written. Numbered 99 so it sorts last |
 
-**Section 4 splits an existing file in two.** `section-4-design.md` currently carries
-architecture, the data model, thirteen design decisions and the development process. Sections 4
-and 6 of the new structure divide it along a seam that already exists in the file, at the §4.3
-heading, so the split is a cut rather than a rewrite.
+**Applied 2026-09-29.** The renumbering pass ran: eight renames, the §4 split, 91 headings
+renumbered, 57 cross-references repointed and one stale reference corrected. The order and the
+gaps are enforced by `report/build-docx.sh`, and `scripts/check_report_refs.py` reports zero
+dangling references and six pending ones, all into sections 5 and 7.
+
+Two files no longer exist. `section-3-problem-analysis.md` went to §1.5, §1.6, §8.3.1 and §3.3;
+`section-7-recommendations.md` went to §10.4, §10.5, §10.7 and §11.6. Nothing in either was
+dropped. See `report-renumbering-spec.md`.
+
+**Section 4 split an existing file in two.** `section-4-design.md` carried architecture, the
+data model, thirteen design decisions and the development process. Sections 4 and 6 divide it
+along a seam that already existed in the file, at the old §4.3 heading, so the split was a cut
+rather than a rewrite.
 
 ## Writing order for the week ending 2026-10-02
 
@@ -94,9 +102,9 @@ Ordered by dependency, so that nothing waits on a person who has not delivered y
 | When | Work | Depends on |
 |---|---|---|
 | Mon 28 Sep | §3 Requirements | Nobody. **Drafted, 2,099 words** |
-| Mon 28 Sep | §8 gains §5.11, where the validation score comes from and what it decides | Nobody. **Written, ~1,480 words**, with `evaluation/score_breakdown.py` and 17 tests behind it |
+| Mon 28 Sep | §8 gains §8.11, where the validation score comes from and what it decides | Nobody. **Written, ~1,480 words**, with `evaluation/score_breakdown.py` and 17 tests behind it |
 | Mon 28 Sep | §10 Limitations, consolidated from six places | Nobody. **Written, 1,752 words** |
-| Tue 29 Sep | The renumbering pass and the §4/§6 split | The structure being agreed |
+| Tue 29 Sep | The renumbering pass and the §4/§6 split | **Done.** 57 references repointed, checker at zero dangling |
 | Mon 28 Sep | §1 gains an explicit in-scope and out-of-scope statement | Nobody. **Written as §1.4, 660 words** |
 | Wed 30 to Thu 1 Oct | §5 Security and Privacy, §9 Deployment | Luke |
 | Thu 1 Oct | §7 RAG Method, §8 extended with the comparison | JJ |
@@ -128,11 +136,11 @@ Harbour Review Supplies   AUD   990.00   0.87  Needs review   (amber rail)
 Apex Cloud Solutions Pty  USD 1,500.00   0.85  Validated      (green rail)
 ```
 
-That pair is the worked example in §5.11.4, and the argument turns on it: the higher score is
+That pair is the worked example in §8.11.4, and the argument turns on it: the higher score is
 refused and the lower one is approved, because three of the gate's four conditions have nothing
 to do with the score. **After the prompt fix, Apex scores 1.00 and the inversion is gone.**
 
-Kept deliberately, and it does not settle the open question of what §5.11.4 should say. A
+Kept deliberately, and it does not settle the open question of what §8.11.4 should say. A
 screenshot is evidence that a state existed on a date; it is not a licence to describe that state
 in the present tense once `main` no longer produces it. Whatever the group decides, this file is
 what the figure caption must be dated against.

@@ -87,7 +87,7 @@ worse than both existing options and the recommendation becomes plain `required`
 
 - `NullableRequiredInvoice` in `sentinel_comparison.py`, and a fifth cell in `prompt_schema_2x2.py`
 - Regenerated `results_sentinel_comparison.json` and `results_prompt_schema_2x2.json`
-- A fourth row in `report/section-5-evaluation.md` §5.5
+- A fourth row in `report/section-08-evaluation.md` §8.5
 - Tests: the new schema's `model_json_schema()` lists every field in `required` **and** admits null.
   That is the whole mechanism, and it is worth asserting rather than trusting.
 

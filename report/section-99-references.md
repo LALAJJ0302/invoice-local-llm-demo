@@ -94,7 +94,7 @@ documentation rather than peer-reviewed work at the point of use in §2.1.
 ## Consulted and deliberately not cited
 
 Three vendor and blog sources informed the literature search and are **not cited as evidence**
-anywhere in this report. They are listed so that the claims discussed in §5.6 can be traced and
+anywhere in this report. They are listed so that the claims discussed in §8.6 can be traced and
 tested by a reader who wants to check them. One of them reports a model returning empty JSON
 under constrained decoding, which would have corroborated this project's own defect; it is not
 cited because this project's five-model run does not reproduce it.

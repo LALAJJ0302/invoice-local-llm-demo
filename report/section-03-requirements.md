@@ -51,6 +51,27 @@ The fourth is notional. No end user was interviewed, and the report does not cla
 Where a design decision is justified by user need, that need is inferred from the workflow and
 is labelled as an inference.
 
+**The workflow roles are a different list, and the design serves them in a specific order.**
+
+The workflow serves three roles, and the design serves them in a specific order.
+
+**Accounts payable** needs the payable amount to be right, and needs to know when it might
+not be. This is why an amount that cannot be located beside a total label is never
+auto-approved regardless of the overall score, and why the gate reports which fields were
+empty rather than only a number.
+
+**An approver** needs to know what to check. A score alone does not tell them; a reason does.
+The gate therefore emits a sentence naming the specific problem.
+
+**A later maintainer** needs to know why the system is shaped the way it is. This is why the
+design decisions are recorded with their alternatives and the measurements that settled them,
+and why rejected approaches are documented alongside accepted ones.
+
+The order matters. Every automation decision in this project fails toward a person rather
+than toward a guess: an unclassifiable document is routed to review rather than assigned a
+likely type, and a `Validated` document still requires human approval, because automation
+reduces the reading rather than removing the decision.
+
 ## 3.4 Scope of the Proof of Concept
 
 **In scope.** Email intake, PDF text extraction, field extraction by a local language model,

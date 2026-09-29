@@ -103,3 +103,62 @@ reach. It was not added because there is no labelled set of scanned documents to
 against, and shipping an unmeasured stage into a project whose central claim is that it measures
 what it builds would have cost more than the capability was worth. §10.7 lists it first among
 the functional gaps for exactly that reason.
+
+## 1.5 The original design, and the constraints that ended it
+
+The project began as a Microsoft-hosted workflow: SharePoint for document storage, Power
+Automate for orchestration, a Copilot agent for extraction, and Power BI for reporting.
+That design was chosen because the university tenant already provided the platform and
+because the group had prior exposure to it.
+
+It was abandoned. The reason is worth stating precisely, because "we changed technology" and
+"we were prevented from building on the platform we chose" are different findings and only
+the second one is true here.
+
+| Constraint | First encountered |
+|---|---|
+| Premium Jira connector, unowned | 14 August 2026 |
+| Dataverse self-service creation disabled for students | 17 August 2026 |
+| SharePoint site creation unavailable to students | 18 August 2026 |
+| Microsoft 365 MCP connector requires administrator consent | 18 August 2026 |
+| Premium HTTP connector unavailable, unresolved | 22 August 2026 |
+| Microsoft 365 Group creation for Planner, untestable | 22 August 2026 |
+| Copilot agent credit limits reached | 23 August 2026 |
+
+**Seven distinct blockers in ten days, none of which were technical.** Each was an
+administrative permission the group did not hold and could not obtain within the project
+timeline. No single one would have ended the design. Their accumulation did.
+
+This is a finding rather than a complaint, and it generalises: a student or contractor team
+building on an institutionally managed cloud tenant is dependent on permissions it does not
+control, and that dependency is not visible at design time. The proposal that produced this
+design was sound on paper. It failed on contact with the tenant's access model.
+
+The pivot to a local stack was made on documented supervisor advice on 25 August 2026. That
+distinction matters for how the project is assessed: deviating from a proposal is drift when
+undocumented, and engineering judgement when the constraint, the advice and the date are all
+recorded.
+
+## 1.6 What the pivot cost
+
+A pivot presented only in terms of what it unblocked is not an honest analysis. Three
+capabilities in the original proposal have no equivalent in the local design.
+
+**The Teams approval card.** The proposal's headline human-in-the-loop safeguard. Replaced
+by a Streamlit dashboard with an explicit approval action, which preserves the function of a
+person approving before anything is treated as final, but loses the property of reaching
+approvers where they already work.
+
+**The calibrated confidence gate.** The proposal specified a 0.8 confidence threshold. A
+locally hosted model exposes no calibrated per-field confidence, so this was replaced by
+rule-based validation: the amount must parse, be positive, and be located beside a
+grand-total label in the source text; the invoice number must be present and appear in the
+document. This is deterministic and auditable, and it yields an exception rate. **It is not a
+confidence score**, and §8.11 records why the field was renamed to reflect that.
+
+**The Power BI dashboard.** No equivalent data source existed in the local design. Replaced
+by direct queries against SQLite and a dashboard built on the same store.
+
+One property was gained rather than lost: with inference running locally, invoice content
+never leaves the machine. That was a consequence of the pivot rather than its motivation,
+but it is a defensible position on its own terms and §2 develops it.

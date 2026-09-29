@@ -19,11 +19,11 @@
 # The .docx is gitignored. The markdown is the source of truth, and rebuilding OVERWRITES the
 # .docx, so hand edits made in Word are lost. Edit the markdown, not the Word file.
 #
-# ORDERING NOTE. This is the pre-renumbering order: the sections appear in the sequence the
-# files were written, with Requirements and Limitations slotted where they read best. The
-# target structure is in report-outline-v2.md and differs. It is not adopted here yet because
-# three of its sections are unwritten and §4 has to be split in two, and a half-applied
-# reordering is worse than a consistent old one.
+# ORDERING NOTE. This is the twelve-section structure of report-outline-v2.md, adopted on
+# 2026-09-29. Three of its sections are not written and are listed below as comments at the
+# position they will occupy, so that the gap is visible in the file that builds the report
+# rather than only in the outline. A commented line is not a source: it is not built and not
+# counted, which is the behaviour wanted until someone writes the section.
 
 set -e
 cd "$(dirname "$0")/.."
@@ -32,17 +32,19 @@ OUT="report/Neo Pitayasiri - Final Report Draft v4.docx"
 
 SOURCES=(
   report/draft-v1.md
-  report/section-1-introduction.md
-  report/section-2-literature.md
+  report/section-01-introduction.md
+  report/section-02-literature.md
   report/section-03-requirements.md
-  report/section-3-problem-analysis.md
-  report/section-4-design.md
-  report/section-5-evaluation.md
-  report/section-6-discussion.md
-  report/section-7-recommendations.md
+  report/section-04-architecture.md
+# report/section-05-security-privacy.md     5. Security and Privacy      waiting on Luke
+  report/section-06-implementation.md
+# report/section-07-rag-method.md           7. RAG Method                waiting on JJ
+  report/section-08-evaluation.md
+# report/section-09-deployment.md           9. Deployment                waiting on Luke
   report/section-10-limitations.md
-  report/section-8-conclusion.md
-  report/section-9-references.md
+  report/section-11-discussion.md
+  report/section-12-conclusion.md
+  report/section-99-references.md
 )
 
 # A missing source is a silently shorter report, so fail instead of building one.

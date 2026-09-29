@@ -32,7 +32,7 @@ nothing masks the closing brace, so terminating the object early is a valid path
 grammar. Declaring a field required makes the closing brace invalid until that key is emitted.
 
 Stated that way the 2026-08-26 defect is **not a model failure at all**. The grammar did exactly
-what the schema asked for, and §5.4 measures the consequence of asking for the wrong thing.
+what the schema asked for, and §8.4 measures the consequence of asking for the wrong thing.
 
 **JSONSchemaBench** (Geng et al., 2025) is the closest benchmark to this project's question. It
 evaluates six constrained-decoding frameworks, XGrammar among them, against 10,000 real-world
@@ -42,12 +42,12 @@ correctly: not whether a schema is enforced, but how different schemas behave un
 
 ## 2.2 The cost of constraining output, which this project measured independently
 
-Two findings in the literature bear directly on §5.5, and they were found after that measurement
+Two findings in the literature bear directly on §8.5, and they were found after that measurement
 was taken rather than before.
 
 **Tam et al. (2024)** report that format restrictions cause a significant decline in reasoning
 ability, and that stricter constraints produce greater degradation. This sits in tension with
-§5.4, where moving from a permissive to a required schema took extraction from 3/15 to 15/15.
+§8.4, where moving from a permissive to a required schema took extraction from 3/15 to 15/15.
 
 The tension is resolvable and worth stating, because resolving it sharpens the claim. Tam et al.
 measure reasoning tasks, where the model must derive an answer. Extraction asks the model to
@@ -59,7 +59,7 @@ worst result in general terms. They find that constrained decoding can push mode
 **"locally valid yet semantically incorrect trajectories"**, and propose generating an
 unconstrained draft first, then applying constraints to it.
 
-That is precisely the failure documented in §5.5.1 and §7.2. Given a statement of account with no
+That is precisely the failure documented in §8.5.1 and §10.4. Given a statement of account with no
 total, every required-family schema in this project returned `2000.00`, which is the sum of the
 two unrelated numbers printed on the page. The value is locally valid: it satisfies the schema, it
 is a number, and it is arithmetically derived from the document. It is semantically wrong, and it
@@ -72,11 +72,11 @@ benchmarks describes the same mechanism this project observed on one invoice.
 **Schema variability as an experimental variable** is now an active subject. ExStrucTiny (Sibue
 et al., 2026) benchmarks schema-variable extraction from document images, and VAREX (Barzelay et
 al., 2026) is built on a "Reverse Annotation" principle explicitly to stop fixed-schema benchmarks
-rewarding memorisation. The two-by-two in §5.4 is a very small instance of the same move.
+rewarding memorisation. The two-by-two in §8.4 is a very small instance of the same move.
 
 ## 2.3 Document extraction benchmarks, and how small this evaluation is
 
-Naming the standard benchmarks lets §5 state the limits of its evidence precisely rather than
+Naming the standard benchmarks lets §8 state the limits of its evidence precisely rather than
 hoping the question is not asked.
 
 | Benchmark | Content | Labels |
@@ -101,7 +101,7 @@ process.
 (2023) analysed redundancy in public document extraction benchmarks and report **75% template
 replication in the SROIE official test set**, against 16% for FUNSD. A model can therefore score
 well by recognising a layout it has effectively already seen. This is the same criticism VAREX
-makes, and it is the reason §5.2 describes this evaluation's synthetic documents as a limitation
+makes, and it is the reason §8.2 describes this evaluation's synthetic documents as a limitation
 of scale rather than of kind.
 
 Rombach and Fettke (2024) provide a systematic literature review of deep-learning key information
@@ -113,7 +113,7 @@ misreport performance on grouped and hierarchical fields, which is relevant to t
 
 **The commercial path this project started on** was SharePoint, Power Automate, Copilot and
 Power BI. This is the mainstream enterprise pattern and it works, on the condition that the
-organisation controls its tenant. That condition failed here, and §3 documents it.
+organisation controls its tenant. That condition failed here, and §1.5 documents it.
 
 **Published systems of the kind built instead.** OnPrem.LLM (Maiya, 2025) is a privacy-conscious
 document intelligence toolkit for running document workflows against local models, and is the
@@ -125,7 +125,7 @@ Sánchez (2026) extract structured fields from Spanish electricity invoices with
 models and no task-specific finetuning, reporting F1 of 97.61% with Gemini and 96.11% with
 Mistral-small, and concluding that **prompt quality dominates hyperparameter tuning**.
 
-That conclusion is independent support for §5.4.2, which found the prompt to be as sufficient a
+That conclusion is independent support for §8.4.2, which found the prompt to be as sufficient a
 cause of this project's 20% result as the schema was. It should be read carefully, though: their
 result is on a hosted frontier model and a single invoice type, so it corroborates the direction
 of this project's finding rather than its magnitude.
@@ -136,20 +136,20 @@ low-quality scans.
 
 **Hallucination in document extraction specifically** is treated by Sarmah et al. (2023), who
 combine retrieval-augmented generation with metadata to reduce fabricated values when extracting
-from financial reports. Their framing is the same one §7.2 arrives at, that the defence against a
+from financial reports. Their framing is the same one §10.4 arrives at, that the defence against a
 fabricated value has to come from outside the document rather than from the extractor.
 
 ## 2.5 Local inference and the privacy argument
 
-The move to a local stack was **forced**, by the tenant permissions documented in §3. That is the
-honest account, and §6.1 gives it. But the position it landed on has an independent defence, and
+The move to a local stack was **forced**, by the tenant permissions documented in §1.5. That is the
+honest account, and §11.1 gives it. But the position it landed on has an independent defence, and
 the report would undersell itself by offering only the first.
 
 Invoices carry vendor bank details, trading relationships, addresses and pricing, which makes
 document processing a data-protection question rather than a convenience one. Maiya (2025) builds
 an entire toolkit on that premise, and Knoop and Holtmann (2026) give a practical account of
 cost-effective local deployment for small and medium enterprises, which supports the
-hardware-constrained framing of §5.6 where six models were shortlisted against a 24 GB machine's
+hardware-constrained framing of §8.6 where six models were shortlisted against a 24 GB machine's
 usable memory rather than against a leaderboard.
 
 > **Verify before submission.** §1.1 and this section both need a citable figure for
@@ -179,4 +179,4 @@ The specific result offered here is that **schemas with identical accuracy diffe
 they do when the answer is not there**, that the safest of the four still fabricates, and that the
 value it fabricates is computed from the page rather than invented, which defeats the obvious
 check. Whether that holds beyond one model and eight documents is not established by this work,
-and §5.2 says so.
+and §8.2 says so.
