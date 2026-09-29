@@ -113,3 +113,26 @@ Three requirements from the original outline still apply and are easy to lose in
 the Industry Supervisor Report is a second deliverable where a supervisor is appointed, APA
 applies throughout including to our own figures, and the Subject Outline's generative AI
 requirements must be read before writing rather than after.
+
+---
+
+## Figures held because the state they show is about to disappear
+
+`report/screenshots/approval-screen-before-prompt-fix-2026-09-28.png` is the approval screen as
+it stood on 28 September, and it is the only record of a state that the prompt fix removes.
+
+It shows the two pending documents side by side with their score meters:
+
+```
+Harbour Review Supplies   AUD   990.00   0.87  Needs review   (amber rail)
+Apex Cloud Solutions Pty  USD 1,500.00   0.85  Validated      (green rail)
+```
+
+That pair is the worked example in §5.11.4, and the argument turns on it: the higher score is
+refused and the lower one is approved, because three of the gate's four conditions have nothing
+to do with the score. **After the prompt fix, Apex scores 1.00 and the inversion is gone.**
+
+Kept deliberately, and it does not settle the open question of what §5.11.4 should say. A
+screenshot is evidence that a state existed on a date; it is not a licence to describe that state
+in the present tense once `main` no longer produces it. Whatever the group decides, this file is
+what the figure caption must be dated against.
