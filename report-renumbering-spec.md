@@ -235,3 +235,40 @@ reference had simply been shifted with the rest.
 
 **Three documents outside `report/` named the old filenames** and were repointed:
 `CLAUDE.md`, `nullable-required-schema-spec.md` and `error-taxonomy-spec.md`.
+
+---
+
+# Sections 5, 7 and 9, written 2026-09-29
+
+The renumbering pass left gaps at 5, 7 and 9, which the outline had recorded as blocked on Luke
+and JJ. Reading what each actually needed showed that two of the three were not blocked at all.
+
+**§5 Security and Privacy was not waiting on Luke.** The outline said it needed him to say what
+stays local and what reaches Jira. That is a question the code answers exactly: searching every
+source file for an outbound network primitive returns two results, `imaplib.IMAP4_SSL` in
+`email_listener.py:99` and `urllib.request.urlopen` in `jira_client.py:227`, and
+`task_dispatch._build_description` enumerates the eight fields a Jira issue carries. Asking a
+teammate to recall what the code does, when the code is in front of you, is the failure this
+project keeps naming in other contexts. Luke should confirm the field list; he was not needed to
+produce it.
+
+**§9 Deployment was not waiting on Luke either.** It needed hardware figures and a clean run.
+The machine reports its own figures, `CLAUDE.md` records clean-copy runs on 24 and 28 September,
+and `deployment-spec.md` already carried the design reasoning. Writing it surfaced a real
+discrepancy nobody had noticed: the Dockerfile pins `python:3.12-slim` while every measurement
+in the report was taken on Python 3.13.5, so the two routes are not running the same
+interpreter and Route C has never reproduced a single number. §9.4 and §9.5 say so.
+
+**§7 RAG Method needed JJ's branch, and the branch is public.** PR #12 is open at `543fe12` with
+`rag-poc.md` and six result files. The section is written from those, and every figure names the
+branch it came from because it is not the branch the rest of the report was measured on. §8.12.3
+had already committed §7 to reporting the null result as a ceiling effect rather than at face
+value, and it does: both arms scored 100% because the one-word prompt fix shipped in the same
+branch, so there was no headroom for retrieval to appear in.
+
+The document now runs 1 to 12 with no gap, 24,029 words across 14 sources, and
+`scripts/check_report_refs.py` reports zero dangling and zero pending references.
+
+**What is genuinely outstanding is confirmation, not authorship.** Luke should check §5.2's
+field list against what he intended the integration to send, and JJ's numbers must be re-read if
+#12 changes before it merges. Neither blocks the report.

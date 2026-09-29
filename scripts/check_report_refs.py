@@ -14,9 +14,10 @@ Two reports:
   DUPLICATE  the same section number used as a heading in two files
   PENDING    a reference into a section that is planned but not written yet
 
-PENDING is not a failure. Sections 5, 7 and 9 are referenced by sections that are written and
-are themselves waiting on a teammate, so the report points forward at them on purpose. They are
-listed so the count can be watched down to zero as those sections land.
+PENDING is not a failure. It exists for the case where a written section points forward at one
+that is planned and not drafted yet, which was true of sections 5, 7 and 9 until 29 September
+2026. The dict below is empty because every planned section is now written; add an entry rather
+than letting a forward reference report as DANGLING.
 
 References naming another document are skipped. `database-spec.md` §5 is a reference into the
 data-layer spec, not into section 5 of the report, and rewriting it would be a defect.
@@ -31,9 +32,7 @@ REPORT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 
 HEADING = re.compile(r"^#{1,4}\s+(\d+(?:\.\d+)*)\.?\s")
 # Planned in report/report-outline-v2.md, not written. Each is blocked on a teammate.
-PENDING = {"5": "Security and Privacy, blocked on Luke",
-           "7": "RAG Method, blocked on JJ",
-           "9": "Deployment and System Requirements, blocked on Luke"}
+PENDING = {}
 REFERENCE = re.compile(r"§(\d+(?:\.\d+)*)")
 # A reference is treated as pointing outside this report when a filename appears close enough
 # in front of it to be doing the addressing.

@@ -20,10 +20,9 @@
 # .docx, so hand edits made in Word are lost. Edit the markdown, not the Word file.
 #
 # ORDERING NOTE. This is the twelve-section structure of report-outline-v2.md, adopted on
-# 2026-09-29. Three of its sections are not written and are listed below as comments at the
-# position they will occupy, so that the gap is visible in the file that builds the report
-# rather than only in the outline. A commented line is not a source: it is not built and not
-# counted, which is the behaviour wanted until someone writes the section.
+# 2026-09-29. All twelve sections plus References are present, so the list below is
+# contiguous and the built document has no gap in its numbering. Anything added later goes
+# in at its numbered position, not appended at the end.
 
 set -e
 cd "$(dirname "$0")/.."
@@ -36,11 +35,11 @@ SOURCES=(
   report/section-02-literature.md
   report/section-03-requirements.md
   report/section-04-architecture.md
-# report/section-05-security-privacy.md     5. Security and Privacy      waiting on Luke
+  report/section-05-security-privacy.md
   report/section-06-implementation.md
-# report/section-07-rag-method.md           7. RAG Method                waiting on JJ
+  report/section-07-rag-method.md
   report/section-08-evaluation.md
-# report/section-09-deployment.md           9. Deployment                waiting on Luke
+  report/section-09-deployment.md
   report/section-10-limitations.md
   report/section-11-discussion.md
   report/section-12-conclusion.md

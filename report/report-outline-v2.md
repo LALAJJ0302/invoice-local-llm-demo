@@ -42,11 +42,11 @@ to be written, and the third column says what it is assembled from rather than i
 | 2 | Literature and Environmental Review | **Have** | §2, six subsections, 19 sources | Nobody |
 | 3 | Requirements | **New**, drafted 2026-09-28 | `requirements-spec.md`, 41 functional and 6 non-functional requirements with status | Nobody |
 | 4 | System Architecture and Data Flow | **Have** | §4.1 Architecture, §4.2 Data model; `database-spec.md` | Nobody |
-| 5 | Security and Privacy | **New** | §2.5 local inference argument; `.env` handling; NFR-1 | **Luke**: what stays local, what reaches Jira |
+| 5 | Security and Privacy | **Written 2026-09-29**, 1,192 words | Read off the code: two outbound calls, the eight fields Jira receives, `auth.py`, and what is not protected | Nobody. Luke to confirm the Jira field list |
 | 6 | Implementation | **Have** | §6.1, thirteen numbered design decisions; §6.2 development process | Nobody |
-| 7 | RAG Method | **New** | JJ's PR #12: `rag-poc.md`, `rag_retrieval.py`, six result files. §6.1.10 on why retrieval uses keyword and hybrid and no embeddings | **JJ**, and the null result must be reported as a ceiling effect, see §8.12.3 |
-| 8 | Evaluation | **Have**, extend | Twelve subsections, 6,287 words. §8.11 answers the supervisor's question about where the score comes from; §8.12 carries the prompt-label finding, which is the largest single effect the project has measured | **JJ** for the RAG comparison only |
-| 9 | Deployment and System Requirements | **New** | `deployment-spec.md`, `Dockerfile`, `docker-compose.yml`, README Option C | **Luke**: clean-environment run and hardware figures |
+| 7 | RAG Method | **Written 2026-09-29**, 1,150 words | JJ's PR #12 read at `543fe12`: `rag-poc.md`, `results_rag_summary.json`. Reports the null result as a ceiling effect per §8.12.3 | Nobody. Numbers must be re-read if #12 changes before it merges |
+| 8 | Evaluation | **Have** | Twelve subsections, 6,287 words. §8.11 answers the supervisor's question about where the score comes from; §8.12 carries the prompt-label finding, which is the largest single effect the project has measured. The RAG comparison lives in §7, not here | Nobody |
+| 9 | Deployment and System Requirements | **Written 2026-09-29**, 1,103 words | `deployment-spec.md`, `Dockerfile`, `docker-compose.yml`, plus hardware and footprint measured on this machine | Nobody. Route C has never reproduced the report's numbers, and §9.5 says so |
 | 10 | Limitations and Future Work | **Written 2026-09-28**, 1,752 words | Absorbed the old §7.1–7.3 and §5.10, and adds §10.6 on the decision §8.12 created | Nobody |
 | 11 | Discussion and Lessons | **Have** | Seven lessons each attached to its evidence, plus §11.6 on what transfers past invoices | Nobody |
 | 12 | Conclusion | **Have** | 998 words | Nobody |
@@ -54,10 +54,9 @@ to be written, and the third column says what it is assembled from rather than i
 
 ### What that totals
 
-- Already written and reusable: approximately **10,000 words**
-- Reinstated rather than discarded: **4,433 words**
-- Genuinely new: approximately **3,600 words** across sections 3, 5, 7 and 9
-- Of that, §3 Requirements depended on nobody and is **written: 2,099 words**, leaving about 2,700 across sections 5, 7 and 9, all of which wait on a teammate
+**All twelve sections and the references are written.** The built document is 24,029 words
+across 14 sources, with no gap in its numbering. Sections 3, 5, 7, 9 and 10 were written
+between 28 and 29 September 2026 and account for 7,447 of those words.
 
 ## File naming
 
@@ -71,20 +70,21 @@ lexical sort puts it last.
 | 2 | `section-02-literature.md` | Written |
 | 3 | `section-03-requirements.md` | Written. §3.3 gained the three workflow roles |
 | 4 | `section-04-architecture.md` | Written. The §4.1–4.2 half of the old design file |
-| 5 | `section-05-security-privacy.md` | **Not written.** Waiting on Luke |
+| 5 | `section-05-security-privacy.md` | Written |
 | 6 | `section-06-implementation.md` | Written. The §4.3–4.4 half, renumbered to §6.1 and §6.2 |
-| 7 | `section-07-rag-method.md` | **Not written.** Waiting on JJ |
+| 7 | `section-07-rag-method.md` | Written |
 | 8 | `section-08-evaluation.md` | Written. Gained §8.3.1, the first-version defects. §8.10 is now a pointer into §10.3 |
-| 9 | `section-09-deployment.md` | **Not written.** Waiting on Luke |
+| 9 | `section-09-deployment.md` | Written |
 | 10 | `section-10-limitations.md` | Written |
 | 11 | `section-11-discussion.md` | Written. Gained §11.6 from the dissolved recommendations file |
 | 12 | `section-12-conclusion.md` | Written |
 | References | `section-99-references.md` | Written. Numbered 99 so it sorts last |
 
 **Applied 2026-09-29.** The renumbering pass ran: eight renames, the §4 split, 91 headings
-renumbered, 57 cross-references repointed and one stale reference corrected. The order and the
-gaps are enforced by `report/build-docx.sh`, and `scripts/check_report_refs.py` reports zero
-dangling references and six pending ones, all into sections 5 and 7.
+renumbered, 57 cross-references repointed and one stale reference corrected. Sections 5, 7 and
+9 were then written, so the numbering is contiguous and `report/build-docx.sh` lists all
+fourteen sources with no commented gaps. `scripts/check_report_refs.py` reports zero dangling
+references and zero pending.
 
 Two files no longer exist. `section-3-problem-analysis.md` went to §1.5, §1.6, §8.3.1 and §3.3;
 `section-7-recommendations.md` went to §10.4, §10.5, §10.7 and §11.6. Nothing in either was
@@ -106,8 +106,10 @@ Ordered by dependency, so that nothing waits on a person who has not delivered y
 | Mon 28 Sep | §10 Limitations, consolidated from six places | Nobody. **Written, 1,752 words** |
 | Tue 29 Sep | The renumbering pass and the §4/§6 split | **Done.** 57 references repointed, checker at zero dangling |
 | Mon 28 Sep | §1 gains an explicit in-scope and out-of-scope statement | Nobody. **Written as §1.4, 660 words** |
-| Wed 30 to Thu 1 Oct | §5 Security and Privacy, §9 Deployment | Luke |
-| Thu 1 Oct | §7 RAG Method, §8 extended with the comparison | JJ |
+| Mon 29 Sep | §5 Security and Privacy | **Written from the code**, not from Luke. Two outbound calls found by searching every source file |
+| Mon 29 Sep | §9 Deployment | **Written**, with hardware and footprint measured rather than requested |
+| Mon 29 Sep | §7 RAG Method | **Written** from PR #12 at `543fe12`, reported as a ceiling effect |
+| Outstanding | Luke to confirm §5.2's Jira field list; JJ to confirm §7 if #12 changes | Both are confirmations of written text, not blockers |
 
 ## What has not changed
 
