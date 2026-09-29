@@ -1,6 +1,6 @@
-# 11. Discussion
+# Appendix B. Discussion and Lessons
 
-## 11.1 Whether the pivot was the right decision
+## B.1 Whether the pivot was the right decision
 
 The project began as a Microsoft cloud design: SharePoint for storage, Power Automate for
 orchestration, Copilot for extraction and Power BI for reporting. It moved to a local
@@ -10,8 +10,8 @@ required, and on the supervisor's advice.
 Judged only on features delivered, the pivot lost ground. There is no Teams notification, no
 Jira task, and no Power BI report. Judged on what the project was for, it gained more than it
 lost, and the reason is visible in section 5. **Every experiment in this report required
-changing one variable and holding the rest constant.** The two-by-two in §8.4.2 needed the
-prompt and the schema separated. The schema arms in §8.5 needed four different schemas run
+changing one variable and holding the rest constant.** The two-by-two in §7.4.2 needed the
+prompt and the schema separated. The schema arms in §7.5 needed four different schemas run
 against the same documents at the same temperature. None of that is possible against a hosted
 service whose prompt, model version and decoding constraints are not under the team's control
 and can change without notice.
@@ -24,16 +24,16 @@ constructed after the fact to fit a result.
 
 One consequence does count as a loss and should be stated plainly. A local 3-billion-parameter
 model is not a fair proxy for a frontier hosted model. Nothing here establishes that Copilot
-would have performed worse, and §8.6 shows that every local model tested handled constrained
+would have performed worse, and §7.6 shows that every local model tested handled constrained
 decoding correctly, which means the constraint was never the model's capability.
 
-## 11.2 What the 20% result actually means
+## B.2 What the 20% result actually means
 
 The headline figure that opened this project was that extraction scored 3 of 15 field-values,
 or 20%. It is the most quoted number in the team's documents and the most misread.
 
 It is not a measure of what a local language model can do. It is a measure of **one prompt and
-one schema declaration**, and §8.4.2 shows that repairing either one alone reaches 15 of 15.
+one schema declaration**, and §7.4.2 shows that repairing either one alone reaches 15 of 15.
 The model was capable of the task throughout. The failure was in how the task was specified to
 it, which is a software defect rather than a limitation of local inference.
 
@@ -43,7 +43,7 @@ schema silently produces empty fields, and the resulting output looks like a wor
 does follow, and is the more useful finding because it is a failure mode that survives any
 change of model.
 
-## 11.3 Seven lessons, each attached to the evidence that produced it
+## B.3 Seven lessons, each attached to the evidence that produced it
 
 These are recorded as lessons because each one cost the project time before it was understood,
 and each was established by measurement rather than by review.
@@ -99,7 +99,7 @@ it does. **This is an argument for running the real thing early and often, not f
 tests of the same kind**, and it is the second time in this project that running something found
 what reading it had not, the first being lesson 1.
 
-## 11.4 An eighth lesson, about how this report was produced
+## B.4 An eighth lesson, about how this report was produced
 
 This project asks whether an AI system can be trusted with document work. It was itself built
 with an AI assistant, and the honest answer emerged from that collaboration rather than from the
@@ -118,14 +118,14 @@ Both were invisible for the same reason, which is that `None` and a fluent asser
 indistinguishable from data until something checks them.
 
 An instance of this occurred while writing section 5 and is worth quoting because it was caught
-in advance. The schema proposed in §8.5.1 was specified with its predicted results written down
+in advance. The schema proposed in §7.5.1 was specified with its predicted results written down
 before the measurement was run. The central prediction, that a nullable field would eliminate
 invented values, **was wrong**. Had the prediction not been recorded first, the favourable
 columns either side of it would have supported a claim the evidence does not make.
 
-## 11.5 What this evaluation cannot support
+## B.5 What this evaluation cannot support
 
-The limits below are restated here rather than left in §8.2, because a discussion section that
+The limits below are restated here rather than left in §7.2, because a discussion section that
 draws conclusions without re-stating its own boundaries invites the reader to over-read them.
 
 **The sample is three synthetic documents, plus five written to be missing specific fields.**
@@ -137,15 +137,15 @@ real scanned receipts in its test split alone.
 and there is no OCR path. The most common real-world invoice format is therefore untested.
 
 **One model carries every accuracy claim.** `llama3.2` produced all of section 5's field-level
-results. The six-model comparison in §8.6 establishes that the others accept constrained
+results. The six-model comparison in §7.6 establishes that the others accept constrained
 decoding, not that they extract equally well.
 
 **The validation gate has never been measured against fraud, duplication, or an invoice from a
 vendor the organisation does not use.** Every check it performs is internal to the document, so
 a well-formatted document that should not be paid scores exactly as well as one that should.
-§10.4 treats this as the most important open risk rather than a limitation of measurement.
+§9.4 treats this as the most important open risk rather than a limitation of measurement.
 
-**The email half has no accuracy figure of any kind.** §8.9 reports what one run produced and
+**The email half has no accuracy figure of any kind.** §7.9 reports what one run produced and
 says explicitly that none of it is a score. The classifier used one of its six labels on all 18
 messages, and this report does not know whether that is correct, because every message in the
 mailbox concerns an invoice. Nothing in section 6 draws a conclusion about how well that half
@@ -157,7 +157,7 @@ different in kind: the data exists and the pipeline runs over it, but there is n
 to compare against, so the quantity of data does not help. The two need different remedies, and
 conflating them would make the second look closer to solved than it is.
 
-## 11.6 Implications beyond this project
+## B.6 Implications beyond this project
 
 The transferable finding is not about invoices. It is that **a structured-output specification is
 a safety control, and is currently treated as a formatting detail.**
@@ -170,7 +170,7 @@ cannot distinguish these, because accuracy is identical across them. It would ha
 the system does when it cannot read a field, and that question is rarely part of a procurement
 evaluation.
 
-The second implication follows from §11.4. The failure mode that recurred at every level of this
+The second implication follows from §B.4. The failure mode that recurred at every level of this
 project, in the model, in the assistant used to build it, and in the team's own documentation,
 was a gap filled with something that resembled an answer. The controls that caught it were not
 sophisticated: a test, a measurement taken before a claim was made, and a person asking how a

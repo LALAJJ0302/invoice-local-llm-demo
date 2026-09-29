@@ -19,10 +19,12 @@
 # The .docx is gitignored. The markdown is the source of truth, and rebuilding OVERWRITES the
 # .docx, so hand edits made in Word are lost. Edit the markdown, not the Word file.
 #
-# ORDERING NOTE. This is the twelve-section structure of report-outline-v2.md, adopted on
-# 2026-09-29. All twelve sections plus References are present, so the list below is
-# contiguous and the built document has no gap in its numbering. Anything added later goes
-# in at its numbered position, not appended at the end.
+# ORDERING NOTE. This is JJ's ten-section PoC structure, adopted on 2026-09-29, in the order
+# he circulated it. Sections 1 to 10 are the numbered spine and nothing else is numbered.
+# Literature and Discussion have no place in a ten-section list and are kept as appendices
+# after the references, which is where APA puts them, rather than deleted: between them they
+# are 3,815 words the rubric rewards. See report-structure-jj-spec.md. Anything added later
+# goes in at its numbered position, not appended at the end.
 
 set -e
 cd "$(dirname "$0")/.."
@@ -32,18 +34,18 @@ OUT="report/Neo Pitayasiri - Final Report Draft v4.docx"
 SOURCES=(
   report/draft-v1.md
   report/section-01-introduction.md
-  report/section-02-literature.md
-  report/section-03-requirements.md
-  report/section-04-architecture.md
-  report/section-05-security-privacy.md
-  report/section-06-implementation.md
-  report/section-07-rag-method.md
-  report/section-08-evaluation.md
-  report/section-09-deployment.md
-  report/section-10-limitations.md
-  report/section-11-discussion.md
-  report/section-12-conclusion.md
+  report/section-02-requirements.md
+  report/section-03-architecture.md
+  report/section-04-security-privacy.md
+  report/section-05-implementation.md
+  report/section-06-rag-method.md
+  report/section-07-evaluation.md
+  report/section-08-deployment.md
+  report/section-09-limitations.md
+  report/section-10-conclusion.md
   report/section-99-references.md
+  report/appendix-A-literature.md
+  report/appendix-B-discussion.md
 )
 
 # A missing source is a silently shorter report, so fail instead of building one.

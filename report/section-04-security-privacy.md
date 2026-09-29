@@ -1,4 +1,4 @@
-# 5. Security and Privacy
+# 4. Security and Privacy
 
 Section 2.5 argues that local inference has a privacy case independent of why this project
 ended up there. This section is narrower and answers a question about this system rather than
@@ -8,7 +8,7 @@ on it.
 The answers below are read off the code rather than off the design. Where the honest answer is
 that something is not protected, it is stated rather than deferred to future work.
 
-## 5.1 Two outbound calls in the whole codebase
+## 4.1 Two outbound calls in the whole codebase
 
 Requirement NFR-1 says no document content leaves the machine. That is a claim about every line
 of the system, so it was checked against every line rather than argued from the architecture
@@ -28,7 +28,7 @@ The two calls that do exist are inbound and outbound in opposite directions, and
 separate treatment. IMAP brings content in. Jira is the only path by which anything derived
 from a document goes out.
 
-## 5.2 What Jira receives, field by field
+## 4.2 What Jira receives, field by field
 
 The Jira integration is optional and off unless `JIRA_ENABLED` is set. When it is on, the issue
 it creates carries exactly the following, assembled in `task_dispatch._build_summary` and
@@ -60,7 +60,7 @@ store to point at, so the task had to carry a reference instead of a copy.
 claim otherwise. The claim is bounded: what reaches a third-party service is eight fields, they
 are enumerable, and the enumeration is in one function that a reviewer can read in a minute.
 
-## 5.3 Credentials
+## 4.3 Credentials
 
 Four secrets exist, and all four are read from the environment rather than from the source.
 
@@ -69,7 +69,7 @@ Four secrets exist, and all four are read from the environment rather than from 
 | `EMAIL_PASSWORD` | `email_listener.py` | A Gmail App Password, not the account password |
 | `JIRA_API_TOKEN` | `jira_client.py` | An Atlassian API token |
 | `JIRA_EMAIL` | `jira_client.py` | Identifies the API user |
-| Dashboard passwords | `auth.py` | Hashed, see §5.4 |
+| Dashboard passwords | `auth.py` | Hashed, see §4.4 |
 
 `.env` is gitignored and `.env.example` is tracked in its place, carrying the variable names and
 no values. The Gmail credential is an App Password specifically so that it can be revoked
@@ -80,7 +80,7 @@ extracted content has ever been committed. This was verified by searching the wo
 rather than assumed from the file: a document that reaches the repository is a permanent
 disclosure, because removing it from a later commit does not remove it from the history.
 
-## 5.4 Authentication, and a deliberate weakness
+## 4.4 Authentication, and a deliberate weakness
 
 The dashboard requires a sign-in. Passwords are stored as `pbkdf2_sha256` with a 16-byte random
 salt per user and 200,000 iterations, and verified in constant time. That is a reasonable
@@ -96,9 +96,9 @@ exposure, and the accounts exist to attribute a decision to a person rather than
 out. It would be unacceptable in any deployment where the second of those stopped being true,
 and nothing in the code detects when that happens. **A control whose safety depends on a
 property the code cannot check is a control that will fail silently when the property changes**,
-which is the same failure shape §8.2 describes for the extraction heuristics.
+which is the same failure shape §7.2 describes for the extraction heuristics.
 
-## 5.5 What is not protected
+## 4.5 What is not protected
 
 Stated plainly, because a security section that lists only its controls is misleading.
 
@@ -112,7 +112,7 @@ Stated plainly, because a security section that lists only its controls is misle
 - **There is no data retention policy.** Nothing deletes an invoice, ever.
 - **Under Docker the whole project directory is bind-mounted into every container**, so
   containerisation provides no isolation of the database or the archive. That is deliberate, and
-  §9.3 explains why, but it means the container boundary is not a security boundary.
+  §8.3 explains why, but it means the container boundary is not a security boundary.
 
 None of these is a defect in the sense of something that was meant to work and does not. They
 are the scope of a proof of concept, and they are listed together so that nobody reads

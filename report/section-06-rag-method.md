@@ -1,4 +1,4 @@
-# 7. RAG Method
+# 6. RAG Method
 
 This section reports a retrieval-augmented generation experiment: whether showing the model a
 relevant worked example before it extracts improves what it extracts. It was built by JJ and
@@ -9,14 +9,14 @@ this report was measured on.
 
 **The headline result is null, and the reason it is null is the finding.** The comparison was
 run against a baseline that had already reached the ceiling, so it could not have shown an
-improvement whatever retrieval did. That is set out in §7.4 rather than buried under the table.
+improvement whatever retrieval did. That is set out in §6.4 rather than buried under the table.
 
-## 7.1 Two different retrieval problems, kept apart
+## 6.1 Two different retrieval problems, kept apart
 
 The word retrieval appears twice in this project and means different things each time, so they
 are separated before either is discussed.
 
-**Retrieval over the mailbox**, described in §6.1.10, finds a vendor's prior messages. It has
+**Retrieval over the mailbox**, described in §5.1.10, finds a vendor's prior messages. It has
 two implemented strategies, `sender` and `keyword`, and its measured result is that keyword
 scores 1.00 on threads and 0.00 on vendors.
 
@@ -27,7 +27,7 @@ synthetic examples written for the purpose, not the mailbox.
 They share a module name and nothing else. A reader who conflates them will attribute the null
 result below to the mailbox work, which it has no bearing on.
 
-## 7.2 What was built
+## 6.2 What was built
 
 `rag_retrieval.py` loads five anonymised examples from `evaluation/rag_examples.json`, one each
 for cloud services, hardware, consulting, office supplies and software subscriptions. Each
@@ -38,7 +38,7 @@ the prompt ahead of the document being extracted.
 The path is optional. `main.py` without `--rag` is the behaviour every other measurement in this
 report was taken against; `main.py --rag --rag-limit 1` adds one retrieved example.
 
-**No embeddings and no vector database**, for the reason §6.1.10 gives for the other retrieval
+**No embeddings and no vector database**, for the reason §5.1.10 gives for the other retrieval
 problem: whether embeddings help at this corpus size is a measurement nobody has taken, and
 implementing them first would mean never taking it. Five examples is also a corpus at which a
 deterministic scorer is defensible on its own terms.
@@ -49,11 +49,11 @@ the current source text. Retrieval therefore cannot introduce a value that the g
 otherwise catch, which matters because a demonstration containing plausible invoice numbers is
 exactly the kind of context that invites copying.
 
-## 7.3 How the comparison was run
+## 6.3 How the comparison was run
 
 Three runs of each arm, three held-out documents per run, five fields per document, so 15
 field-values per run and 45 per arm. Held out means the three evaluation documents are not among
-the five examples. **Repairs were disabled in both arms**, the same switch §8.1 describes, so
+the five examples. **Repairs were disabled in both arms**, the same switch §7.1 describes, so
 the comparison measures what the model does rather than what the regex fallback does for it.
 
 | Metric | Baseline | With retrieval |
@@ -69,12 +69,12 @@ invoice, hardware for the hardware invoice, consulting for the consulting invoic
 retriever works.** It costs 0.225 seconds on average, which is 5.5%, and the two latency ranges
 overlap heavily enough that three runs cannot separate them with confidence.
 
-## 7.4 The null result is a ceiling effect, and says nothing about retrieval
+## 6.4 The null result is a ceiling effect, and says nothing about retrieval
 
 Both arms scored 100%. Read at face value that says retrieval does not help. It does not say
 that, and the reason is in this report rather than in the experiment.
 
-**The baseline in this comparison is not the baseline the rest of the report uses.** §8.12
+**The baseline in this comparison is not the baseline the rest of the report uses.** §7.12
 documents a one-word correction to the extraction prompt that takes the model alone from 66.7%
 to 100% on this sample. That correction shipped in the same branch as the retrieval work. So the
 baseline arm here is the post-fix model, which already answers every field correctly on all
@@ -91,7 +91,7 @@ elsewhere. A null result and an uninformative experiment look identical in a res
 only thing separating them is knowing what the baseline was capable of before the treatment was
 applied, and that knowledge lived in a different section of a different branch.
 
-## 7.5 What would make the experiment informative
+## 6.5 What would make the experiment informative
 
 Three changes, in order of how much they would buy.
 
@@ -109,7 +109,7 @@ documents where the categories are distinct and the vocabulary does not overlap.
 easiest possible case for keyword matching, and it is the case least likely to distinguish it
 from a semantic method.
 
-## 7.6 What this section can and cannot claim
+## 6.6 What this section can and cannot claim
 
 It can claim that retrieval-augmented prompting was implemented locally, that it selects
 relevant examples deterministically, that it costs about 5.5% in latency, and that it introduces

@@ -1,6 +1,6 @@
-# 3. Requirements
+# 2. Requirements
 
-## 3.1 How the requirements were derived
+## 2.1 How the requirements were derived
 
 This project had no external client. Requirements could not be elicited by interview, so they
 were derived from three sources and each is traceable to one of them: the group's original
@@ -17,9 +17,9 @@ status is written against what the code does rather than what the plan intended.
 documents are commonly written once and not revisited, which turns them into a record of
 intent. Here the specification is maintained alongside the code, so a requirement that was not
 met says so, and says why. Six of the forty-one functional requirements are not fully met, and
-§3.5 names each one rather than reporting a completion percentage.
+§2.5 names each one rather than reporting a completion percentage.
 
-## 3.2 Objectives
+## 2.2 Objectives
 
 | # | Objective | How we would know it was met |
 |---|---|---|
@@ -30,15 +30,15 @@ met says so, and says why. Six of the forty-one functional requirements are not 
 
 **O3 is the objective that distinguishes this project.** Any group can demonstrate a pipeline
 that appears to work. Reporting a measured extraction result and explaining precisely what
-causes it is the harder and more defensible outcome, and §8 is built on that position.
+causes it is the harder and more defensible outcome, and §7 is built on that position.
 
 One limitation of these objectives should be recorded rather than smoothed over. O1 to O4 were
-written when the project handled invoices only. The email understanding work described in §6
+written when the project handled invoices only. The email understanding work described in §5
 either falls under O1's "end-to-end document workflow" or warrants an objective of its own, and
 the group has not decided which. The objectives are reported as written rather than
 retrospectively widened to fit the work that followed them.
 
-## 3.3 Stakeholders
+## 2.3 Stakeholders
 
 | Stakeholder | Interest |
 |---|---|
@@ -72,7 +72,7 @@ than toward a guess: an unclassifiable document is routed to review rather than 
 likely type, and a `Validated` document still requires human approval, because automation
 reduces the reading rather than removing the decision.
 
-## 3.4 Scope of the Proof of Concept
+## 2.4 Scope of the Proof of Concept
 
 **In scope.** Email intake, PDF text extraction, field extraction by a local language model,
 email classification and summarisation, a deterministic validation gate, relational storage,
@@ -81,7 +81,7 @@ a human review and approval interface, and an evaluation harness.
 **Out of scope.** Training or fine-tuning any model, real accounting integration, payment
 execution, production deployment, and any cloud service. Multi-user authentication was out of
 scope at specification time and has since been implemented by one team member; it is reported in
-§6 as delivered work rather than as a met requirement, because no requirement called for it.
+§5 as delivered work rather than as a met requirement, because no requirement called for it.
 
 **Explicitly deferred.** Optical character recognition for scanned documents, live Jira and
 Teams integration beyond a recorded outbound queue, and full OCR support for arbitrary invoice
@@ -90,10 +90,10 @@ layouts.
 The boundary that matters most is the first exclusion. **This project does not build or train a
 language model. It builds a pipeline that uses an existing local model.** "We built a local
 LLM" and "we ran a local LLM" are different claims and only the second is true of this work.
-Everything the evaluation in §8 measures is a property of a pipeline around a model, not a
+Everything the evaluation in §7 measures is a property of a pipeline around a model, not a
 property of a model.
 
-## 3.5 Functional requirements
+## 2.5 Functional requirements
 
 Forty-one functional requirements are specified across seven groups, aligned to the processing
 phases. The full table, with a status note per requirement, is maintained in
@@ -132,7 +132,7 @@ mailbox is a known subject collision, so the error is quantified rather than sus
 **FR-3.9, the email half is not scored against ground truth.** This is the most significant
 unmet requirement in the project. Classification, summarisation and action extraction can be run
 and inspected, but there is no labelled set, so none of it has a number. The contrast with
-extraction is deliberate and is drawn in §8: extraction has had independently transcribed ground
+extraction is deliberate and is drawn in §7: extraction has had independently transcribed ground
 truth since 26 August 2026, and the email half has none.
 
 **FR-5.2, source verification is complete for one field only.** The validation gate verifies
@@ -146,20 +146,20 @@ the domain.
 recorded in an `outbound_messages` table and every row remains pending. No code path contacts
 Teams, Jira or Planner during a pipeline run. This is a deliberate boundary rather than an
 incomplete feature: it makes the integration seam visible and testable without requiring
-credentials for a third-party service, and §5 reports what a real dispatch would send.
+credentials for a third-party service, and §4 reports what a real dispatch would send.
 
-## 3.6 Non-functional requirements
+## 2.6 Non-functional requirements
 
 | # | Requirement | Rationale | Status |
 |---|---|---|---|
-| NFR-1 | No document content leaves the machine | The reason for the local design, and the privacy argument in §5 | Met |
+| NFR-1 | No document content leaves the machine | The reason for the local design, and the privacy argument in §4 | Met |
 | NFR-2 | The pipeline runs on a standard laptop with no GPU requirement | Every team member must be able to run it | Met |
 | NFR-3 | Any teammate can reproduce a run from a clean checkout | `requirements.txt` pins every direct dependency | Met |
 | NFR-4 | Claims about performance are reproducible by running something | The project's own evidential standard | Met |
 | NFR-5 | The dashboard remains readable while the pipeline writes | Write-ahead logging is enabled on every connection | Met |
 | NFR-6 | Files owned by one team member are changed by pull request | Three developers, one repository, no continuous integration | Observed as process |
 
-NFR-4 is the standard the rest of this report is written to. Where a figure appears in §8 it is
+NFR-4 is the standard the rest of this report is written to. Where a figure appears in §7 it is
 accompanied by the command that reproduces it. **Counts that change with the codebase, such as
 the number of automated tests, are deliberately not fixed in prose**, because a number in a
 document decays where a command does not.
@@ -176,31 +176,31 @@ the project's own evidential standard applied to its process rather than to its 
 illustrates why NFR-4 is written as it is: the group's own documentation recorded the author's
 contribution as two commits, a figure that was accurate when written and had decayed by a factor
 of seven by the time this section was drafted. The consequence of the breach is discussed in
-§11.
+§B.
 
-## 3.7 Assumptions
+## 2.7 Assumptions
 
 | # | Assumption | Consequence if wrong |
 |---|---|---|
 | A1 | Copilot is not a mandatory tool for this unit | **Resolved 28 August 2026. Confirmed not mandatory**, so the local design stands as a replacement rather than a hybrid |
 | A2 | Synthetic invoices are acceptable evidence for a demonstration | Real documents would be required, raising privacy questions the project has not addressed |
-| A3 | A local 3B-class model is a fair stand-in for a commercial extraction service | Results would not transfer, and the comparison in §11 weakens |
+| A3 | A local 3B-class model is a fair stand-in for a commercial extraction service | Results would not transfer, and the comparison in §B weakens |
 | A4 | The demonstration need not handle scanned documents | OCR moves from a deferred requirement to a mandatory one |
 
-A2 and A3 are the two that constrain how far the results generalise, and §8.2 and §10 return to
+A2 and A3 are the two that constrain how far the results generalise, and §7.2 and §9 return to
 both. A1 was the project's largest open unknown for five days and its resolution is what allowed
 the local design to be presented as a complete story rather than a contingency.
 
-## 3.8 Constraints
+## 2.8 Constraints
 
 - No administrative permissions on the university tenant, which is what ended the original
   design. §1 documents seven distinct blockers encountered in ten days.
 - Three developers sharing one repository with no continuous integration, so correctness is
   enforced by a local test suite and by review rather than by a gate.
 - A fixed academic timeline, which is the stated reason several specified and measured changes
-  remain unshipped. §10 lists them.
+  remain unshipped. §9 lists them.
 
-## 3.9 Acceptance criteria for the demonstration
+## 2.9 Acceptance criteria for the demonstration
 
 The project is assessed on concept clarity, evidence and presentation rather than production
 readiness. The demonstration is therefore accepted when:

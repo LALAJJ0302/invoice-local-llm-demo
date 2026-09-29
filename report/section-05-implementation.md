@@ -1,11 +1,11 @@
-# 6. Implementation
+# 5. Implementation
 
-## 6.1 Design decisions
+## 5.1 Design decisions
 
 Each decision below states the alternative that was rejected and the evidence that settled
 it. They are the substance of this section; the full set is in `database-spec.md` §5.
 
-### 6.1.1 The deduplication key is extracted text, not file bytes
+### 5.1.1 The deduplication key is extracted text, not file bytes
 
 **Lead with this one, because it is the clearest example of a design that reviewed correctly
 and would have failed silently.**
@@ -21,7 +21,7 @@ answers a different question: whether the archived file is the one that was proc
 Nothing in code review would have caught this. It was found by asking what the hash would
 actually be equal to.
 
-### 6.1.2 Money is stored as integer cents
+### 5.1.2 Money is stored as integer cents
 
 Floating-point currency accumulates representation error. The decision looks trivial until
 the comparison it enables is examined: an early version compared amounts with
@@ -29,7 +29,7 @@ the comparison it enables is examined: an early version compared amounts with
 to 0.009999999999763531, which is less than 0.01, so a near miss compared equal. Integer
 cents make the comparison exact.
 
-### 6.1.3 The score is named for what it measures
+### 5.1.3 The score is named for what it measures
 
 The field was originally `confidence_score`. It measures field completeness and agreement
 with the source text. It is not a confidence score, does not estimate the probability that
@@ -41,7 +41,7 @@ arithmetic, not from the model. Lowering the threshold tomorrow would flip every
 `Validated` while the model did identical work, and a name implying otherwise would write the
 wrong cause into the schema, where it outlives everyone's memory of the discussion.
 
-### 6.1.4 Data quality and business approval are separate columns
+### 5.1.4 Data quality and business approval are separate columns
 
 `validation_status` is written by the pipeline and says how well the document was read.
 `approval_status` is written by a person and says whether it was accepted. A row can read
@@ -52,7 +52,7 @@ overwriting one with the other.
 Approving therefore never modifies `validation_score`. An earlier version overwrote it with
 1.0, which destroyed the evidence of how the document had actually been read.
 
-### 6.1.5 The gate fails toward a person
+### 5.1.5 The gate fails toward a person
 
 Passing the gate requires four conditions to hold, and **three of them are not about the
 score at all**. An amount that cannot be located beside a grand-total label is never
@@ -61,22 +61,22 @@ belong to are never auto-approved; and a vendor value that is actually a field c
 never auto-approved. The fourth condition is the score threshold itself.
 
 Stated as rules because a weighted score that merely happens to land below a threshold is
-fragile: change one weight and the guarantee disappears with no test failing. §8.7 records
+fragile: change one weight and the guarantee disappears with no test failing. §7.7 records
 the case that made this concrete.
 
 The consequence is that the score and the verdict are different measurements and can rank two
-documents in opposite orders. §8.11 works through a pair from the current sample set where the
+documents in opposite orders. §7.11 works through a pair from the current sample set where the
 document scoring 0.87 is refused and the one scoring 0.85 is approved, and
 `evaluation/score_breakdown.py` prints every term and every condition for any stored
 document.
 
-### 6.1.6 A perfect score means a complete extraction
+### 5.1.6 A perfect score means a complete extraction
 
 `validation_score` reaches 1.00 only when nothing is empty. An extraction missing its line
 items scores lower and names `items` as the gap. Before this change, a document with a
 malformed vendor and no line items scored 1.00 and was auto-approved.
 
-### 6.1.7 Reconciliation is a flag, not a constraint
+### 5.1.7 Reconciliation is a flag, not a constraint
 
 The stated total is compared against the sum of the line items, giving `exact`, `plausible`,
 `short` or `unknown`. **`plausible` (total above the line sum) scores full marks**, because
@@ -84,13 +84,13 @@ that is the normal state of any invoice carrying GST or freight; penalising it w
 every genuine Australian invoice. Only `short` blocks, because a total below its own line
 items is not explained by tax or shipping.
 
-### 6.1.8 Write to the database, then archive
+### 5.1.8 Write to the database, then archive
 
 The database write commits before the file is moved. If the move then fails, the file stays
 in `inbox/` and the next run upserts onto the same row. The previous order produced the worse
 failure: a file archived with no record of it.
 
-### 6.1.9 Repairs to model output must remain measurable
+### 5.1.9 Repairs to model output must remain measurable
 
 Several components repair the model's output: a filename heuristic for the vendor, regular
 expressions for header fields, a caption stripper. Each is named to a convention, and the
@@ -98,11 +98,11 @@ evaluation harness discovers them at runtime and disables them all by default.
 
 The alternative, a list of repairs maintained by hand, was tried and failed: it named one
 method, a second was added, and the harness reported 93.3% for a model scoring 66.7% while
-printing that repairs were disabled. §8.7 records this. The harness now **refuses to run** if
+printing that repairs were disabled. §7.7 records this. The harness now **refuses to run** if
 it finds no repairs matching the convention, because reporting an accuracy figure while
 claiming repairs are off, having disabled nothing, is the failure being prevented.
 
-### 6.1.10 Retrieval implements two strategies and no embeddings
+### 5.1.10 Retrieval implements two strategies and no embeddings
 
 `sender` returns a vendor's prior messages newest first. `keyword` scores subject and body by
 inverse document frequency. An embedding-based strategy is **deliberately not implemented**.
@@ -112,7 +112,7 @@ them first would mean never learning the answer. "The system uses a vector datab
 finding; "at this corpus size, keyword retrieval was measured against embeddings and the
 result was X" is one.
 
-### 6.1.11 One table for action items, two parents, and why that is not the earlier mistake
+### 5.1.11 One table for action items, two parents, and why that is not the earlier mistake
 
 The email module returns action items in two places: attached to a single message, and
 attached to a thread as work still outstanding. Both are the same four fields, defined once as
@@ -130,7 +130,7 @@ which is the flat table the project spent a migration escaping. Here the rows ar
 only their owner differs. Merging identical rows is normalisation. Merging different rows is
 the flat table returning under a new name.
 
-### 6.1.12 A deadline is stored twice, as written and as a date
+### 5.1.12 A deadline is stored twice, as written and as a date
 
 The model is asked for the deadline exactly as the source words it and never to convert it. The
 database then holds a second column, filled only where the wording is unambiguous.
@@ -149,7 +149,7 @@ One detail is a bug fixed before it was hit: `dateutil` parses the ISO string `2
 components whatever the shape of the string. Anything already in ISO form is returned untouched,
 and a test fails if that ever stops being true.
 
-### 6.1.13 Thread identity is a guess, and the database says so on every row
+### 5.1.13 Thread identity is a guess, and the database says so on every row
 
 Grouping messages into conversations is done by stripping the reply prefix from the subject and
 matching what remains. The correct key is the `In-Reply-To` and `References` headers, which mail
@@ -166,7 +166,7 @@ the schema for whether a total came from the model or from repair code, and for 
 body is real or generated. **The pattern is worth naming: where a system cannot be certain, the
 uncertainty belongs in a column rather than in the memory of whoever wrote the code.**
 
-## 6.2 Development process
+## 5.2 Development process
 
 Three people, one repository, with ownership boundaries recorded in the repository itself.
 Changes to another person's files went through pull requests carrying evidence rather than
@@ -179,6 +179,6 @@ evaluation harness, which continued to report a figure it could not support for 
 nobody re-read it. A pull request would have surfaced it in review; a direct push did not.
 
 Two hundred and forty-eight automated tests cover the storage layer, the migration chain, the
-validation gate and retrieval. Their value is documented in §8.7: they found defects that had
+validation gate and retrieval. Their value is documented in §7.7: they found defects that had
 been latent since the schema was written, including one that would have appeared to be
 somebody else's fix breaking the database.

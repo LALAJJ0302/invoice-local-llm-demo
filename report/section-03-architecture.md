@@ -1,6 +1,6 @@
-# 4. System Architecture and Data Flow
+# 3. System Architecture and Data Flow
 
-## 4.1 Architecture
+## 3.1 Architecture
 
 ```
 Gmail (IMAP)
@@ -27,7 +27,7 @@ Every component runs on one machine and no document content leaves it.
 
 **The second branch is newer and less finished than the first.** It runs end to end and its
 output is stored and queryable, but unlike the extraction branch it has no ground truth, so it
-can be inspected and not yet scored. §8.9 states that plainly rather than presenting the two
+can be inspected and not yet scored. §7.9 states that plainly rather than presenting the two
 halves as equally evidenced.
 
 **Before and after the pivot.** The mapping is not one-to-one, and §1.5 records what was
@@ -43,7 +43,7 @@ lost.
 | Power BI | Streamlit, reading the same store |
 | 0.8 Copilot confidence gate | Rule-based validation score, **not a confidence score** |
 
-## 4.2 Data model
+## 3.2 Data model
 
 The first working version stored everything in one flat table with no constraints, no
 uniqueness and line items held as JSON text inside a column. It is now five related tables.

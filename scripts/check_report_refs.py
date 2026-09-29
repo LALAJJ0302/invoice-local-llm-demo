@@ -30,10 +30,11 @@ import sys
 
 REPORT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "report")
 
-HEADING = re.compile(r"^#{1,4}\s+(\d+(?:\.\d+)*)\.?\s")
+# Sections are numbered; appendices are lettered. "Appendix A." and "A.3" both count.
+HEADING = re.compile(r"^#{1,4}\s+(?:Appendix\s+)?([A-Z]|\d+)((?:\.\d+)*)\.?\s")
 # Planned in report/report-outline-v2.md, not written. Each is blocked on a teammate.
 PENDING = {}
-REFERENCE = re.compile(r"§(\d+(?:\.\d+)*)")
+REFERENCE = re.compile(r"§([A-Z]|\d+)((?:\.\d+)*)")
 # A reference is treated as pointing outside this report when a filename appears close enough
 # in front of it to be doing the addressing.
 FOREIGN = re.compile(r"(?:`[^`]+\.md`|\b\w+[-_]spec\.md|README)[^.§]{0,40}$")
@@ -41,7 +42,7 @@ FOREIGN = re.compile(r"(?:`[^`]+\.md`|\b\w+[-_]spec\.md|README)[^.§]{0,40}$")
 
 def section_files():
     return sorted(f for f in os.listdir(REPORT)
-                  if f.startswith("section-") and f.endswith(".md"))
+                  if f.startswith(("section-", "appendix-")) and f.endswith(".md"))
 
 
 def scan():
@@ -52,11 +53,12 @@ def scan():
             for n, line in enumerate(fh, 1):
                 head = HEADING.match(line)
                 if head:
-                    headings.setdefault(head.group(1), []).append(name)
+                    number = head.group(1) + head.group(2)
+                    headings.setdefault(number, []).append(name)
                 for ref in REFERENCE.finditer(line):
                     if FOREIGN.search(line[:ref.start()]):
                         continue
-                    references.append((name, n, ref.group(1), line.rstrip()))
+                    references.append((name, n, ref.group(1) + ref.group(2), line.rstrip()))
     return headings, references
 
 

@@ -210,7 +210,7 @@ IMPROVED prompt + Required schema    15/15
 measurement producing a better result, not as a correction of something false.
 
 The 6/15 here and the 3/15 in the table above both reproduce, and the difference is entirely
-`currency`. Traced and resolved in `report/section-08-evaluation.md` §8.4.3: `schema_comparison.py`
+`currency`. Traced and resolved in `report/section-07-evaluation.md` §7.4.3: `schema_comparison.py`
 imports the real `ExtractedInvoice`, which carries a sixth field, `items`, a nested list. The
 two-by-two defined its own five-field schema without it. Adding that nested list costs three
 scalar field-values, and the field lost is the last scalar before `items` in declaration order.

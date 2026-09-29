@@ -1,5 +1,15 @@
 # Final Report: Outline v2, reconciled with the team's PoC structure
 
+> **Superseded 2026-09-29 by JJ's circulated ten-section structure.** The numbering below is
+> the twelve-section scheme this document argued for and is no longer what the report uses.
+> `report-structure-jj-spec.md` carries the structure in force and the old-to-new mapping.
+> This file is kept because its case for retaining Literature, Discussion and References is
+> the reason those three survive as back matter rather than being deleted, and because its
+> rubric reasoning still applies.
+>
+> In force: sections 1 to 10 exactly as JJ listed them, then References, then Appendix A
+> (Literature) and Appendix B (Discussion).
+
 **Assignment 1, Option A, 32040 Industry Project.** Individual, 80 marks, 80% of subject.
 Written 2026-09-28, superseding the section map in [report-outline.md](report-outline.md).
 That document is kept, not deleted: its rubric coverage table and evidence map are still the
@@ -64,27 +74,28 @@ Every section file uses a zero-padded number matching this outline:
 `section-03-requirements.md`. References is `section-99-references.md` so that a plain
 lexical sort puts it last.
 
-| New | File | State |
+| In force | File | Was |
 |---|---|---|
-| 1 | `section-01-introduction.md` | Written. Gained §1.5 and §1.6, the pivot narrative, from the dissolved problem-analysis file |
-| 2 | `section-02-literature.md` | Written |
-| 3 | `section-03-requirements.md` | Written. §3.3 gained the three workflow roles |
-| 4 | `section-04-architecture.md` | Written. The §4.1–4.2 half of the old design file |
-| 5 | `section-05-security-privacy.md` | Written |
-| 6 | `section-06-implementation.md` | Written. The §4.3–4.4 half, renumbered to §6.1 and §6.2 |
-| 7 | `section-07-rag-method.md` | Written |
-| 8 | `section-08-evaluation.md` | Written. Gained §8.3.1, the first-version defects. §8.10 is now a pointer into §10.3 |
-| 9 | `section-09-deployment.md` | Written |
-| 10 | `section-10-limitations.md` | Written |
-| 11 | `section-11-discussion.md` | Written. Gained §11.6 from the dissolved recommendations file |
-| 12 | `section-12-conclusion.md` | Written |
-| References | `section-99-references.md` | Written. Numbered 99 so it sorts last |
+| 1. Introduction and PoC Scope | `section-01-introduction.md` | 1 |
+| 2. Requirements | `section-02-requirements.md` | 3 |
+| 3. System Architecture and Data Flow | `section-03-architecture.md` | 4 |
+| 4. Security and Privacy | `section-04-security-privacy.md` | 5 |
+| 5. Implementation | `section-05-implementation.md` | 6 |
+| 6. RAG Method | `section-06-rag-method.md` | 7 |
+| 7. Evaluation | `section-07-evaluation.md` | 8 |
+| 8. Deployment and System Requirements | `section-08-deployment.md` | 9 |
+| 9. Limitations and Future Work | `section-09-limitations.md` | 10 |
+| 10. Conclusion | `section-10-conclusion.md` | 12 |
+| References | `section-99-references.md` | References |
+| Appendix A. Literature and Environmental Review | `appendix-A-literature.md` | 2 |
+| Appendix B. Discussion and Lessons | `appendix-B-discussion.md` | 11 |
 
-**Applied 2026-09-29.** The renumbering pass ran: eight renames, the §4 split, 91 headings
-renumbered, 57 cross-references repointed and one stale reference corrected. Sections 5, 7 and
-9 were then written, so the numbering is contiguous and `report/build-docx.sh` lists all
-fourteen sources with no commented gaps. `scripts/check_report_refs.py` reports zero dangling
-references and zero pending.
+**Applied 2026-09-29, twice.** First the twelve-section pass: eight renames, the §4 split, 91
+headings renumbered, 57 cross-references repointed, one stale reference corrected, then
+sections 5, 7 and 9 written. Then JJ's structure arrived and the report moved onto it: eleven
+more renames, 104 headings renumbered and 116 references repointed. Nothing was cut in the
+second pass. `scripts/check_report_refs.py` reports zero dangling and zero duplicate, and the
+built document is 24,034 words across 14 sources.
 
 Two files no longer exist. `section-3-problem-analysis.md` went to §1.5, §1.6, §8.3.1 and §3.3;
 `section-7-recommendations.md` went to §10.4, §10.5, §10.7 and §11.6. Nothing in either was
