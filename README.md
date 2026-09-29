@@ -112,17 +112,47 @@ Important:
 
 ### Option A: Test with mock invoices
 
+This is the path to use on a new machine. It needs no mail credentials and no Jira account,
+and it was verified end to end on 2026-09-24 against a clean clone: it finishes with the
+full test suite passing.
+
 Generate sample invoices:
 
 ```bash
 python3 generate_mock_invoices.py
 ```
 
-Process the invoices:
+Load the mock mailbox. **Do not skip this.** Without it every invoice is stored with no
+covering email, the sender never appears on the dashboard, and one test fails. It is
+idempotent and reads `evaluation/mock_mailbox.json`, which is in the repository:
+
+```bash
+python3 seed_mock_emails.py
+```
+
+Process the invoices. This is the step that creates `workflow_platform.db`, so it must run
+before the dashboard shows anything. About 30 seconds for the three samples:
 
 ```bash
 python3 main.py
 ```
+
+Check it worked:
+
+```bash
+python3 -m pytest tests/ -q
+```
+
+**The dashboard asks you to sign in.** The accounts are created automatically on first run.
+Use `neo`, `luke` or `jj` with the password `changeme`; the first login makes you choose a new
+one. It is a local prototype with no network exposure, which is the only reason a default
+password like that is acceptable.
+
+**The database is not in the repository**, because it is generated and git cannot merge it.
+Before `main.py` has run, the dashboard opens and says "No documents have been processed
+yet", which is correct rather than broken. There is no migration to run on a new machine
+either: the schema is created on first use, and the scripts in `migrations/` only upgrade a
+database that already exists.
 
 Open the dashboard:
 
@@ -184,10 +214,12 @@ way, and `docker-compose.yml`'s header comment for the full command list.
 | Task | Command |
 |---|---|
 | Generate mock invoices | `python3 generate_mock_invoices.py` |
+| Load the mock mailbox | `python3 seed_mock_emails.py` |
 | Download Gmail invoice attachments | `python3 email_listener.py` |
 | Process inbox files | `python3 main.py` |
 | Inspect SQLite records | `python3 query_db.py` |
 | Start dashboard | `python3 -m streamlit run app.py` |
+| Run the tests | `python3 -m pytest tests/ -q` |
 
 ## Current Limitations
 
