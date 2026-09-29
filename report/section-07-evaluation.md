@@ -53,6 +53,9 @@ None of these invalidate the findings below. They bound them, and the bounds are
 
 ## 7.3 The baseline
 
+
+> **Gap: Figure 5.** The before-and-after totals recovered by migration 001 are stated in prose
+> and belong in a table with a caption, drawn from the migration rather than retyped.
 Measured 26 August 2026, frozen in `evaluation/results_before.json`, and still reproducible
 today with `evaluation/schema_comparison.py`:
 
@@ -108,6 +111,11 @@ the only way to tell the difference is to measure it against known-correct answe
 
 ## 7.4 Isolating the cause
 
+
+> **Gap: Figure 4.** The two-by-two of schema against prompt is the report's central piece of
+> evidence and appears only as a code block. It should be a captioned table or a small chart
+> generated from `evaluation/prompt_schema_2x2.py`, so that the figure and the number cannot
+> drift apart.
 ### 7.4.1 The first comparison
 
 A controlled comparison was built holding the model, the prompt, the documents and the
@@ -550,6 +558,12 @@ without recomputing a weighted sum.
 
 ### 7.11.4 A worked pair: 0.87 is refused and 0.85 is approved
 
+
+> **Gap: screenshot, and an open decision.** `report/screenshots/approval-screen-before-prompt-fix-2026-09-28.png`
+> is the only record of this pair on screen and is not placed in the report. It also cannot be
+> captioned in the present tense: the prompt fix in §7.12 removes the state it shows, and the
+> group has not decided whether that fix ships before submission. Whatever is decided, the
+> caption must carry the date.
 The current sample set contains the clearest available demonstration that the score and the
 verdict are different measurements. Two documents sit side by side in the review queue:
 

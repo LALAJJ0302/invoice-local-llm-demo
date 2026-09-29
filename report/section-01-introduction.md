@@ -161,4 +161,4 @@ by direct queries against SQLite and a dashboard built on the same store.
 
 One property was gained rather than lost: with inference running locally, invoice content
 never leaves the machine. That was a consequence of the pivot rather than its motivation,
-but it is a defensible position on its own terms and §A develops it.
+but it is a defensible position on its own terms and §11 develops it.

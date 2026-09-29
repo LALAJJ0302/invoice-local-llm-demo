@@ -19,12 +19,12 @@
 # The .docx is gitignored. The markdown is the source of truth, and rebuilding OVERWRITES the
 # .docx, so hand edits made in Word are lost. Edit the markdown, not the Word file.
 #
-# ORDERING NOTE. This is JJ's ten-section PoC structure, adopted on 2026-09-29, in the order
-# he circulated it. Sections 1 to 10 are the numbered spine and nothing else is numbered.
-# Literature and Discussion have no place in a ten-section list and are kept as appendices
-# after the references, which is where APA puts them, rather than deleted: between them they
-# are 3,815 words the rubric rewards. See report-structure-jj-spec.md. Anything added later
-# goes in at its numbered position, not appended at the end.
+# ORDERING NOTE. Sections 1 to 10 are JJ's ten-section PoC structure, adopted 2026-09-29 in
+# the order he circulated it. Literature, Discussion and References follow as 11, 12 and 13:
+# they have no place in a ten-section technical document but this is an individually marked
+# report, and between them they are 4,806 words the rubric rewards. See
+# report-structure-jj-spec.md. Anything added later goes in at its numbered position, not
+# appended at the end.
 
 set -e
 cd "$(dirname "$0")/.."
@@ -43,9 +43,9 @@ SOURCES=(
   report/section-08-deployment.md
   report/section-09-limitations.md
   report/section-10-conclusion.md
-  report/section-99-references.md
-  report/appendix-A-literature.md
-  report/appendix-B-discussion.md
+  report/section-11-literature.md
+  report/section-12-discussion.md
+  report/section-13-references.md
 )
 
 # A missing source is a silently shorter report, so fail instead of building one.

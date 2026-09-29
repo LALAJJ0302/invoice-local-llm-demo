@@ -176,7 +176,7 @@ the project's own evidential standard applied to its process rather than to its 
 illustrates why NFR-4 is written as it is: the group's own documentation recorded the author's
 contribution as two commits, a figure that was accurate when written and had decayed by a factor
 of seven by the time this section was drafted. The consequence of the breach is discussed in
-§B.
+§12.
 
 ## 2.7 Assumptions
 
@@ -184,7 +184,7 @@ of seven by the time this section was drafted. The consequence of the breach is 
 |---|---|---|
 | A1 | Copilot is not a mandatory tool for this unit | **Resolved 28 August 2026. Confirmed not mandatory**, so the local design stands as a replacement rather than a hybrid |
 | A2 | Synthetic invoices are acceptable evidence for a demonstration | Real documents would be required, raising privacy questions the project has not addressed |
-| A3 | A local 3B-class model is a fair stand-in for a commercial extraction service | Results would not transfer, and the comparison in §B weakens |
+| A3 | A local 3B-class model is a fair stand-in for a commercial extraction service | Results would not transfer, and the comparison in §12 weakens |
 | A4 | The demonstration need not handle scanned documents | OCR moves from a deferred requirement to a mandatory one |
 
 A2 and A3 are the two that constrain how far the results generalise, and §7.2 and §9 return to

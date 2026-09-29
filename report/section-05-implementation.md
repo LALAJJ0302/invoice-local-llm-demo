@@ -2,6 +2,12 @@
 
 ## 5.1 Design decisions
 
+
+> **Gap: Figure 6 and two screenshots.** The task and outbox lifecycle has no diagram. The
+> dashboard has no screenshot in the report at all, although
+> `report/screenshots/before-dashboard-2026-09-19.png` and
+> `before-approval-screen-2026-09-19.png` are in the repository and dated. All three need
+> placing, numbering and captioning.
 Each decision below states the alternative that was rejected and the evidence that settled
 it. They are the substance of this section; the full set is in `database-spec.md` §5.
 

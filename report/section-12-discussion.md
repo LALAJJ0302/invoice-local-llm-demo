@@ -1,6 +1,6 @@
-# Appendix B. Discussion and Lessons
+# 12. Discussion and Lessons
 
-## B.1 Whether the pivot was the right decision
+## 12.1 Whether the pivot was the right decision
 
 The project began as a Microsoft cloud design: SharePoint for storage, Power Automate for
 orchestration, Copilot for extraction and Power BI for reporting. It moved to a local
@@ -27,7 +27,7 @@ model is not a fair proxy for a frontier hosted model. Nothing here establishes 
 would have performed worse, and §7.6 shows that every local model tested handled constrained
 decoding correctly, which means the constraint was never the model's capability.
 
-## B.2 What the 20% result actually means
+## 12.2 What the 20% result actually means
 
 The headline figure that opened this project was that extraction scored 3 of 15 field-values,
 or 20%. It is the most quoted number in the team's documents and the most misread.
@@ -43,7 +43,7 @@ schema silently produces empty fields, and the resulting output looks like a wor
 does follow, and is the more useful finding because it is a failure mode that survives any
 change of model.
 
-## B.3 Seven lessons, each attached to the evidence that produced it
+## 12.3 Seven lessons, each attached to the evidence that produced it
 
 These are recorded as lessons because each one cost the project time before it was understood,
 and each was established by measurement rather than by review.
@@ -99,7 +99,7 @@ it does. **This is an argument for running the real thing early and often, not f
 tests of the same kind**, and it is the second time in this project that running something found
 what reading it had not, the first being lesson 1.
 
-## B.4 An eighth lesson, about how this report was produced
+## 12.4 An eighth lesson, about how this report was produced
 
 This project asks whether an AI system can be trusted with document work. It was itself built
 with an AI assistant, and the honest answer emerged from that collaboration rather than from the
@@ -123,7 +123,7 @@ before the measurement was run. The central prediction, that a nullable field wo
 invented values, **was wrong**. Had the prediction not been recorded first, the favourable
 columns either side of it would have supported a claim the evidence does not make.
 
-## B.5 What this evaluation cannot support
+## 12.5 What this evaluation cannot support
 
 The limits below are restated here rather than left in §7.2, because a discussion section that
 draws conclusions without re-stating its own boundaries invites the reader to over-read them.
@@ -157,7 +157,7 @@ different in kind: the data exists and the pipeline runs over it, but there is n
 to compare against, so the quantity of data does not help. The two need different remedies, and
 conflating them would make the second look closer to solved than it is.
 
-## B.6 Implications beyond this project
+## 12.6 Implications beyond this project
 
 The transferable finding is not about invoices. It is that **a structured-output specification is
 a safety control, and is currently treated as a formatting detail.**
@@ -170,7 +170,7 @@ cannot distinguish these, because accuracy is identical across them. It would ha
 the system does when it cannot read a field, and that question is rarely part of a procurement
 evaluation.
 
-The second implication follows from §B.4. The failure mode that recurred at every level of this
+The second implication follows from §12.4. The failure mode that recurred at every level of this
 project, in the model, in the assistant used to build it, and in the team's own documentation,
 was a gap filled with something that resembled an answer. The controls that caught it were not
 sophisticated: a test, a measurement taken before a claim was made, and a person asking how a

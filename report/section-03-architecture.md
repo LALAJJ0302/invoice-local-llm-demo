@@ -2,6 +2,12 @@
 
 ## 3.1 Architecture
 
+
+> **Gap: Figure 1 and Figure 3.** This subsection describes the architecture in prose and the
+> report has no diagram of it. Two are planned: the architecture before and after the pivot,
+> for which `Enterprise_AI_Workflow_Briefing.docx` already holds the comparison, and the
+> pipeline flow with phase ownership. Both need drawing, a numbered caption and a source line
+> saying they are the author's own.
 ```
 Gmail (IMAP)
    -> email_listener.py            attachments to inbox/, message metadata recorded
@@ -45,6 +51,10 @@ lost.
 
 ## 3.2 Data model
 
+
+> **Gap: Figure 2.** An entity-relationship diagram belongs here. `database-spec.md` §3 already
+> carries it as mermaid and it renders without new work; it needs to be exported, placed, given
+> a numbered caption and cited to this project.
 The first working version stored everything in one flat table with no constraints, no
 uniqueness and line items held as JSON text inside a column. It is now five related tables.
 

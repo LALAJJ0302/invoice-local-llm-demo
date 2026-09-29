@@ -1,4 +1,4 @@
-# Appendix A. Literature and Environmental Review
+# 11. Literature and Environmental Review
 
 This review covers four areas: the research on constrained decoding that this project's central
 finding belongs to, the benchmarks that establish how small this evaluation is, existing systems
@@ -10,7 +10,7 @@ review it is marked as such and is **not** treated as evidence. Much of what cir
 local model performance is marketing, and a report about measurement discipline cannot cite
 marketing as though it were a result.
 
-## A.1 Constrained decoding, and the mechanism behind this project's central defect
+## 11.1 Constrained decoding, and the mechanism behind this project's central defect
 
 The defect this project spent most of its evaluation effort on is that a permissive schema allows
 a model to omit fields silently. That belongs to an established line of work.
@@ -40,7 +40,7 @@ JSON schemas along three dimensions: efficiency, **coverage of constraint types*
 quality. The second dimension is where this project's defect sits, and it frames the issue
 correctly: not whether a schema is enforced, but how different schemas behave under enforcement.
 
-## A.2 The cost of constraining output, which this project measured independently
+## 11.2 The cost of constraining output, which this project measured independently
 
 Two findings in the literature bear directly on §7.5, and they were found after that measurement
 was taken rather than before.
@@ -74,7 +74,7 @@ et al., 2026) benchmarks schema-variable extraction from document images, and VA
 al., 2026) is built on a "Reverse Annotation" principle explicitly to stop fixed-schema benchmarks
 rewarding memorisation. The two-by-two in §7.4 is a very small instance of the same move.
 
-## A.3 Document extraction benchmarks, and how small this evaluation is
+## 11.3 Document extraction benchmarks, and how small this evaluation is
 
 Naming the standard benchmarks lets §7 state the limits of its evidence precisely rather than
 hoping the question is not asked.
@@ -109,7 +109,7 @@ extraction from business documents, and Khang et al. (2025) argue that standard 
 misreport performance on grouped and hierarchical fields, which is relevant to the treatment of
 `line_items` in §3.
 
-## A.4 Existing systems for this task
+## 11.4 Existing systems for this task
 
 **The commercial path this project started on** was SharePoint, Power Automate, Copilot and
 Power BI. This is the mainstream enterprise pattern and it works, on the condition that the
@@ -139,10 +139,10 @@ combine retrieval-augmented generation with metadata to reduce fabricated values
 from financial reports. Their framing is the same one §9.4 arrives at, that the defence against a
 fabricated value has to come from outside the document rather than from the extractor.
 
-## A.5 Local inference and the privacy argument
+## 11.5 Local inference and the privacy argument
 
 The move to a local stack was **forced**, by the tenant permissions documented in §1.5. That is the
-honest account, and §B.1 gives it. But the position it landed on has an independent defence, and
+honest account, and §12.1 gives it. But the position it landed on has an independent defence, and
 the report would undersell itself by offering only the first.
 
 Invoices carry vendor bank details, trading relationships, addresses and pricing, which makes
@@ -153,11 +153,11 @@ hardware-constrained framing of §7.6 where six models were shortlisted against 
 usable memory rather than against a leaderboard.
 
 > **Verify before submission.** §1.1 and this section both need a citable figure for
-> document-handling cost, and §A.5 previously carried a cumulative GDPR enforcement total taken
+> document-handling cost, and §11.5 previously carried a cumulative GDPR enforcement total taken
 > from a secondary source. The figure has been removed rather than cited loosely. If a primary
 > source with an access date is found, it can be restored.
 
-## A.6 Where this project sits
+## 11.6 Where this project sits
 
 The reviewed work establishes four things. Constrained decoding is well studied and the mechanism
 is documented. Constraining output has measurable costs, including semantically wrong but locally
@@ -171,7 +171,7 @@ mode in general, so this report does not claim to have found it.
 What this project adds is a controlled comparison of **four schema declarations against the same
 documents, the same model and the same temperature, scored on two axes at once**: accuracy on
 fields that are present, and behaviour on fields that are genuinely absent. The benchmarks in
-§A.3 score extraction against documents where the answer exists. JSONSchemaBench scores schema
+§11.3 score extraction against documents where the answer exists. JSONSchemaBench scores schema
 compliance rather than the truth of what is emitted. Reddy et al. address the problem with a
 decoding strategy rather than by characterising how schema declaration changes it.
 
