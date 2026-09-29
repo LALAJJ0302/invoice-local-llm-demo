@@ -20,6 +20,29 @@ sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.join(REPO_ROOT, "evaluation"))
 
 from samples_fixture import ensure_samples  # noqa: E402
+from storage import DEFAULT_DB_PATH, StorageManager  # noqa: E402
+
+# Guarantee a schema-valid database exists, for the same reason the fixture below guarantees
+# the sample PDFs: both are gitignored, so neither exists on a fresh clone.
+#
+# This runs at import rather than as a fixture, and that is the whole point. `tests/
+# test_sidebar_views.py` and `tests/test_score_block.py` do `import app` at module level to
+# reach its helpers, and pytest imports test modules during **collection**, before any fixture
+# has run. A fixture is therefore too late: measured on 2026-09-24, a clone with no database
+# failed with `KeyError: 'id'` during collection and took the whole suite down with it, fixture
+# or no fixture. conftest.py is imported before collection begins, which makes this the only
+# point early enough.
+#
+# What went wrong without it is worth recording, because the guard in app.py looks sufficient
+# and is not. `app.py` handles an empty database with `st.stop()`, which does stop a real
+# Streamlit script run. Outside one it is a no-op, so an `import app` fell straight through it
+# into `keep = set(df["id"])` against an untyped empty frame.
+#
+# `StorageManager.__init__` creates the schema when the file is absent and only asserts the
+# version when it is present, so this is idempotent and costs nothing on a populated machine.
+# It creates schema, never rows: a test that needs documents still fails loudly, which is
+# correct, because the answer to that is to run the pipeline and not to fake the data.
+StorageManager(os.path.join(REPO_ROOT, DEFAULT_DB_PATH))
 
 
 @pytest.fixture(scope="session", autouse=True)

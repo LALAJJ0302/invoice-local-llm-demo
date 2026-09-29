@@ -1,0 +1,40 @@
+# The design system, as configuration rather than CSS.
+#
+# Streamlit 1.62.0 exposes 277 theme options, and most of the token layer in
+# approval-screen-components.html can be expressed here. That matters beyond tidiness:
+# this is a supported interface, while CSS that targets data-testid attributes reaches into
+# Streamlit's internals and breaks on upgrade. Anything the theme can express belongs in this
+# file; app.py carries only what it cannot. See fe-theme-spec.md.
+
+[theme]
+base = "light"
+
+primaryColor = "#5B5BD6"            # accent. Replaces Streamlit's red on tabs and buttons.
+backgroundColor = "#E8EDF7"         # ground. Navy-tinted paper, see fe-theme-v2-spec.md §4
+secondaryBackgroundColor = "#FFFFFF" # surface
+textColor = "#161A23"               # text
+borderColor = "#D8DCE8"             # border
+linkColor = "#5B5BD6"               # accent
+
+# Streamlit's default is 16 and every size in the design was drawn against a 14px body.
+# Leaving it would scale the whole interface up by 14% and no measured line length would hold.
+baseFontSize = 14
+
+baseRadius = "8px"
+buttonRadius = "8px"
+showWidgetBorder = true
+
+# No fallback inside these strings. Streamlit splits on the first colon and treats everything
+# after it as the URL, so a trailing ", sans-serif" is appended to the href and requested from
+# Google as part of the query. Measured 2026-09-19: the link came back as
+# "...&display=swap,%20sans-serif". Streamlit appends its own fallback chain anyway, and the
+# computed family below confirms it.
+font = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+
+# Streamlit ships h1 at 2.75rem, which is 38.5px at this base size. The largest heading in the
+# design is 17px. This is an internal tool, not a landing page.
+headingFontSizes = ["1.5rem", "1.25rem", "1.0625rem", "1rem", "0.9375rem", "0.875rem"]
+
+[theme.sidebar]
+backgroundColor = "#F7F8FC"         # surface sunk

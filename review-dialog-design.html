@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review document</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;450;500;600&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#CEDAEE; font-family:'IBM Plex Sans',system-ui,sans-serif;
+         color:#161A23; -webkit-font-smoothing:antialiased; }
+  .frame { width:1120px; height:820px; margin:40px auto; background:#E8EDF7;
+            border-radius:16px; overflow:hidden; display:flex; flex-direction:column;
+            box-shadow:0 24px 60px rgba(22,26,35,0.28); }
+  .scroll { flex:1; overflow-y:auto; padding:0 28px 22px; }
+  code { background:rgba(22,26,35,0.06); border-radius:5px; padding:1px 5px; }
+</style></head><body>
+<div class="frame">
+
+  <!-- 1. What am I approving. Sticky, so it never scrolls away from the decision. -->
+  <div style="position:sticky; top:0; z-index:2; background:#E8EDF7; padding:22px 28px 0;">
+    <div style="display:flex; align-items:baseline; gap:12px;">
+      <span style="font-size:18px; font-weight:600; letter-spacing:-0.01em;">Apex Cloud Solutions Pty Ltd</span>
+      <span style="font-size:11.5px; color:#43495A; background:rgba(22,26,35,0.045); border-radius:20px;
+                   padding:2px 9px;">Invoice</span>
+      <span style="font-family:'IBM Plex Mono',monospace; margin-left:auto; font-size:20px; font-weight:500;
+                   font-variant-numeric:tabular-nums;">USD 1,500.00</span>
+    </div>
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:#5F667A; margin-top:5px;">INV-2026-001 · issued 2026-08-10 · waiting 13d</div>
+
+    <!-- 2. Is there a concern. The only filled band on the screen. -->
+    <div style="margin:14px 0 4px; padding:12px 16px; border-radius:12px; background:#FAF0E2;
+                display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;">
+      <span style="font-size:12px; font-weight:500; color:#8A4A18; background:#F0DCC4;
+                   border-radius:20px; padding:3px 10px;">Worth a careful look</span>
+      <span style="font-size:14px; color:#8A4A18;">No line items to check the total against</span>
+      <span style="font-size:13px; color:#7A7160;">The model read a total but no rows, so nothing adds up to it. Every other check passed.</span>
+    </div>
+  </div>
+
+  <div class="scroll">
+    <!-- 3. Let me look. Two panels, so the contradiction is one glance rather than a scroll. -->
+    <div style="display:grid; grid-template-columns:1.35fr 1fr; gap:14px; margin-top:14px;">
+
+      <div style="background:#FFFFFF; border-radius:12px; box-shadow:0 1px 2px rgba(22,26,35,0.06), 0 8px 20px rgba(22,26,35,0.07); padding:16px 18px;">
+        <div style="font-size:12px; color:#5F667A; margin-bottom:10px;">What the model read
+          <span style="color:#8A4A18;">&middot; the 3 rows it missed are marked</span>
+        </div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.5; color:#43495A; max-height:330px;
+                    overflow-y:auto;"><div style="padding:1px 0;">TAX INVOICE</div><div style="padding:1px 0;">Vendor: Apex Cloud Solutions Pty Ltd</div><div style="padding:1px 0;">Address: Level 14, 100 George St, Sydney NSW 2000</div><div style="padding:1px 0;">Email: billing@apexcloud.io</div><div style="padding:1px 0;">Invoice Number: INV-2026-001</div><div style="padding:1px 0;">Date of Issue: 2026-08-10</div><div style="padding:1px 0;">Bill To: Enterprise Client Inc.</div><div style="padding:1px 0;">Currency: USD</div><div style="padding:1px 0;">Description</div><div style="padding:1px 0;">Qty</div><div style="padding:1px 0;">Unit Price</div><div style="padding:1px 0;">Total</div><div style="display:grid; grid-template-columns:1fr auto auto auto; gap:12px; align-items:baseline; margin:3px -8px; padding:6px 8px; border-radius:7px; background:#FAF0E2; box-shadow:inset 3px 0 0 #A65A1E;"><span>Dedicated Cloud Compute - EC2 Instance</span><span style='font-family:'IBM Plex Mono',monospace; color:#7A7160;'>2</span><span style='font-family:'IBM Plex Mono',monospace; color:#7A7160;'>USD 450.00</span><span style='font-family:'IBM Plex Mono',monospace; font-weight:500;'>USD 900.00</span></div><div style="display:grid; grid-template-columns:1fr auto auto auto; gap:12px; align-items:baseline; margin:3px -8px; padding:6px 8px; border-radius:7px; background:#FAF0E2; box-shadow:inset 3px 0 0 #A65A1E;"><span>High Performance SSD Storage (1TB)</span><span style='font-family:'IBM Plex Mono',monospace; color:#7A7160;'>3</span><span style='font-family:'IBM Plex Mono',monospace; color:#7A7160;'>USD 120.00</span><span style='font-family:'IBM Plex Mono',monospace; font-weight:500;'>USD 360.00</span></div><div style="display:grid; grid-template-columns:1fr auto auto auto; gap:12px; align-items:baseline; margin:3px -8px; padding:6px 8px; border-radius:7px; background:#FAF0E2; box-shadow:inset 3px 0 0 #A65A1E;"><span>Managed Database Service (PostgreSQL)</span><span style='font-family:'IBM Plex Mono',monospace; color:#7A7160;'>1</span><span style='font-family:'IBM Plex Mono',monospace; color:#7A7160;'>USD 240.00</span><span style='font-family:'IBM Plex Mono',monospace; font-weight:500;'>USD 240.00</span></div><div style="padding:1px 0;">Grand Total</div><div style="padding:1px 0;">USD 1500.00</div><div style="padding:1px 0;">Payment Terms: Net 15 days. Thank you for your business!</div></div>
+      </div>
+
+      <div style="background:#FFFFFF; border-radius:12px; box-shadow:0 1px 2px rgba(22,26,35,0.06), 0 8px 20px rgba(22,26,35,0.07); padding:16px 18px;">
+        <div style="font-size:12px; color:#5F667A; margin-bottom:4px;">What the model stored</div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:7px 0;"><span style="font-size:13px; color:#5F667A;">Date</span><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#161A23; text-align:right;">2026-08-10</span></div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:7px 0;"><span style="font-size:13px; color:#5F667A;">Currency</span><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#161A23; text-align:right;">USD</span></div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:7px 0;"><span style="font-size:13px; color:#5F667A;">Total</span><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#161A23; text-align:right;">USD 1,500.00<span style="font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:#5F667A; background:rgba(22,26,35,0.045); border-radius:5px; padding:1px 6px; margin-left:8px;">model</span></span></div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:7px 0;"><span style="font-size:13px; color:#5F667A;">Vendor</span><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#161A23; text-align:right;">read from the document</span></div>
+        <div style="height:1px; background:rgba(22,26,35,0.08); margin:8px 0;"></div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:7px 0;"><span style="font-size:13px; color:#5F667A;">Line items</span><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#161A23; text-align:right;"><span style='color:#8A4A18; font-weight:500;'>none</span></span></div>
+        <div style="margin-top:12px; padding:14px 16px; border-radius:12px; background:#FAF0E2; box-shadow:inset 3px 0 0 #A65A1E;"><div style="font-size:13.5px; font-weight:600; color:#8A4A18; margin-bottom:6px;">The document shows 3</div><div style="font-size:13px; color:#6B6152; line-height:1.55; margin-bottom:10px;">They are marked in the panel on the left. They sum to <strong>1,500.00</strong>, the exact total the model did read. The model stored none of them.</div><div style="display:flex; justify-content:space-between; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A7160;"><span>Dedicated Cloud Compute - EC2…</span><span>900.00</span></div><div style="display:flex; justify-content:space-between; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A7160;"><span>High Performance SSD Storage …</span><span>360.00</span></div><div style="display:flex; justify-content:space-between; gap:12px; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#7A7160;"><span>Managed Database Service (Pos…</span><span>240.00</span></div><div style="display:flex; justify-content:space-between; gap:12px; margin-top:6px; padding-top:6px; border-top:1px solid rgba(138,74,24,0.22); font-family:'IBM Plex Mono',monospace; font-size:12.5px; font-weight:500; color:#8A4A18;"><span>sum of the rows</span><span>1,500.00</span></div></div>
+      </div>
+    </div>
+
+    <!-- 4. Where did it come from. Collapsed: it is context, not the decision. -->
+    <div style="margin-top:16px;">
+      <div style="display:flex; align-items:center; gap:10px; padding:11px 16px; border-radius:10px; background:rgba(22,26,35,0.045); font-size:13px; color:#43495A; margin-bottom:8px; cursor:pointer;"><span style="font-family:'IBM Plex Mono',monospace; color:#5F667A;">&rsaquo;</span>Covering email &middot; billing@apexcloud.io</div>
+      <div style="display:flex; align-items:center; gap:10px; padding:11px 16px; border-radius:10px; background:rgba(22,26,35,0.045); font-size:13px; color:#43495A; margin-bottom:8px; cursor:pointer;"><span style="font-family:'IBM Plex Mono',monospace; color:#5F667A;">&rsaquo;</span>What the AI found &middot; 3 actions</div>
+      <div style="padding:12px 14px; border-radius:10px; background:rgba(22,26,35,0.045);">
+        <div style="font-size:12px; color:#5F667A; margin-bottom:8px;">
+          Each action sits above the sentence it was read from. The quote is what separates a
+          real action from an invented one.</div>
+        <div style="padding:9px 12px; border-radius:9px; background:rgba(22,26,35,0.045); margin-bottom:6px;"><div style="font-size:13px; color:#161A23;">review the invoice</div><div style="font-size:12px; color:#5F667A; font-style:italic;">“Thank you for your business!”</div></div><div style="padding:9px 12px; border-radius:9px; background:rgba(22,26,35,0.045); margin-bottom:6px;"><div style="font-size:13px; color:#161A23;">verify the vendor information</div><div style="font-size:12px; color:#5F667A; font-style:italic;">“Vendor: Apex Cloud Solutions Pty Ltd”</div></div><div style="padding:9px 12px; border-radius:9px; background:rgba(22,26,35,0.045); margin-bottom:6px;"><div style="font-size:13px; color:#161A23;">check the payment terms</div><div style="font-size:12px; color:#5F667A; font-style:italic;">“Payment Terms: Net 15 days.”</div></div>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;">
+      <div style="font-size:12.5px; color:#5F667A; margin-bottom:6px;">
+        A note for whoever opens this next</div>
+      <div style="background:#FFFFFF; border-radius:10px; box-shadow:0 1px 2px rgba(22,26,35,0.06), 0 8px 20px rgba(22,26,35,0.07); padding:12px 14px;
+                  font-size:13px; color:#98A0B3; min-height:52px;">
+        Chased the vendor about the missing line items.</div>
+    </div>
+  </div>
+
+  <!-- 5 and 6. The consequence, then the decision. Sticky, because these were below the fold
+       and a screen built to slow a person down cannot hide the thing it is slowing them for. -->
+  <div style="position:sticky; bottom:0; background:#E8EDF7; padding:14px 28px 18px;
+              box-shadow:0 -10px 20px rgba(232,237,247,0.95);">
+    <div style="font-size:12.5px; color:#43495A; line-height:1.6; margin-bottom:12px;">
+      Approving opens a task titled <code style="font-family:'IBM Plex Mono',monospace; font-size:12px;">Payment: sample_invoice_1_INV-2026-001.pdf - Apex Cloud Solutions Pty Ltd</code> and queues it for Jira. <strong>Jira is not configured, so nothing is sent</strong>: the row waits in the Outbox until <code style="font-family:'IBM Plex Mono',monospace; font-size:12px;">JIRA_ENABLED</code> is set.</div>
+    <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <span style="display:inline-flex; align-items:center; height:36px; padding:0 20px;
+                   border-radius:9px; font-size:13.5px; background:rgba(22,26,35,0.05);
+                   color:#161A23;">Reject</span>
+      <span style="display:inline-flex; align-items:center; height:36px; padding:0 22px;
+                   border-radius:9px; font-size:13.5px; background:#5B5BD6; color:#FFFFFF;
+                   box-shadow:0 1px 2px rgba(22,26,35,0.06), 0 4px 10px rgba(91,91,214,0.28);">
+        Approve</span>
+    </div>
+  </div>
+</div>
+</body></html>
