@@ -1,5 +1,7 @@
 import os
+from datetime import datetime, timezone
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 import streamlit as st
@@ -208,63 +210,76 @@ def load_outbox() -> pd.DataFrame:
         """
         SELECT o.outbox_id, o.task_id, o.invoice_id, o.channel, o.payload, o.created_at,
                o.state, o.sent_at, o.external_ref, o.error,
-               i.vendor_name, i.invoice_number, i.file_name
+               i.vendor_name, i.invoice_number, i.file_name,
+               t.state AS task_state
         FROM outbound_messages o
         JOIN invoices i ON i.invoice_id = o.invoice_id
+        LEFT JOIN tasks t ON t.task_id = o.task_id
         ORDER BY o.created_at DESC
         """,
         conn,
     )
     conn.close()
+    # Withdrawn is derived, not stored. A row whose task was cancelled before it was sent
+    # belongs to a decision someone took back, and pushing it would act on that decision.
+    # Deriving it keeps outbound_messages' CHECK constraint, which a new state would have
+    # cost a table rewrite to change.
+    df["withdrawn"] = (df["task_state"] == "Cancelled") & (df["state"] != "Sent")
     return df
 
 
 def load_history() -> pd.DataFrame:
-    """Documents a person decided on, and what happened to the work that followed.
+    """Every decision a person made, newest first, including the ones later taken back.
 
-    `reviewed_at` is the column that separates a person's decision from the system's, because
-    `record_decision()` writes it and the auto-approval path never does. That is already how
-    "Approved by the system" is defined, so History needs no new column and no new table.
+    Reads `invoice_decisions` (migration 016) rather than the three columns on `invoices`,
+    because those hold only the decision in force now. Reopening a document clears them, and a
+    History built on them lost the approval being taken back along with the fact that anyone
+    took it back.
 
     This is the only place a rejection is visible. A rejected document is not Pending, so it
-    leaves the queue, and not Approved, so it never reaches the auto tab. Without this tab the
-    decision is recorded and then cannot be seen anywhere.
+    leaves the queue, and not Approved, so it never reaches the auto tab.
+
+    Column names are kept from the version that read `invoices`, so the Overview panel and the
+    tests read it unchanged: `approval_status` is this row's decision, which can now also be
+    Reopened, and `reviewed_at` is when it was made. `current_status` is where the document
+    stands now, and `is_latest` marks the row a Reopen button belongs on.
     """
     conn = connect(DB_PATH)
     df = pd.read_sql_query(
         """
-        SELECT i.invoice_id, i.invoice_number, i.vendor_name, i.document_type,
+        SELECT d.decision_id, d.invoice_id, i.invoice_number, i.vendor_name, i.document_type,
                i.total_cents / 100.0 AS total_amount, i.currency,
-               i.approval_status, i.reviewed_at,
-               -- SC-4. A decision looked at after the fact should show what the machine scored
-               -- at the time the person decided, otherwise History records the verdict and
-               -- loses the evidence it was made against.
-               i.validation_score, i.validation_status,
+               d.decision AS approval_status, d.decided_at AS reviewed_at,
+               i.approval_status AS current_status,
+               -- SC-4. The score as it stood when the person decided, copied onto the row at
+               -- the time. A re-run of main.py can change the invoice's own score afterwards.
+               d.validation_score, d.validation_status,
                -- The name, not the id. Reported by Luke on 2026-09-28: it was being stored
-               -- by record_decision and shown nowhere, so History carried the time of a
-               -- decision and not the person who made it.
+               -- by record_decision and shown nowhere.
                u.display_name AS reviewer_name,
+               d.decision_id = (SELECT MAX(decision_id) FROM invoice_decisions
+                                WHERE invoice_id = d.invoice_id) AS is_latest,
                t.task_type, t.state AS task_state, t.resolved_at
-        FROM invoices i
-        LEFT JOIN users u ON u.user_id = i.reviewed_by
-        -- The task the decision actually resolved, which is the most recently resolved one.
-        -- Joining on every matching task and grouping let SQLite pick an arbitrary row: an
-        -- approved document showed "task Cancelled" because invoice 1 carries a Review task
-        -- cancelled on 2026-08-28 alongside the Approve task completed on 2026-09-19.
-        LEFT JOIN tasks t ON t.task_id = (
+        FROM invoice_decisions d
+        JOIN invoices i ON i.invoice_id = d.invoice_id
+        LEFT JOIN users u ON u.user_id = d.decided_by
+        -- The task this decision closed: the first Review or Approve task resolved at or after
+        -- it. A Reopened row closes the follow-up instead and opens a Review task, which the
+        -- screen says in words rather than through this join.
+        LEFT JOIN tasks t ON d.decision <> 'Reopened' AND t.task_id = (
             SELECT task_id FROM tasks
-            WHERE invoice_id = i.invoice_id
+            WHERE invoice_id = d.invoice_id
               AND task_type IN ('Review', 'Approve')
-              AND resolved_at IS NOT NULL
-            ORDER BY resolved_at DESC, task_id DESC
+              AND resolved_at IS NOT NULL AND resolved_at >= d.decided_at
+            ORDER BY resolved_at, task_id
             LIMIT 1
         )
-        WHERE i.reviewed_at IS NOT NULL
-        ORDER BY i.reviewed_at DESC
+        ORDER BY d.decided_at DESC, d.decision_id DESC
         """,
         conn,
     )
     conn.close()
+    df["is_latest"] = df["is_latest"].astype(bool)
     return df
 
 
@@ -279,6 +294,69 @@ def jira_ready() -> bool:
         return JiraClient().is_configured()
     except Exception:
         return False
+
+
+# Every timestamp this project writes comes from SQLite's datetime('now'), which is UTC. The
+# people reading the screen are in Sydney, and a note saved at 3pm reading "05:00" was reported
+# as a defect on 2026-09-29. Storage stays UTC, so rows written on different machines still
+# compare; the conversion happens here, at the edge, the same way money does.
+try:
+    LOCAL_TZ = ZoneInfo("Australia/Sydney")
+    LOCAL_TZ_LABEL = "Sydney"
+except ZoneInfoNotFoundError:
+    # A slim container image can ship without the zone database. Saying UTC is honest; showing
+    # UTC unlabelled was the defect.
+    LOCAL_TZ, LOCAL_TZ_LABEL = timezone.utc, "UTC"
+
+
+def local_time(value, *, seconds: bool = False) -> str:
+    """A stored UTC timestamp as Sydney wall-clock time, or "-" when there is none."""
+    if value is None or (not isinstance(value, str) and pd.isna(value)) or value == "":
+        return "-"
+    try:
+        stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S" if seconds else "%Y-%m-%d %H:%M")
+
+
+def push_to_jira(row) -> None:
+    """Send one outbox row to Jira, through the path that already exists.
+
+    `task_dispatch.dispatch_task_to_jira` looks for an existing Pending or Failed outbox row for
+    the same task and reuses it rather than queueing a second one, so retry was designed in from
+    the start. This button is that retry, with a person pressing it.
+
+    Restored 2026-09-29. Commit 75a7d8d removed this function when the tabs became the sidebar
+    and left its three callers in place. Nothing failed, because every Push button is disabled
+    until Jira is configured, so the first person to configure Jira would have been the first to
+    see the NameError.
+
+    A withdrawn row is refused. Its task was cancelled when the document was reopened, and
+    sending it would open a payment issue for a decision that no longer stands.
+    """
+    if row.get("withdrawn"):
+        return
+    store = StorageManager(DB_PATH)
+    task = store.task_by_id(int(row["task_id"])) if row["task_id"] else None
+    task_dispatch.dispatch_task_to_jira(
+        store,
+        int(row["task_id"]),
+        int(row["invoice_id"]),
+        task["task_type"] if task else "Payment",
+        (task["reason"] if task else None) or row["payload"],
+        approval_path="human",
+    )
+
+
+def reopen_for_review(invoice_id: int) -> None:
+    """A person taking a decision back. The storage method does the work and the checks."""
+    reviewer_id = st.session_state.get("user_id")
+    if reviewer_id is None:
+        raise RuntimeError("no signed-in user: reopen_for_review must not be called before login")
+    StorageManager(DB_PATH).reopen_for_review(int(invoice_id), int(reviewer_id))
 
 
 def load_email_for(invoice_row) -> dict:
@@ -579,6 +657,9 @@ st.markdown("""
 .hist-who { font-size:12.5px; color:var(--text); }
 .hist-when { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-muted); margin-left:auto; }
 .hist-task { font-size:12px; color:var(--text-muted); }
+.hist-facts { display:flex; flex-wrap:wrap; gap:4px 18px; margin-top:6px; padding-left:22px;
+              font-size:12.5px; color:var(--text-muted); }
+.hist-facts b { font-weight:500; color:var(--text); margin-right:4px; }
 
 /* The sidebar. FE-15. Streamlit paints the surface from [theme.sidebar] in config.toml; these
    rules cover the identity block and the saved views, which are markdown and a radio. */
@@ -940,7 +1021,8 @@ def review_dialog(row):
         placeholder="Chased the vendor about the missing line items.")
     saved, save = st.columns([5, 1.2], vertical_alignment="center")
     if row.get("review_note_at") and not pd.isna(row.get("review_note_at")):
-        saved.markdown(f"<p class='note-when'>Last saved {row['review_note_at']}</p>",
+        saved.markdown(f"<p class='note-when'>Last saved "
+                       f"{local_time(row['review_note_at'], seconds=True)} {LOCAL_TZ_LABEL}</p>",
                        unsafe_allow_html=True)
     if save.button("Save note", key=f"savenote-{row['id']}", width="stretch"):
         save_review_note(int(row["id"]), note)
@@ -1226,7 +1308,7 @@ def empty_queue():
     decided = load_data()
     decided = decided[(decided["approval_status"] == "Approved") & (decided["reviewed_at"].isna())]
     latest = decided["system_processed_at"].max() if not decided.empty else None
-    when = f" The last {len(decided)} it cleared on its own at {str(latest)[11:16]}." if latest else ""
+    when = f" The last {len(decided)} it cleared on its own at {local_time(latest)[11:16]}." if latest else ""
     st.markdown(
         f"<div class='empty'>"
         f"<div class='empty-mark'><svg width='20' height='20' viewBox='0 0 16 16' fill='none'>"
@@ -1574,7 +1656,8 @@ def outbox_body(frame):
 
     jira_rows = frame[frame["channel"] == "Jira"]
     other = frame[frame["channel"] != "Jira"]
-    pushable = jira_rows[jira_rows["state"].isin(["Pending", "Failed"])]
+    pushable = jira_rows[jira_rows["state"].isin(["Pending", "Failed"]) & ~jira_rows["withdrawn"]]
+    withdrawn = jira_rows[jira_rows["withdrawn"]]
     ready = jira_ready()
 
     st.markdown(
@@ -1615,7 +1698,7 @@ def outbox_body(frame):
                 f"<span class='dot' style='background:{state_dot}'></span>"
                 f"<span class='out-doc'>{row['invoice_number'] or '-'}</span>"
                 f"<span class='out-vendor'>{row['vendor_name'] or '-'}</span>"
-                f"<span class='out-when'>{row['created_at']}</span></div>"
+                f"<span class='out-when'>{local_time(row['created_at'])}</span></div>"
                 f"<div class='out-payload'>{row['payload']}</div>{failure}</div>",
                 unsafe_allow_html=True)
             if action.button("Push to Jira", key=f"push-{row['outbox_id']}",
@@ -1623,7 +1706,20 @@ def outbox_body(frame):
                 push_to_jira(row)
                 st.rerun()
 
+    if not withdrawn.empty:
+        st.markdown(
+            "<p class='tab-note'>Withdrawn. The document was reopened for review before these "
+            "were sent, so they will not be. Approving it again queues a new one.</p>",
+            unsafe_allow_html=True)
+        st.dataframe(withdrawn.assign(created_at=withdrawn["created_at"].map(local_time))[
+                         ["created_at", "invoice_number", "vendor_name", "payload"]],
+                     hide_index=True, width="stretch",
+                     column_config={"created_at": "Queued", "invoice_number": "Document",
+                                    "vendor_name": "Vendor", "payload": "Message"})
+
     sent = jira_rows[jira_rows["state"] == "Sent"]
+    sent = sent.assign(created_at=sent["created_at"].map(local_time),
+                       sent_at=sent["sent_at"].map(local_time))
     if not sent.empty:
         st.markdown("<p class='tab-note'>Sent</p>", unsafe_allow_html=True)
         st.dataframe(sent[["created_at", "sent_at", "invoice_number", "external_ref", "payload"]],
@@ -1638,6 +1734,7 @@ def outbox_body(frame):
             "was true and nothing rewrites it, which is why the age matters: the oldest still "
             "say <code>NeedsReview at score 0.25</code> for documents that now read Validated."
             "</p>", unsafe_allow_html=True)
+        other = other.assign(created_at=other["created_at"].map(local_time))
         st.dataframe(other[["created_at", "channel", "vendor_name", "invoice_number", "payload"]],
                      hide_index=True, width="stretch",
                      column_config={"created_at": "Queued", "channel": "Channel",
@@ -1656,11 +1753,14 @@ def history_body(frame):
         return
 
     st.markdown(
-        "<p class='tab-note'>Decisions made by a person. This is the only place a rejection is "
-        "visible: a rejected document is not Pending, so it leaves the queue, and not Approved, "
-        "so it never reaches the system tab.</p>", unsafe_allow_html=True)
+        "<p class='tab-note'>Every decision a person made, newest first, including ones later "
+        "taken back. This is the only place a rejection is visible: a rejected document is not "
+        "Pending, so it leaves the queue, and not Approved, so it never reaches the system tab. "
+        f"Times are {LOCAL_TZ_LABEL} time.</p>", unsafe_allow_html=True)
+    decided = load_data()
+    store = StorageManager(DB_PATH)
     for _, row in frame.iterrows():
-        rejected = row["approval_status"] == "Rejected"
+        decision = row["approval_status"]
         score = row.get("validation_score")
         scored = "-" if score is None or pd.isna(score) else f"{float(score):.2f}"
         # A decision with no name against it is the state reviewed_by exists to prevent, so
@@ -1668,21 +1768,54 @@ def history_body(frame):
         # existed legitimately have none.
         who = row.get("reviewer_name")
         decided_by = "no name recorded" if not who or pd.isna(who) else who
-        with st.container(border=True, key=f"hist-{row['invoice_id']}", gap=None):
-            st.markdown(
+        # Reported 2026-09-29: eight unlabelled values in a row read as a string of words. Each
+        # one now says what it is, and the second line carries what followed the decision.
+        headline = {"Approved": "Approved", "Rejected": "Rejected",
+                    "Reopened": "Reopened for review"}.get(decision, decision)
+        dot = {"Rejected": "var(--caution)", "Reopened": "var(--text-muted)"}.get(
+            decision, "var(--positive)")
+        if decision == "Reopened":
+            followed = "Follow-up task cancelled, document back in Awaiting approval"
+        elif row.get("task_state") and not pd.isna(row.get("task_state")):
+            followed = f"{row['task_type']} task {row['task_state'].lower()}"
+        else:
+            followed = "No task recorded"
+        if not row["is_latest"]:
+            followed += " &middot; <em>superseded by a later decision</em>"
+        match = decided[decided["id"] == row["invoice_id"]]
+        full = match.iloc[0] if not match.empty else None
+        key = f"hist-{int(row['decision_id'])}"
+        with st.container(border=True, key=key, gap=None):
+            body, act = st.columns([5, 1.6], vertical_alignment="center")
+            body.markdown(
                 f"<div class='hist'>"
-                f"<span class='dot' style='background:"
-                f"{'var(--caution)' if rejected else 'var(--positive)'}'></span>"
-                f"<span class='hist-decision'>{row['approval_status']}</span>"
+                f"<span class='dot' style='background:{dot}'></span>"
+                f"<span class='hist-decision'>{headline}</span>"
                 f"<span class='hist-vendor'>{row['vendor_name'] or '-'}</span>"
                 f"<span class='hist-doc'>{row['invoice_number'] or '-'}</span>"
                 f"<span class='hist-amount'>{money(row['total_amount'], row['currency'])}</span>"
-                f"<span class='hist-score' title='{SCORE_NOTE}'>{scored} · "
-                f"{verdict_word(row)}</span>"
-                f"<span class='hist-who'>{decided_by}</span>"
-                f"<span class='hist-when'>{row['reviewed_at']}</span>"
-                f"<span class='hist-task'>task {row['task_state'] or 'none'}</span>"
+                f"</div>"
+                f"<div class='hist-facts'>"
+                f"<span><b>By</b> {decided_by}</span>"
+                f"<span><b>When</b> {local_time(row['reviewed_at'])}</span>"
+                f"<span title='{SCORE_NOTE}'><b>Validation score then</b> {scored} "
+                f"({verdict_word(row)})</span>"
+                f"<span><b>What followed</b> {followed}</span>"
                 f"</div>", unsafe_allow_html=True)
+            open_col, reopen_col = act.columns(2)
+            if open_col.button("Open", key=f"{key}-open", disabled=full is None,
+                               width="stretch"):
+                review_dialog(full)
+            # One Reopen per document, on its latest decision. Reopening an older row would
+            # take back a decision that is no longer the one in force.
+            if row["is_latest"] and row["current_status"] != "Pending":
+                blocker = store.reopen_blocker(int(row["invoice_id"]))
+                if reopen_col.button("Reopen", key=f"{key}-reopen", disabled=bool(blocker),
+                                     help=blocker or "Take this decision back and return the "
+                                     "document to Awaiting approval. The decision stays here.",
+                                     width="stretch"):
+                    reopen_for_review(int(row["invoice_id"]))
+                    st.rerun()
 
 
 def tile(label, value, note) -> str:
@@ -1840,14 +1973,15 @@ def overview_body(pending, auto, outbox, history):
             record_row(key=f"ovauto-{r['id']}", dot="var(--positive)",
                        left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
                        value=money(r["total_amount"], r["currency"]),
-                       right=f"validation score {score} · {str(r['system_processed_at'])[11:16]}",
+                       right=f"validation score {score} · {local_time(r['system_processed_at'])[11:16]}",
                        action="Open", on_action=lambda row=r: review_dialog(row))
 
     if outbox.empty:
         pushable, frozen, sent = outbox, 0, 0
     else:
         jira_rows = outbox[outbox["channel"] == "Jira"]
-        pushable = jira_rows[jira_rows["state"].isin(["Pending", "Failed"])]
+        pushable = jira_rows[jira_rows["state"].isin(["Pending", "Failed"])
+                             & ~jira_rows["withdrawn"]]
         frozen = len(outbox[outbox["channel"] != "Jira"])
         sent = int((outbox["state"] == "Sent").sum())
     # The section turns amber only when a row has actually failed, not merely because the
@@ -1867,7 +2001,7 @@ def overview_body(pending, auto, outbox, history):
             record_row(key=f"ovout-{r['outbox_id']}",
                        dot="var(--caution)" if r["state"] == "Failed" else "var(--text-muted)",
                        left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
-                       value=r["state"], right=str(r["created_at"])[:16],
+                       value=r["state"], right=local_time(r["created_at"]),
                        action="Push to Jira", disabled=not ready,
                        help=None if ready else "Jira is not configured. Set JIRA_ENABLED in .env",
                        on_action=lambda row=r: (push_to_jira(row), st.rerun()))
@@ -1884,13 +2018,14 @@ def overview_body(pending, auto, outbox, history):
             # Not set_index("id"): review_dialog reads row["id"], and an index is not a column.
             match = decided[decided["id"] == r["invoice_id"]]
             full = match.iloc[0] if not match.empty else None
-            record_row(key=f"ovhist-{r['invoice_id']}",
-                       dot="var(--caution)" if r["approval_status"] == "Rejected"
-                           else "var(--positive)",
+            # Keyed on the decision, not the invoice: a reopened document has several rows.
+            record_row(key=f"ovhist-{int(r['decision_id'])}",
+                       dot={"Rejected": "var(--caution)", "Reopened": "var(--text-muted)"}.get(
+                           r["approval_status"], "var(--positive)"),
                        left=f"{r['approval_status']} · {r['vendor_name'] or '-'}",
                        doc=r["invoice_number"] or "-",
                        value=money(r["total_amount"], r["currency"]),
-                       right=str(r["reviewed_at"])[:16],
+                       right=local_time(r["reviewed_at"]),
                        action="Open", disabled=full is None,
                        on_action=lambda row=full: review_dialog(row))
 
@@ -1949,7 +2084,7 @@ def runs_panel():
              f"run {int(r['run_id'])} &middot; {r['run_kind'] or 'unknown kind'}",
              r["model_name"] or "-",
              f"{int(r['doc_count'] or 0)} document{'' if r['doc_count'] == 1 else 's'}",
-             str(r["started_at"])[:16])
+             local_time(r["started_at"]))
             for _, r in runs.iterrows()]
     st.markdown(dense_rows(rows), unsafe_allow_html=True)
 
@@ -1966,7 +2101,7 @@ def documents_panel(frame):
              r["vendor_name"] or "Unknown vendor",
              r["file_name"] or "-",
              money(r["total_amount"], r["currency"]),
-             f"run {int(r['run_id'])} &middot; {str(r['system_processed_at'])[:16]}",
+             f"run {int(r['run_id'])} &middot; {local_time(r['system_processed_at'])}",
              "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}")
             for _, r in frame.sort_values("id").iterrows()]
     st.markdown(dense_rows(rows), unsafe_allow_html=True)
