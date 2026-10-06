@@ -1050,6 +1050,48 @@ class TestAutoApprove:
             ).fetchone()
         assert row["state"] == "Done"
 
+    def test_a_worse_rerun_undoes_an_automatic_approval(self, store, run_id):
+        """NeedsReview after an automatic approval returns the document to Pending
+        and cancels the Payment or File task that approval opened. reviewed_at is
+        still null, which is how this is told apart from a person."""
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        followup = store.auto_approve(invoice_id)
+        assert followup["task_type"] == "Payment"
+        save(store, run_id, validation_score=0.75, validation_status="NeedsReview")
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, reviewed_at FROM invoices WHERE invoice_id=?",
+                (invoice_id,)).fetchone()
+            task = conn.execute(
+                "SELECT state FROM tasks WHERE task_id=?", (followup["task_id"],)
+            ).fetchone()
+        assert row["approval_status"] == "Pending"
+        assert row["reviewed_at"] is None
+        assert task["state"] == "Cancelled"
+
+    def test_a_worse_rerun_leaves_a_human_decision(self, store, run_id):
+        invoice_id = save(store, run_id, validation_score=0.75,
+                          validation_status="NeedsReview")["invoice_id"]
+        with connect(store.db_path) as conn:
+            conn.execute(
+                "UPDATE invoices SET approval_status='Approved', "
+                "reviewed_at=datetime('now') WHERE invoice_id=?",
+                (invoice_id,))
+            conn.commit()
+        payment = store.open_task(invoice_id, "Payment", reason="follow-up")
+        save(store, run_id, validation_score=0.75, validation_status="NeedsReview")
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, reviewed_at FROM invoices WHERE invoice_id=?",
+                (invoice_id,)).fetchone()
+            task = conn.execute(
+                "SELECT state FROM tasks WHERE task_id=?", (payment["task_id"],)
+            ).fetchone()
+        assert row["approval_status"] == "Approved"
+        assert row["reviewed_at"] is not None
+        assert task["state"] == "Open"
+
 
 # =====================================================================
 # The outbox

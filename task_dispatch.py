@@ -95,6 +95,8 @@ def dispatch_task_to_jira(
     """Queue a Jira dispatch and create the issue when configured."""
     task = store.task_by_id(task_id)
     if task and task["external_ref"]:
+        print(f"  [Jira] Task #{task_id} already linked to {task['external_ref']}, "
+              "skipping create.")
         return
 
     invoice = store.invoice_summary(invoice_id)

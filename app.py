@@ -899,6 +899,41 @@ def field_row(label, value, note="") -> str:
             f"<span class='field-value'>{value}{tail}</span></div>")
 
 
+SYSTEM_APPROVAL_SECTION = (
+    "at a validation score of 1.00 with a verified amount, and nobody asked"
+)
+SYSTEM_APPROVAL_NOTE = (
+    "These were approved at a validation score of 1.00 with a verified amount, "
+    "and no person was involved. Every check behind that score reads the document "
+    "itself, so a duplicate, an unknown vendor and a well-formatted forgery all "
+    "score the same."
+)
+# Said "Use Reject if you need to reopen review" until PR #15 added a real Reopen. Rejecting
+# does not send a document back for review, it rejects it.
+HUMAN_APPROVAL_NOTE = (
+    "This document was approved by a reviewer while data quality was "
+    "NeedsReview. Re-running main.py does not undo that decision. "
+    "Use Reopen in History if it needs another look."
+)
+
+
+def human_approval_note(row) -> str | None:
+    """The sentence for a person-approved document the gate still calls NeedsReview.
+
+    The same string is shown in the review dialog and on History, so the two cannot
+    drift. An automatic approval has no reviewed_at and is a different case: a worse
+    re-run returns that one to Pending.
+    """
+    reviewed = row.get("reviewed_at")
+    if row.get("approval_status") != "Approved":
+        return None
+    if row.get("validation_status") != "NeedsReview":
+        return None
+    if reviewed is None or pd.isna(reviewed):
+        return None
+    return HUMAN_APPROVAL_NOTE
+
+
 @st.dialog("Review document", width="large")
 def review_dialog(row):
     """The only place approve and reject exist, laid out as `review-dialog-design.html`.
@@ -1029,6 +1064,9 @@ def review_dialog(row):
         st.rerun()
 
     with st.container(key=f"dlg-foot-{row['id']}", gap=None):
+        held = human_approval_note(row)
+        if held:
+            st.info(held)
         # FE-12, corrected 2026-09-20. This said "Approving creates a Jira task Payment
         # immediately", which is false whenever Jira is unconfigured, and it is unconfigured
         # now. `record_decision` always writes a local follow-up task and queues an outbox row;
@@ -1802,6 +1840,11 @@ def history_body(frame):
                 f"({verdict_word(row)})</span>"
                 f"<span><b>What followed</b> {followed}</span>"
                 f"</div>", unsafe_allow_html=True)
+            # Only on the decision in force. An approval later taken back is no longer one that
+            # re-running main.py could undo or not undo.
+            held = human_approval_note(row) if row["is_latest"] else None
+            if held:
+                body.caption(held)
             open_col, reopen_col = act.columns(2)
             if open_col.button("Open", key=f"{key}-open", disabled=full is None,
                                width="stretch"):
@@ -1959,7 +2002,7 @@ def overview_body(pending, auto, outbox, history):
 
     if not auto.empty:
         section_head("Approved by the system",
-                     "at a validation score of 1.00, with nobody asked",
+                     SYSTEM_APPROVAL_SECTION,
                      opens="auto", key="auto")
         with st.container(key="ovpanel-auto", gap=None):
           for _, r in auto.iterrows():
@@ -2117,9 +2160,7 @@ elif view == "awaiting":
     document_rows(pending, actionable=True)
 elif view == "auto":
     st.markdown(
-        "<p class='tab-note'>These were approved at a validation score of 1.00 with no person "
-        "involved. Every check behind that score reads the document itself, so a duplicate, an "
-        "unknown vendor and a well-formatted forgery all score the same.</p>",
+        f"<p class='tab-note'>{SYSTEM_APPROVAL_NOTE}</p>",
         unsafe_allow_html=True)
     document_rows(auto, actionable=False)
 elif view == "outbox":
