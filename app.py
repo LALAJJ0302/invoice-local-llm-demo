@@ -459,7 +459,7 @@ st.markdown("""
 [class*="st-key-doc-"]:hover { box-shadow: var(--lift-hover); }
 [class*="st-key-doc-"] .stMarkdown p { margin: 0; }
 
-.card-head { display:grid; grid-template-columns:44px 1fr auto; gap:16px; align-items:start; padding:22px 24px 20px; }
+.card-head { display:grid; grid-template-columns:44px 1fr auto; gap:16px; align-items:center; padding:18px 24px 16px; }
 .doc-icon { width:44px; height:44px; border-radius:10px; background:var(--control-fill);
             display:flex; align-items:center; justify-content:center; }
 .card-id { display:flex; flex-direction:column; gap:7px; min-width:0; }
@@ -493,7 +493,7 @@ st.markdown("""
 .score-gate { font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-muted); }
 
 .chip { display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--text-strong);
-        background:var(--fill-subtle); border-radius:7px; padding:4px 10px; margin-right:8px; }
+        background:var(--fill-subtle); border-radius:7px; padding:4px 10px; margin-right:6px; }
 .dot { width:6px; height:6px; border-radius:50%; flex:none; }
 
 /* The sentence comes from review_signals.py. Nothing in this file writes signal copy. */
@@ -575,7 +575,22 @@ st.markdown("""
 /* Row actions sit at the panel's right edge, like the one on the document card. */
 [class*="st-key-ovauto-"] [data-testid="stColumn"]:last-child,
 [class*="st-key-ovout-"] [data-testid="stColumn"]:last-child,
-[class*="st-key-ovhist-"] [data-testid="stColumn"]:last-child { display:flex; justify-content:flex-end; }
+[class*="st-key-ovhist-"] [data-testid="stColumn"]:last-child { display:flex; align-items:flex-end; }
+/* The column's own block fills it, so aligning the column moved nothing: the block has to align
+   its children, and the markdown beside the button must not add a margin of its own. */
+[class*="st-key-ovauto-"] [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"],
+[class*="st-key-ovout-"] [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"],
+[class*="st-key-ovhist-"] [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"] {
+  align-items:flex-end; justify-content:center; }
+[class*="st-key-ovauto-"] [data-testid="stMarkdownContainer"],
+[class*="st-key-ovout-"] [data-testid="stMarkdownContainer"],
+[class*="st-key-ovhist-"] [data-testid="stMarkdownContainer"] { margin:0 !important; }
+/* Outbox rows: the Push button belongs at the row's right edge, level with the row, and the
+   checkbox in the first column is centred against the same line. */
+[class*="st-key-out-"] [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"] {
+  align-items:flex-end; justify-content:center; }
+[class*="st-key-out-"] [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
+  justify-content:center; }
 .sec-title { font-size:14px; font-weight:600; color:var(--text); }
 .sec-note { font-size:12.5px; color:var(--text-muted); }
 
@@ -609,7 +624,7 @@ st.markdown("""
 .ai-quote { font-size:12.5px; color:var(--text-muted); font-style:italic; }
 .note-when { font-size:12px; color:var(--text-muted); margin:0; }
 
-.tab-note { font-size:13px; line-height:1.6; color:var(--text-muted); max-width:860px;
+.tab-note { font-size:13px; line-height:1.6; color:var(--text-muted); max-width:none;
             margin:0 0 14px; padding:13px 16px; background:var(--fill-subtle);
             border-radius:12px; }
 .tab-warn { font-size:13px; line-height:1.6; color:var(--caution-text);
@@ -643,11 +658,11 @@ st.markdown("""
 [class*="st-key-ovpanel-out-failed"] { border-left-color:var(--caution); }
 [class*="st-key-ovpanel-hist"] { border-left:3px solid var(--border-hover); }
 [class*="st-key-ovauto-"], [class*="st-key-ovout-"], [class*="st-key-ovhist-"] {
-  padding:2px 10px 2px 4px !important; border-radius:10px; }
+  padding:2px 18px 2px 4px !important; border-radius:10px; }
 [class*="st-key-ovpanel-"] > div > div:last-child [class*="st-key-ov"] { border-bottom:none; }
 [class*="st-key-ovauto-"] .dense, [class*="st-key-ovout-"] .dense,
 [class*="st-key-ovhist-"] .dense { border-bottom:none; padding:10px 14px; }
-.hist { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.hist { display:flex; align-items:center; gap:6px 14px; flex-wrap:wrap; }
 .hist-decision { font-size:13px; font-weight:500; color:var(--text); min-width:72px; }
 .hist-vendor { font-size:13.5px; color:var(--text); }
 .hist-doc { font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-muted); }
@@ -657,7 +672,37 @@ st.markdown("""
 .hist-who { font-size:12.5px; color:var(--text); }
 .hist-when { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-muted); margin-left:auto; }
 .hist-task { font-size:12px; color:var(--text-muted); }
-.hist-facts { display:flex; flex-wrap:wrap; gap:4px 18px; margin-top:6px; padding-left:22px;
+/* UI consistency pass, 2026-10-07. Row actions keep one size everywhere and never wrap.
+   Child widgets inherit their row's key prefix, so a row's card rule (padding, white
+   background, shadow) also landed on its own buttons and drew a box round each one. */
+[class*="st-key-hist-"][class*="-open"], [class*="st-key-hist-"][class*="-reopen"],
+[class*="st-key-ovauto-"][class*="-act"], [class*="st-key-ovout-"][class*="-act"],
+[class*="st-key-ovhist-"][class*="-act"] {
+  padding:0 !important; background:transparent !important; box-shadow:none !important;
+  border-radius:0 !important; width:fit-content !important; flex:0 0 auto !important; }
+[class*="st-key-dl-"] button, [class*="st-key-hist-"] button, [class*="st-key-ovauto-"] button, [class*="st-key-ovout-"] button,
+[class*="st-key-ovhist-"] button, [class*="st-key-open-"] button, [class*="st-key-out-"] button,
+[class*="st-key-rev-"] button, [class*="st-key-push-"] button {
+  min-width:92px; height:36px; min-height:36px; padding:0 16px; border-radius:8px;
+  white-space:nowrap; }
+[class*="st-key-hist-"] button p, [class*="st-key-ovauto-"] button p, [class*="st-key-ovout-"] button p,
+[class*="st-key-ovhist-"] button p, [class*="st-key-open-"] button p, [class*="st-key-rev-"] button p,
+[class*="st-key-push-"] button p { white-space:nowrap; margin:0; }
+/* The facts take the room, the buttons keep their width. A button that does not fit drops
+   beneath the facts instead of being squeezed. */
+[class*="st-key-histline-"] { gap:10px 16px; align-items:center; padding:2px 0 6px; }
+[class*="st-key-footline-"] { gap:10px 12px; align-items:center; }
+[class*="st-key-footline-"] > [data-testid="stElementContainer"]:first-child {
+  flex:1 1 380px; min-width:0; }
+[class*="st-key-histline-"] > [data-testid="stElementContainer"]:first-child {
+  flex:1 1 440px; min-width:0; }
+.page-eyebrow { font-size:11.5px; font-weight:600; letter-spacing:0.09em; text-transform:uppercase;
+                color:var(--text-muted); margin:0 0 -6px; }
+.page-sub { font-size:13.5px; line-height:1.55; color:var(--text-muted); margin:-4px 0 14px;
+            max-width:760px; }
+.hist-note { font-size:12.5px; line-height:1.5; color:var(--text-muted); margin:6px 0 8px;
+             padding-left:22px; }
+.hist-facts { display:flex; flex-wrap:wrap; gap:4px 18px; margin-top:8px; padding-left:22px;
               font-size:12.5px; color:var(--text-muted); }
 .hist-facts b { font-weight:500; color:var(--text); margin-right:4px; }
 
@@ -1290,27 +1335,31 @@ def document_card(row, *, actionable: bool, context: str = "queue"):
             unsafe_allow_html=True,
         )
         with st.container(key=f"foot-{context}-{row['id']}", gap=None):
-            chips, download, action = st.columns([4, 1.4, 1.3], vertical_alignment="center")
-            chips.markdown(f"<div class='chips'>{provenance(row)}</div>", unsafe_allow_html=True)
+            # One horizontal line, like History: the chips take the room and the two buttons keep
+            # their width, dropping underneath together when the window is narrow. Three columns
+            # gave the chips a fixed share, so the last chip wrapped while the buttons floated.
+            line = st.container(horizontal=True, vertical_alignment="center",
+                                key=f"footline-{context}-{row['id']}")
+            line.markdown(f"<div class='chips'>{provenance(row)}</div>", unsafe_allow_html=True)
 
             original = original_for(row)
             if original:
                 data, name = original
-                download.download_button("Download the original", data=data, file_name=name,
-                                         mime="application/pdf",
-                                         key=f"dl-{context}-{row['id']}")
+                line.download_button("Download the original", data=data, file_name=name,
+                                     mime="application/pdf",
+                                     key=f"dl-{context}-{row['id']}")
             else:
-                download.button("Download the original", disabled=True,
-                                key=f"dl-{context}-{row['id']}",
-                                help="The archived file is not on disk.")
+                line.button("Download the original", disabled=True,
+                            key=f"dl-{context}-{row['id']}",
+                            help="The archived file is not on disk.")
 
             # OV-6. A document the system approved without asking can still be opened. The
             # dialog is the same one, so a person can look at what was decided for them and
             # reject it if they disagree, which is the oversight §2 of fe-screen-spec.md says
             # the second tab exists to make possible.
             label = "Review document" if actionable else "Open the document"
-            if action.button(label, type="primary" if actionable else "secondary",
-                             key=f"rev-{context}-{row['id']}"):
+            if line.button(label, type="primary" if actionable else "secondary",
+                           key=f"rev-{context}-{row['id']}"):
                 review_dialog(row)
 
 
@@ -1727,7 +1776,7 @@ def outbox_body(frame):
 
     for _, row in pushable.iterrows():
         with st.container(border=True, key=f"out-{row['outbox_id']}", gap=None):
-            pick, body, action = st.columns([0.5, 5, 1.3], vertical_alignment="center")
+            pick, body, action = st.columns([0.35, 5, 1.3], vertical_alignment="center")
             pick.checkbox("Select", key=f"sel-{row['outbox_id']}", label_visibility="collapsed")
             state_dot = "var(--caution)" if row["state"] == "Failed" else "var(--text-faint)"
             failure = f"<div class='out-error'>{row['error']}</div>" if row["error"] else ""
@@ -1791,10 +1840,9 @@ def history_body(frame):
         return
 
     st.markdown(
-        "<p class='tab-note'>Every decision a person made, newest first, including ones later "
-        "taken back. This is the only place a rejection is visible: a rejected document is not "
-        "Pending, so it leaves the queue, and not Approved, so it never reaches the system tab. "
-        f"Times are {LOCAL_TZ_LABEL} time.</p>", unsafe_allow_html=True)
+        "<p class='tab-note'>This is the only place a rejection is visible: a rejected document "
+        "is not Pending, so it leaves the queue, and not Approved, so it never reaches the system "
+        "tab.</p>", unsafe_allow_html=True)
     decided = load_data()
     store = StorageManager(DB_PATH)
     for _, row in frame.iterrows():
@@ -1823,9 +1871,15 @@ def history_body(frame):
         match = decided[decided["id"] == row["invoice_id"]]
         full = match.iloc[0] if not match.empty else None
         key = f"hist-{int(row['decision_id'])}"
+        held = human_approval_note(row) if row["is_latest"] else None
+        held_html = f"<div class='hist-note'>{held}</div>" if held else ""
         with st.container(border=True, key=key, gap=None):
-            body, act = st.columns([5, 1.6], vertical_alignment="center")
-            body.markdown(
+            # One horizontal line: the facts take the room, the buttons keep their width and drop
+            # underneath when the window is too narrow. Nested st.columns shrank each button to a
+            # few pixels at about 900px and wrapped "Open" one letter per line.
+            line = st.container(horizontal=True, vertical_alignment="center",
+                                key=f"histline-{int(row['decision_id'])}")
+            line.markdown(
                 f"<div class='hist'>"
                 f"<span class='dot' style='background:{dot}'></span>"
                 f"<span class='hist-decision'>{headline}</span>"
@@ -1839,24 +1893,16 @@ def history_body(frame):
                 f"<span title='{SCORE_NOTE}'><b>Validation score then</b> {scored} "
                 f"({verdict_word(row)})</span>"
                 f"<span><b>What followed</b> {followed}</span>"
-                f"</div>", unsafe_allow_html=True)
-            # Only on the decision in force. An approval later taken back is no longer one that
-            # re-running main.py could undo or not undo.
-            held = human_approval_note(row) if row["is_latest"] else None
-            if held:
-                body.caption(held)
-            open_col, reopen_col = act.columns(2)
-            if open_col.button("Open", key=f"{key}-open", disabled=full is None,
-                               width="stretch"):
+                f"</div>{held_html}", unsafe_allow_html=True)
+            if line.button("Open", key=f"{key}-open", disabled=full is None):
                 review_dialog(full)
             # One Reopen per document, on its latest decision. Reopening an older row would
             # take back a decision that is no longer the one in force.
             if row["is_latest"] and row["current_status"] != "Pending":
                 blocker = store.reopen_blocker(int(row["invoice_id"]))
-                if reopen_col.button("Reopen", key=f"{key}-reopen", disabled=bool(blocker),
-                                     help=blocker or "Take this decision back and return the "
-                                     "document to Awaiting approval. The decision stays here.",
-                                     width="stretch"):
+                if line.button("Reopen", key=f"{key}-reopen", disabled=bool(blocker),
+                               help=blocker or "Take this decision back and return the "
+                               "document to Awaiting approval. The decision stays here."):
                     reopen_for_review(int(row["invoice_id"]))
                     st.rerun()
 
@@ -2077,7 +2123,29 @@ def overview_body(pending, auto, outbox, history):
         "made inside the document, not from this page.</p>", unsafe_allow_html=True)
 
 
-st.title("Invoice approvals")
+# Reported by JJ on 2026-10-07: the heading read "Invoice approvals" on every page, so the page a
+# person was on was only told by the sidebar. The product name stays, small, above the page's own
+# name. It is Luke's choice of 2026-09-28 and the sign-in screens still carry it as their title.
+PAGE_HEADINGS = {
+    "overview": ("Overview", "What is waiting for a person, what the system cleared on its own, "
+                             "and what has happened since."),
+    "awaiting": ("Awaiting approval", "Documents a person has to decide on. Open one to approve "
+                                      "or reject it."),
+    "auto": ("Approved by the system", "Documents the system approved without asking anyone. A "
+                                       "person can open and overturn any of them."),
+    "outbox": ("Outbox", "Work handed to other systems, such as Jira. Nothing here has been "
+                         "sent unless it says Sent."),
+    "history": ("History", "Every decision a person made, newest first, including ones later "
+                           f"taken back. Times are {LOCAL_TZ_LABEL} time."),
+    "documents": ("Documents", "Every document the pipeline has stored."),
+    "vendors": ("Vendors", "Every vendor across the documents, grouped by currency."),
+    "runs": ("Pipeline runs", "Each time the pipeline ran, and the model that read the documents."),
+}
+_heading, _subtitle = PAGE_HEADINGS.get(view, ("Invoice approvals", ""))
+st.markdown("<div class='page-eyebrow'>Invoice approvals</div>", unsafe_allow_html=True)
+st.title(_heading)
+if _subtitle:
+    st.markdown(f"<p class='page-sub'>{_subtitle}</p>", unsafe_allow_html=True)
 
 # Overview leads and is the default. fe-screen-spec.md §2 made Awaiting approval the default on
 # the grounds that the screen exists to decide on documents, and amended it on 2026-09-20: the
