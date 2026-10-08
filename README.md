@@ -146,9 +146,12 @@ Process the invoices with local RAG enabled if you want to test the RAG PoC:
 python3 main.py --rag --rag-limit 1
 ```
 
-RAG is optional. The standard command above runs the normal extraction pipeline, while
-`--rag` retrieves one relevant anonymised invoice example and adds it to the extraction
-prompt.
+RAG is optional. The standard command above runs the normal extraction pipeline. With
+`--rag`, the pipeline first runs the normal extraction and deterministic validation. It
+retrieves an anonymised example and retries only when fields or supporting evidence are
+weak, and it keeps the retry only when its evidence-based validation rank is strictly
+better. The evaluation command's `--rag` flag remains an always-RAG mode so controlled
+baseline comparisons stay reproducible.
 
 Check the setup worked:
 

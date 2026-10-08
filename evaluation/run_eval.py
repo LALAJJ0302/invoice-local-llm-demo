@@ -34,7 +34,12 @@ sys.path.insert(0, REPO_ROOT)
 from pypdf import PdfReader  # noqa: E402
 
 from samples_fixture import ensure_samples  # noqa: E402
-from main import ConfidenceValidator, DocumentExtractor  # noqa: E402
+from main import (  # noqa: E402
+    ConfidenceValidator,
+    DocumentExtractor,
+    rag_result_is_better,
+    should_retry_with_rag,
+)
 
 FIELDS = ["vendor_name", "invoice_number", "date", "total_amount", "currency"]
 
@@ -116,10 +121,16 @@ def main():
              "working, not the model, and counting it inflates the score.",
     )
     parser.add_argument("--threshold", type=float, default=0.80)
-    parser.add_argument(
+    rag_group = parser.add_mutually_exclusive_group()
+    rag_group.add_argument(
         "--rag",
         action="store_true",
-        help="Retrieve local anonymised examples and add them to the extraction prompt.",
+        help="Add a retrieved example to every extraction for controlled A/B comparison.",
+    )
+    rag_group.add_argument(
+        "--selective-rag",
+        action="store_true",
+        help="Run baseline first, retry weak results with RAG, and keep only improvements.",
     )
     parser.add_argument(
         "--rag-limit",
@@ -160,17 +171,45 @@ def main():
 
         raw_text = "\n".join((p.extract_text() or "") for p in PdfReader(path).pages).strip()
         started_at = time.perf_counter()
-        data = extractor.extract_invoice_data(raw_text, file_name)
+        data = extractor.extract_invoice_data(
+            raw_text,
+            file_name,
+            use_rag=False if args.selective_rag else None,
+        )
+        retrieval = []
+        retry_triggered = False
+        rag_adopted = False
+
+        if data is not None and args.selective_rag:
+            baseline_data = data
+            baseline_verdict = validator.explain(data, raw_text)
+            retry_triggered = should_retry_with_rag(baseline_verdict)
+            if retry_triggered:
+                rag_data = extractor.extract_invoice_data(raw_text, file_name, use_rag=True)
+                retrieval = [
+                    {
+                        "example_id": item["example_id"],
+                        "score": item["retrieval_score"],
+                        "reason": item["retrieval_reason"],
+                    }
+                    for item in extractor.last_retrieval
+                ]
+                if rag_data is not None:
+                    rag_verdict = validator.explain(rag_data, raw_text)
+                    rag_adopted = rag_result_is_better(baseline_verdict, rag_verdict)
+                    data = rag_data if rag_adopted else baseline_data
+        elif args.rag:
+            retrieval = [
+                {
+                    "example_id": item["example_id"],
+                    "score": item["retrieval_score"],
+                    "reason": item["retrieval_reason"],
+                }
+                for item in extractor.last_retrieval
+            ]
+
         latency_seconds = round(time.perf_counter() - started_at, 3)
         latencies.append(latency_seconds)
-        retrieval = [
-            {
-                "example_id": item["example_id"],
-                "score": item["retrieval_score"],
-                "reason": item["retrieval_reason"],
-            }
-            for item in extractor.last_retrieval
-        ]
         if data is None:
             print(f"[fail] extraction returned nothing for {file_name}")
             rows.append({
@@ -199,6 +238,8 @@ def main():
             "status": status,
             "latency_seconds": latency_seconds,
             "retrieval": retrieval,
+            "retry_triggered": retry_triggered,
+            "rag_adopted": rag_adopted,
         })
 
     total = len(rows)
@@ -207,13 +248,14 @@ def main():
         return 1
 
     mode = "enabled" if args.with_fallback else "disabled"
-    rag_mode = "enabled" if args.rag else "disabled"
+    rag_mode = "selective" if args.selective_rag else ("enabled" if args.rag else "disabled")
     # Name what was switched off rather than asserting a state, so a pasted result
     # can be checked by whoever reads it.
     detail = ", ".join(disabled) if disabled else "none, measuring shipped behaviour"
     print(f"\n=== Extraction accuracy: {args.model} ===")
     print(f"    fallbacks {mode}: {detail}\n")
-    print(f"    RAG {rag_mode}: limit {args.rag_limit if args.rag else 0}\n")
+    rag_active = args.rag or args.selective_rag
+    print(f"    RAG {rag_mode}: limit {args.rag_limit if rag_active else 0}\n")
     print(f"{'Field':<16}{'Correct':>10}{'Accuracy':>12}")
     print("-" * 38)
     for f in FIELDS:
@@ -237,8 +279,10 @@ def main():
         # "fallbacks" is kept for compatibility with the frozen results_*.json files.
         payload = {"model": args.model, "fallbacks": mode,
                    "fallbacks_disabled": disabled, "threshold": args.threshold,
-                   "rag": rag_mode, "rag_limit": args.rag_limit if args.rag else 0,
-                   "rag_examples": args.rag_examples if args.rag else None,
+                   "rag": rag_mode, "rag_limit": args.rag_limit if rag_active else 0,
+                   "rag_examples": args.rag_examples if rag_active else None,
+                   "selective_retries": sum(r.get("retry_triggered", False) for r in rows),
+                   "selective_adoptions": sum(r.get("rag_adopted", False) for r in rows),
                    "average_latency_seconds": average_latency,
                    "per_field": {f: {"correct": hits[f], "total": total} for f in FIELDS},
                    "overall": {"correct": got, "total": poss},

@@ -22,11 +22,12 @@ behaviour.
 ```text
 Invoice PDF
 -> pypdf text extraction
--> deterministic example retrieval
--> prompt augmentation
--> local Ollama structured extraction
+-> baseline local Ollama structured extraction
 -> Pydantic schema validation
 -> deterministic evidence and amount validation
+-> if weak: retrieve an example and retry local Ollama
+-> Pydantic validation and deterministic validation of the retry
+-> compare both verdicts and keep only a strict evidence-based improvement
 -> SQLite storage
 -> Streamlit human review
 ```
@@ -41,6 +42,7 @@ Invoice PDF
 | `evaluation/run_eval.py` | Runs controlled baseline and RAG comparisons. |
 | `tests/test_rag_retrieval.py` | Verifies selection, ordering, validation, and safe formatting. |
 | `tests/test_rag_integration.py` | Verifies that retrieved context reaches the Ollama prompt. |
+| `tests/test_selective_rag.py` | Verifies retry triggers, evidence ranking, tie handling, and per-call RAG control. |
 
 ## Usage
 
@@ -50,7 +52,7 @@ Run the normal baseline pipeline:
 ./.venv/bin/python main.py
 ```
 
-Run the pipeline with one retrieved example per document:
+Run the pipeline with validation-triggered RAG retry (maximum one example):
 
 ```bash
 ./.venv/bin/python main.py --rag --rag-limit 1
@@ -64,7 +66,7 @@ Run the controlled baseline evaluation:
   --save evaluation/results_rag_baseline.json
 ```
 
-Run the controlled RAG evaluation:
+Run the controlled always-RAG evaluation:
 
 ```bash
 ./.venv/bin/python evaluation/run_eval.py \
@@ -74,8 +76,52 @@ Run the controlled RAG evaluation:
   --save evaluation/results_rag_enabled.json
 ```
 
+Run the application-style selective RAG evaluation:
+
+```bash
+./.venv/bin/python evaluation/run_eval.py \
+  --model llama3.2:latest \
+  --selective-rag \
+  --rag-limit 1 \
+  --save evaluation/results_rag_selective.json
+```
+
 Fallback extraction methods are disabled by default in both evaluation commands so the
 comparison measures model behaviour rather than regex or filename repairs.
+
+## Accuracy Improvement Design
+
+The production-style pipeline now uses RAG selectively. It first extracts without an
+example and calculates the normal deterministic verdict. A retry is triggered when the
+result needs review, has an empty field, lacks a verified total, or has unknown/short line-
+item reconciliation. The retry receives the most relevant local example.
+
+The model does not decide which answer wins. Python ranks both verdicts by validation
+status, amount evidence, line-item reconciliation, validation score, and completeness. The
+RAG result replaces the baseline only when that tuple is strictly better; a tie or weaker
+result keeps the baseline. This guards against retrieval making an already-correct result
+worse and avoids a second model call for complete, fully validated invoices.
+
+`evaluation/run_eval.py --rag` intentionally remains always-RAG. That command measures the
+effect of prompt augmentation under a controlled A/B setup, while `main.py --rag` exercises
+the safer selective workflow used by the application.
+
+## Selective Workflow Verification
+
+An isolated end-to-end run on 2026-10-08 processed all four mock invoices without touching
+the working database. Three complete invoices scored 1.00 on the baseline pass and skipped
+RAG. The ambiguous Harbour Review Supplies invoice triggered one RAG retry because its
+amount was present but not beside a grand-total label. The retry did not improve the
+evidence rank, so the baseline result was retained and the invoice remained in human
+review. This is the intended safe behaviour.
+
+A fresh controlled run after the prompt change produced 15/15 correct fields for baseline,
+always-RAG, and selective-RAG. Baseline latency averaged 3.796 seconds per document,
+always-RAG averaged 4.650 seconds, and selective-RAG averaged 3.745 seconds. Selective-RAG
+triggered zero retries because all three baseline results were complete and fully validated,
+so it avoided three unnecessary RAG calls. Because the evaluation invoices were already
+correct, this confirms no accuracy regression and lower avoidable cost rather than proving
+an accuracy gain.
 
 ## Three Run Evaluation Result
 
@@ -121,9 +167,11 @@ the fixtures should be made deterministic instead of depending on a live model o
 
 ## Privacy and Safety
 
-The example repository contains synthetic data. Retrieved examples include an instruction
-that their values must not be copied into the current document. Existing deterministic
-validation still checks the model output against the current source text.
+The example repository contains synthetic data. Retrieved examples include an instruction that their values must not be copied into the
+current document. The extraction prompt also states that every output value must come from
+the current document and missing values must not be guessed. Existing deterministic
+validation checks both attempts against the current source text, and the baseline is
+preserved unless RAG produces stronger evidence.
 
 ## Limitations and Future Work
 

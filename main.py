@@ -129,12 +129,19 @@ class DocumentExtractor:
         self,
         raw_text: str,
         file_name: str,
+        use_rag: Optional[bool] = None,
     ) -> Optional[ExtractedInvoice]:
-        """Query the local Ollama model with optional RAG examples."""
+        """Query Ollama, optionally overriding RAG for this one extraction.
+
+        The per-call override lets the workflow make a baseline attempt first and use
+        retrieved examples only when deterministic validation finds a weakness. Evaluation
+        callers that omit it keep the configured always-baseline or always-RAG behaviour.
+        """
         self.last_retrieval = []
         rag_context = ""
+        rag_enabled = self.use_rag if use_rag is None else use_rag
 
-        if self.use_rag:
+        if rag_enabled:
             try:
                 self.last_retrieval = rag_retrieval.retrieve_examples(
                     raw_text,
@@ -152,6 +159,12 @@ class DocumentExtractor:
 
         prompt = f"""
         You are an advanced Document Intelligence AI. Extract the invoice fields from the following document into structured JSON.
+
+        Source Boundary Rules:
+        - Extract every output value from CURRENT DOCUMENT CONTENT only.
+        - Retrieved examples demonstrate structure and label interpretation only.
+        - Never copy a vendor, invoice number, date, amount, currency, or item from an example.
+        - If a value is absent from the current document, return null, 0.0, "Unknown", or an empty list as appropriate. Do not guess.
 
         Strict Extraction Rules:
         1. "vendor_name": Look at the header, sender, top letterhead, or logo text. If completely missing, return null.
@@ -431,6 +444,39 @@ class ConfidenceValidator:
         detail = self.explain(data, raw_text)
         return detail["score"], detail["status"]
 
+def should_retry_with_rag(verdict: dict) -> bool:
+    """Return whether deterministic validation found a reason for a RAG retry."""
+    return (
+        verdict["status"] != "Validated"
+        or bool(verdict["empty"])
+        or verdict["amount_state"] != "verified"
+        or verdict["reconciliation"] in {"unknown", "short"}
+    )
+
+
+def validation_quality(verdict: dict) -> tuple:
+    """Rank two extraction verdicts using evidence, not model self-confidence.
+
+    The ordering protects business safety first. Passing the validation gate, verifying the
+    payable amount, and reconciling line items outrank a small numerical score difference.
+    The final completeness component makes ties deterministic.
+    """
+    amount_rank = {"absent": 0, "present": 1, "verified": 2}
+    reconciliation_rank = {"short": 0, "unknown": 1, "plausible": 2, "exact": 3}
+    return (
+        int(verdict["status"] == "Validated"),
+        amount_rank.get(verdict["amount_state"], -1),
+        reconciliation_rank.get(verdict["reconciliation"], -1),
+        verdict["score"],
+        -len(verdict["empty"]),
+    )
+
+
+def rag_result_is_better(baseline: dict, rag: dict) -> bool:
+    """Adopt RAG only for a strict improvement; equal results keep the first answer."""
+    return validation_quality(rag) > validation_quality(baseline)
+
+
 # =====================================================================
 # 3b. Document Intelligence (category / summary / action items)
 # =====================================================================
@@ -552,6 +598,7 @@ class WorkflowOrchestrator:
         self.inbox_dir = inbox_dir
         self.archive_dir = archive_dir
         self.threshold = threshold
+        self.use_rag = use_rag
 
         self.extractor = DocumentExtractor(
             model_name="llama3.2",
@@ -601,18 +648,53 @@ class WorkflowOrchestrator:
                 print(f"  └─ [Skip] Document is empty or binary.")
                 continue
 
-            # 2. Extract with AI
+            # 2. Extract with AI. In selective RAG mode the first pass is deliberately
+            # example-free. Deterministic validation decides whether a second pass is useful.
             print("  └─ [Step 2: AI Extraction] Processing with Ollama (llama3.2)...")
-            data = self.extractor.extract_invoice_data(raw_text, file_name)
+            data = self.extractor.extract_invoice_data(
+                raw_text,
+                file_name,
+                use_rag=False if self.use_rag else None,
+            )
             if not data:
-                print(f"  └─ [Fail] AI extraction failed.")
+                print("  └─ [Fail] AI extraction failed.")
                 continue
-            if self.extractor.last_retrieval:
-                selected = ", ".join(
-                    f"{item['example_id']} (score {item['retrieval_score']})"
-                    for item in self.extractor.last_retrieval
+
+            verdict = self.validator.explain(data, raw_text)
+            if self.use_rag and should_retry_with_rag(verdict):
+                baseline_data, baseline_verdict = data, verdict
+                trigger = baseline_verdict["reason"]
+                print(f"  └─ [Step 2a: Selective RAG] Retry triggered: {trigger}")
+
+                rag_data = self.extractor.extract_invoice_data(
+                    raw_text,
+                    file_name,
+                    use_rag=True,
                 )
-                print(f"  └─ [Step 2a: RAG] Retrieved {selected}")
+                if self.extractor.last_retrieval:
+                    selected = ", ".join(
+                        f"{item['example_id']} (score {item['retrieval_score']})"
+                        for item in self.extractor.last_retrieval
+                    )
+                    print(f"     Retrieved {selected}")
+
+                if rag_data:
+                    rag_verdict = self.validator.explain(rag_data, raw_text)
+                    if rag_result_is_better(baseline_verdict, rag_verdict):
+                        data, verdict = rag_data, rag_verdict
+                        print(
+                            "     Adopted RAG result: "
+                            f"{baseline_verdict['score']:.2f} -> {rag_verdict['score']:.2f}"
+                        )
+                    else:
+                        data, verdict = baseline_data, baseline_verdict
+                        print(
+                            "     Kept baseline result: RAG did not improve the "
+                            "evidence-based validation rank."
+                        )
+                else:
+                    data, verdict = baseline_data, baseline_verdict
+                    print("     Kept baseline result: the RAG extraction failed.")
 
             # 2b. Trace the document back to the email that delivered it, then pull that
             # sender's prior correspondence as context. A miss is normal rather than an
@@ -635,8 +717,8 @@ class WorkflowOrchestrator:
             else:
                 print("  └─ [Step 2b: Link] No email matched this file")
 
-            # 3. Validation Gate
-            verdict = self.validator.explain(data, raw_text)
+            # 3. Validation Gate. The verdict was calculated above so the optional RAG
+            # retry and the stored decision use exactly the same deterministic rules.
             confidence, status = verdict["score"], verdict["status"]
             print(f"  └─ [Step 3: Validation Gate] Score: {confidence} -> {status} "
                   f"(amount {verdict['amount_state']})")
@@ -751,7 +833,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--rag",
         action="store_true",
-        help="Add retrieved anonymised examples to the extraction prompt.",
+        help="Retry weak extractions with a retrieved anonymised example.",
     )
     parser.add_argument(
         "--rag-limit",
