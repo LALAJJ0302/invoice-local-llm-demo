@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
@@ -313,6 +313,23 @@ CREATE TABLE outbound_messages (
 
 CREATE INDEX ix_outbound_state ON outbound_messages(state);
 CREATE INDEX ix_outbound_invoice ON outbound_messages(invoice_id);
+
+-- Every decision a person makes about an invoice, appended and never updated. Added by
+-- migration 016. It sits here rather than at the end of this script because migration 011
+-- builds its tables from everything after its own marker, and would have created this one too.
+-- The three columns on invoices (approval_status, reviewed_at, reviewed_by) still hold the decision in force now; this table holds every one that came before it, so
+-- reopening a document does not erase the approval it takes back. The score and status are
+-- copied at the moment of deciding, because a re-run of main.py can change the invoice's own.
+CREATE TABLE invoice_decisions (
+    decision_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    invoice_id        INTEGER NOT NULL REFERENCES invoices(invoice_id) ON DELETE CASCADE,
+    decision          TEXT    NOT NULL CHECK (decision IN ('Approved','Rejected','Reopened')),
+    decided_by        INTEGER REFERENCES users(user_id),
+    decided_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+    validation_score  REAL,
+    validation_status TEXT
+);
+CREATE INDEX ix_invoice_decisions_invoice ON invoice_decisions(invoice_id, decided_at);
 
 -- ---------------------------------------------------------------------
 -- The email AI module's output. Added by migration 011.
@@ -1256,12 +1273,15 @@ class StorageManager:
     def record_decision(self, invoice_id: int, decision: str, reviewed_by: int) -> bool:
         """Records who approved or rejected an invoice.
 
-        Writes approval_status, reviewed_at and reviewed_by only. validation_status and
-        validation_score stay as the pipeline left them. An unknown user_id is rejected
-        rather than stored: a decision with no real reviewer is not a decision.
-        Returns whether a row changed.
+        Writes approval_status, reviewed_at and reviewed_by, and appends the same decision to
+        invoice_decisions in the same transaction. validation_status and validation_score stay
+        as the pipeline left them. An unknown user_id is rejected rather than stored: a
+        decision with no real reviewer is not a decision. Returns whether a row changed.
+
+        "Pending" is no longer accepted. Taking a decision back also has to deal with the work
+        that followed it, which is `reopen_for_review`'s job, and a second way in would skip it.
         """
-        if decision not in ("Approved", "Rejected", "Pending"):
+        if decision not in ("Approved", "Rejected"):
             raise ValueError(f"unknown decision {decision!r}")
         with connect(self.db_path) as conn:
             reviewer = conn.execute(
@@ -1274,8 +1294,97 @@ class StorageManager:
                 "reviewed_by = ? WHERE invoice_id = ?",
                 (decision, reviewed_by, invoice_id),
             )
+            if cursor.rowcount:
+                self._log_decision(conn, invoice_id, decision, reviewed_by)
             conn.commit()
             return cursor.rowcount > 0
+
+    @staticmethod
+    def _log_decision(conn: sqlite3.Connection, invoice_id: int, decision: str,
+                      decided_by: int) -> None:
+        """Appends one row to invoice_decisions, copying the score as it stands right now."""
+        conn.execute(
+            "INSERT INTO invoice_decisions "
+            "(invoice_id, decision, decided_by, validation_score, validation_status) "
+            "SELECT invoice_id, ?, ?, validation_score, validation_status "
+            "FROM invoices WHERE invoice_id = ?",
+            (decision, decided_by, invoice_id),
+        )
+
+    def reopen_blocker(self, invoice_id: int) -> Optional[str]:
+        """Why this invoice cannot be reopened, or None if it can.
+
+        Two reasons. A document nobody has decided is already in the queue. And a document
+        whose follow-up already reached Jira cannot be taken back from here: the issue exists
+        in a system this one does not control, and reopening would leave it open against a
+        decision that no longer stands. That has to be undone in Jira first.
+        """
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status FROM invoices WHERE invoice_id = ?", (invoice_id,)
+            ).fetchone()
+            if not row:
+                return "No such document."
+            if row["approval_status"] == "Pending":
+                return "This document is already waiting for approval."
+            sent = conn.execute(
+                "SELECT COALESCE(o.external_ref, t.external_ref) AS ref "
+                "FROM tasks t LEFT JOIN outbound_messages o "
+                "  ON o.task_id = t.task_id AND o.state = 'Sent' "
+                "WHERE t.invoice_id = ? AND (o.outbox_id IS NOT NULL OR t.external_ref IS NOT NULL) "
+                "LIMIT 1",
+                (invoice_id,),
+            ).fetchone()
+            if sent:
+                return (f"Its follow-up task is already in Jira as {sent['ref'] or 'an issue'}. "
+                        "Close that issue in Jira before reopening it here.")
+        return None
+
+    def reopen_for_review(self, invoice_id: int, reopened_by: int) -> bool:
+        """Takes a decision back and returns the document to the approval queue.
+
+        In one transaction: the invoice goes back to Pending with reviewed_at and reviewed_by
+        cleared, because no decision is in force any more; a Reopened row is appended to
+        invoice_decisions, so the decision being taken back stays on record; the follow-up
+        task the approval opened is cancelled, which also withdraws its unsent outbox row
+        (see `withdrawn` in app.load_outbox); and a Review task is opened, so the task queue
+        agrees with the approval queue.
+
+        Refuses with ValueError for anything `reopen_blocker` names. Returns True on success.
+        """
+        blocker = self.reopen_blocker(invoice_id)
+        if blocker:
+            raise ValueError(blocker)
+        placeholders = ",".join("?" for _ in OPEN_TASK_STATES)
+        with connect(self.db_path) as conn:
+            if not conn.execute(
+                "SELECT user_id FROM users WHERE user_id = ?", (reopened_by,)
+            ).fetchone():
+                raise ValueError(f"unknown reviewer {reopened_by}")
+            conn.execute(
+                "UPDATE invoices SET approval_status = 'Pending', reviewed_at = NULL, "
+                "reviewed_by = NULL WHERE invoice_id = ?",
+                (invoice_id,),
+            )
+            self._log_decision(conn, invoice_id, "Reopened", reopened_by)
+            conn.execute(
+                f"UPDATE tasks SET state = 'Cancelled', resolved_at = datetime('now') "
+                f"WHERE invoice_id = ? AND state IN ({placeholders})",
+                (invoice_id, *OPEN_TASK_STATES),
+            )
+            conn.execute(
+                "INSERT INTO tasks (invoice_id, task_type, reason) VALUES (?, 'Review', ?)",
+                (invoice_id, "Reopened for review by a person."),
+            )
+            conn.commit()
+        return True
+
+    def was_decided_by_a_person(self, invoice_id: int) -> bool:
+        """Whether any person has ever decided on this invoice, including reopening it."""
+        with connect(self.db_path) as conn:
+            return conn.execute(
+                "SELECT 1 FROM invoice_decisions WHERE invoice_id = ? LIMIT 1", (invoice_id,)
+            ).fetchone() is not None
 
     # -- tasks ---------------------------------------------------------
     def open_task(
@@ -1466,11 +1575,17 @@ class StorageManager:
         still has to be paid, a receipt only has to be filed. Any Review/Approve task left
         open from an earlier run is closed first, so the document does not sit in the
         dashboard queue after the decision has already been made.
+
+        A document a person has ever decided on is left alone. Reopening puts it back to
+        Pending, and without this a re-run of main.py at a score of 1.00 would approve it again
+        by itself, overruling the person who asked for it to be looked at.
         """
         with connect(self.db_path) as conn:
             conn.execute(
                 "UPDATE invoices SET approval_status = 'Approved' "
-                "WHERE invoice_id = ? AND approval_status = 'Pending'",
+                "WHERE invoice_id = ? AND approval_status = 'Pending' "
+                "AND NOT EXISTS (SELECT 1 FROM invoice_decisions d "
+                "                WHERE d.invoice_id = invoices.invoice_id)",
                 (invoice_id,))
             conn.commit()
             row = conn.execute(

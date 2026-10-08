@@ -28,7 +28,7 @@ def test_human_approval_note_when_a_person_approved_needs_review():
     assert "approved by a reviewer" in note
     assert "NeedsReview" in note
     assert "main.py" in note
-    assert "Reject" in note
+    assert "Reopen" in note, "the note must point at the control that actually reopens review"
 
 
 def test_human_approval_note_is_absent_otherwise():

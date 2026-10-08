@@ -90,6 +90,7 @@ Requires Ollama serving and a virtualenv.
 ./.venv/bin/python migrations/013_reviewer_login.py
 ./.venv/bin/python migrations/014_must_change_password.py
 ./.venv/bin/python migrations/015_review_note.py
+./.venv/bin/python migrations/016_invoice_decisions.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
 ./.venv/bin/python email_pipeline.py --threads   # analyse the stored mailbox -> SQLite
 ./.venv/bin/python query_db.py                   # inspect records
