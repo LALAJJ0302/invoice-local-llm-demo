@@ -33,6 +33,7 @@ Following supervisor feedback, the project was de-scoped into a local-first work
 - Mock invoice generation for testing
 - PDF text extraction with `pypdf`
 - Local LLM extraction through Ollama
+- Optional local RAG using anonymised invoice examples
 - Structured invoice fields stored in SQLite
 - Confidence scoring and `Validated` / `NeedsReview` status
 - Streamlit dashboard with KPIs, tables, filters, charts, and review actions
@@ -46,6 +47,8 @@ Following supervisor feedback, the project was de-scoped into a local-first work
 | `.env.example` | Template for local email configuration. Copy this to `.env`. |
 | `inbox/` | Local folder for incoming invoice files. Ignored by Git. |
 | `main.py` | Core processing pipeline: reads files, extracts text, calls Ollama, validates confidence, saves records, and archives files. |
+| `rag_retrieval.py` | Selects relevant anonymised invoice examples for optional prompt augmentation. |
+| `rag-poc.md` | Describes the RAG design, evaluation method, results, and limitations. |
 | `workflow_platform.db` | Local SQLite database. Ignored by Git. |
 | `query_db.py` | Utility script for inspecting SQLite records. |
 | `app.py` | Streamlit dashboard for viewing processed invoice results. |
@@ -131,13 +134,34 @@ python3 seed_mock_emails.py
 ```
 
 Process the invoices. This is the step that creates `workflow_platform.db`, so it must run
-before the dashboard shows anything. About 30 seconds for the three samples:
+before the dashboard shows anything. About 30 seconds for the four samples:
 
 ```bash
 python3 main.py
 ```
 
-Check it worked:
+Process the invoices with local RAG enabled if you want to test the RAG PoC:
+
+```bash
+python3 main.py --rag --rag-limit 1
+```
+
+RAG is optional. The standard command above runs the normal extraction pipeline. With
+`--rag`, the pipeline first runs the normal extraction and deterministic validation. It
+retrieves an anonymised example and retries only when fields or supporting evidence are
+weak, and it keeps the retry only when its evidence-based validation rank is strictly
+better. The evaluation command's `--rag` flag remains an always-RAG mode so controlled
+baseline comparisons stay reproducible.
+
+Run the larger 30-document extraction benchmark:
+
+```bash
+python3 evaluation/run_eval.py --dataset extended --model llama3.2:latest
+python3 evaluation/run_eval.py --dataset extended --model llama3.2:latest --rag
+python3 evaluation/run_eval.py --dataset extended --model llama3.2:latest --selective-rag
+```
+
+Check the setup worked:
 
 ```bash
 python3 -m pytest tests/ -q
@@ -153,6 +177,7 @@ Before `main.py` has run, the dashboard opens and says "No documents have been p
 yet", which is correct rather than broken. There is no migration to run on a new machine
 either: the schema is created on first use, and the scripts in `migrations/` only upgrade a
 database that already exists.
+
 
 Open the dashboard:
 
