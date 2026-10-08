@@ -51,37 +51,65 @@ The prompt now states that every output value must come from the current documen
 
 ## 6. Verification Results / 驗證結果
 
-### 中文
+### 30-document benchmark / 30 張文件評估
 
-- RAG 相關自動測試：18 passed。
-- 隔離的端到端流程：4/4 文件成功處理。
-- 三張完整發票第一次抽取為 1.00，因此跳過 RAG。
-- 一張金額標籤有疑問的發票啟動 RAG；RAG 沒有改善證據，因此保留 baseline 並送人工審核。
-- 最新受控評估：baseline、always-RAG 與 selective-RAG 全部為 15/15。
-- 平均模型延遲：baseline 3.796 秒；always-RAG 4.650 秒；selective-RAG 3.745 秒。
-- selective-RAG 在三張完整文件上為 0 次重試、0 次替換，因此避免三次不必要的 RAG 呼叫。
-- 完整測試執行結果：653 passed、2 skipped、7 failed。七個失敗都讀取現有 `workflow_platform.db` 的可變 UI 狀態，例如目前沒有待審文件或 outbox 數量不同；RAG 專用測試全部通過，原資料庫雜湊也保持不變。
+The extended benchmark contains 30 synthetic held-out, text-based PDFs across six layouts.
+None of their vendors or invoice values appears in the RAG example repository. Fallback
+repairs were disabled, and each mode ran three times with `llama3.2:latest`.
 
-### English
+擴充評估包含 30 張獨立的合成文字型 PDF，涵蓋六種版面。測試文件的 vendor 與
+invoice values 都沒有出現在 RAG example repository。三種模式都關閉 fallback，並以
+`llama3.2:latest` 各執行三次。
+
+| Metric / 指標 | Baseline | Always-RAG | Selective-RAG |
+|---|---:|---:|---:|
+| Field accuracy / 欄位準確率 | 91.3% | 94.0% | 94.0% |
+| Correct fields / 正確欄位 | 137/150 | 141/150 | 141/150 |
+| Document exact match / 整張全對 | 73.3% | 80.0% | 80.0% |
+| Validation pass rate | 36.7% | 33.3% | 43.3% |
+| Mean latency / 平均延遲 | 5.230 s | 3.781 s | 8.606 s |
+| Selective retries | — | — | 19/30 per run |
+| Selective adoptions | — | — | 11/30 per run |
+
+All three runs produced identical accuracy values. Both RAG modes improved four fields per
+run and improved three documents without making any document less accurate. Compared with
+baseline, the repeatable changes were:
+
+- Vendor name: 86.7% → 90.0% (+3.3 percentage points)
+- Invoice number: 80.0% → 83.3% (+3.3 points)
+- Total amount: 90.0% → 96.7% (+6.7 points)
+- Overall field accuracy: 91.3% → 94.0% (+2.7 points)
+- Document exact match: 73.3% → 80.0% (+6.7 points)
+- Three documents improved, zero became worse, and 27 were unchanged in every run.
+
+三輪的準確率結果完全相同。兩種 RAG 模式每輪都多修正四個欄位，改善三張文件，
+沒有任何文件變差。這表示在此合成 benchmark 上，RAG 的準確度提升是可重複的。
+
+Selective-RAG reached the same extraction accuracy as always-RAG and had the highest
+validation pass rate. Its latency was higher because 19 weak documents required both a
+baseline call and a retry. The always-RAG latency happened to be lower during these runs,
+but local warm-up and machine load make cross-run latency less reliable than the accuracy
+comparison.
+
+### Other verification / 其他驗證
 
 - RAG-focused automated tests: 18 passed.
-- Isolated end-to-end workflow: 4/4 documents processed.
-- Three complete invoices scored 1.00 on the first pass and skipped RAG.
-- One invoice with ambiguous amount-label evidence triggered RAG; the retry was not stronger, so the baseline remained in human review.
-- Latest controlled evaluation: baseline, always-RAG, and selective-RAG all scored 15/15.
-- Average model latency: 3.796 seconds baseline, 4.650 seconds always-RAG, and 3.745 seconds selective-RAG.
-- Selective-RAG made zero retries and zero replacements on the three complete documents, avoiding three unnecessary RAG calls.
-- Full suite: 653 passed, 2 skipped, and 7 failed. The seven failures read mutable UI state from the existing `workflow_platform.db`, such as an empty approval queue or a different outbox count. All RAG-specific tests passed, and the original database hash remained unchanged.
+- Extended fixture integrity tests verify 30 PDFs, frozen ground truth, and no vendor overlap.
+- Isolated application workflow: 4/4 documents processed.
+- Original working database SHA-1 remained unchanged.
+
+The earlier full-suite run produced 653 passed, 2 skipped, and 7 failures caused by mutable
+UI/database state. Those failures are separate from the RAG evaluation.
 
 ## 7. What the Result Means / 結果代表什麼
 
 ### 中文
 
-這次不能宣稱「準確率從 X% 提升到 Y%」，因為測試集太小且 baseline 已達 100%。可以證明的是：新架構能在弱結果時自動嘗試補救，在沒有改善時安全地回退，而且完整結果不需要支付第二次 LLM 呼叫成本。這是可驗證的可靠性提升。
+在新的 30 張合成 held-out benchmark 上，可以合理地說 RAG 將欄位準確率從 91.3% 提升到 94.0%，提高 2.7 個百分點；整張文件全對率從 73.3% 提升到 80.0%，提高 6.7 個百分點，而且三輪結果一致。這是測試範圍內的證據，不能直接等同於 production accuracy，因為資料仍是合成、文字型 PDF，尚未涵蓋 OCR 與真實供應商分布。
 
 ### English
 
-This work cannot honestly claim an increase from X% to Y% because the benchmark is small and its baseline is already 100%. It does prove that weak results receive an automatic recovery attempt, unsuccessful retries safely fall back, and complete results avoid a second LLM call. That is a verified reliability improvement.
+On the new 30-document synthetic held-out benchmark, RAG improved field accuracy from 91.3% to 94.0%, a 2.7 percentage-point gain. Document exact match improved from 73.3% to 80.0%, a 6.7-point gain, with identical results across all three runs. This is evidence within the benchmark scope, not a production-accuracy claim: the documents are synthetic, text-based PDFs and do not cover OCR or the full real-vendor distribution.
 
 ## 8. Recommended Next Experiment / 下一個建議實驗
 

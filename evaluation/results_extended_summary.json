@@ -1,0 +1,258 @@
+{
+  "dataset": "extended",
+  "documents_per_run": 30,
+  "runs_per_mode": 3,
+  "fallbacks": "disabled",
+  "model": "llama3.2:latest",
+  "modes": {
+    "baseline": {
+      "runs": 3,
+      "documents_per_run": 30,
+      "fields_per_run": 150,
+      "field_accuracy_percent": [
+        91.333,
+        91.333,
+        91.333
+      ],
+      "mean_field_accuracy_percent": 91.333,
+      "document_exact_match_percent": [
+        73.333,
+        73.333,
+        73.333
+      ],
+      "mean_document_exact_match_percent": 73.333,
+      "validation_rate_percent": [
+        36.667,
+        36.667,
+        36.667
+      ],
+      "mean_validation_rate_percent": 36.667,
+      "latency_seconds": [
+        4.399,
+        5.417,
+        5.874
+      ],
+      "mean_latency_seconds": 5.23,
+      "latency_range_seconds": [
+        4.399,
+        5.874
+      ],
+      "selective_retries": [
+        0,
+        0,
+        0
+      ],
+      "selective_adoptions": [
+        0,
+        0,
+        0
+      ],
+      "per_field_correct": {
+        "vendor_name": [
+          26,
+          26,
+          26
+        ],
+        "invoice_number": [
+          24,
+          24,
+          24
+        ],
+        "date": [
+          30,
+          30,
+          30
+        ],
+        "total_amount": [
+          27,
+          27,
+          27
+        ],
+        "currency": [
+          30,
+          30,
+          30
+        ]
+      }
+    },
+    "always_rag": {
+      "runs": 3,
+      "documents_per_run": 30,
+      "fields_per_run": 150,
+      "field_accuracy_percent": [
+        94.0,
+        94.0,
+        94.0
+      ],
+      "mean_field_accuracy_percent": 94.0,
+      "document_exact_match_percent": [
+        80.0,
+        80.0,
+        80.0
+      ],
+      "mean_document_exact_match_percent": 80.0,
+      "validation_rate_percent": [
+        33.333,
+        33.333,
+        33.333
+      ],
+      "mean_validation_rate_percent": 33.333,
+      "latency_seconds": [
+        3.26,
+        3.908,
+        4.174
+      ],
+      "mean_latency_seconds": 3.781,
+      "latency_range_seconds": [
+        3.26,
+        4.174
+      ],
+      "selective_retries": [
+        0,
+        0,
+        0
+      ],
+      "selective_adoptions": [
+        0,
+        0,
+        0
+      ],
+      "per_field_correct": {
+        "vendor_name": [
+          27,
+          27,
+          27
+        ],
+        "invoice_number": [
+          25,
+          25,
+          25
+        ],
+        "date": [
+          30,
+          30,
+          30
+        ],
+        "total_amount": [
+          29,
+          29,
+          29
+        ],
+        "currency": [
+          30,
+          30,
+          30
+        ]
+      }
+    },
+    "selective_rag": {
+      "runs": 3,
+      "documents_per_run": 30,
+      "fields_per_run": 150,
+      "field_accuracy_percent": [
+        94.0,
+        94.0,
+        94.0
+      ],
+      "mean_field_accuracy_percent": 94.0,
+      "document_exact_match_percent": [
+        80.0,
+        80.0,
+        80.0
+      ],
+      "mean_document_exact_match_percent": 80.0,
+      "validation_rate_percent": [
+        43.333,
+        43.333,
+        43.333
+      ],
+      "mean_validation_rate_percent": 43.333,
+      "latency_seconds": [
+        8.005,
+        8.53,
+        9.283
+      ],
+      "mean_latency_seconds": 8.606,
+      "latency_range_seconds": [
+        8.005,
+        9.283
+      ],
+      "selective_retries": [
+        19,
+        19,
+        19
+      ],
+      "selective_adoptions": [
+        11,
+        11,
+        11
+      ],
+      "per_field_correct": {
+        "vendor_name": [
+          27,
+          27,
+          27
+        ],
+        "invoice_number": [
+          25,
+          25,
+          25
+        ],
+        "date": [
+          30,
+          30,
+          30
+        ],
+        "total_amount": [
+          29,
+          29,
+          29
+        ],
+        "currency": [
+          30,
+          30,
+          30
+        ]
+      }
+    }
+  },
+  "always_rag_vs_baseline_documents": [
+    {
+      "better": 3,
+      "worse": 0,
+      "same": 27
+    },
+    {
+      "better": 3,
+      "worse": 0,
+      "same": 27
+    },
+    {
+      "better": 3,
+      "worse": 0,
+      "same": 27
+    }
+  ],
+  "selective_rag_vs_baseline_documents": [
+    {
+      "better": 3,
+      "worse": 0,
+      "same": 27
+    },
+    {
+      "better": 3,
+      "worse": 0,
+      "same": 27
+    },
+    {
+      "better": 3,
+      "worse": 0,
+      "same": 27
+    }
+  ],
+  "limitations": [
+    "Synthetic text-based PDFs; this does not evaluate OCR.",
+    "Thirty documents improve evidence but do not represent every production vendor.",
+    "Latency depends on local model warm-up and machine load."
+  ]
+}

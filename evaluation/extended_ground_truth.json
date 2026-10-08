@@ -1,0 +1,217 @@
+{
+  "_comment": "Curated synthetic held-out benchmark. None of these vendors or invoice values appear in evaluation/rag_examples.json.",
+  "_scope": "30 text-based PDFs across six layouts. This measures structured extraction, not OCR.",
+  "_created": "2026-10-08",
+  "samples": {
+    "ext_01.pdf": {
+      "vendor_name": "Blue Harbour Logistics Pty Ltd",
+      "invoice_number": "BHL-7841",
+      "date": "2026-01-07",
+      "total_amount": 1842.75,
+      "currency": "AUD"
+    },
+    "ext_02.pdf": {
+      "vendor_name": "Orchid Medical Systems",
+      "invoice_number": "OMS/26/118",
+      "date": "2026-02-14",
+      "total_amount": 9275.4,
+      "currency": "USD"
+    },
+    "ext_03.pdf": {
+      "vendor_name": "Cedar Ridge Analytics",
+      "invoice_number": "CRA-00391",
+      "date": "2026-03-02",
+      "total_amount": 3150.0,
+      "currency": "GBP"
+    },
+    "ext_04.pdf": {
+      "vendor_name": "Kestrel Office Interiors",
+      "invoice_number": "KOI-8807",
+      "date": "2026-03-19",
+      "total_amount": 2468.35,
+      "currency": "AUD"
+    },
+    "ext_05.pdf": {
+      "vendor_name": "Meridian Legal Research",
+      "invoice_number": "MLR-2026-44",
+      "date": "2026-04-05",
+      "total_amount": 5800.0,
+      "currency": "USD"
+    },
+    "ext_06.pdf": {
+      "vendor_name": "Summit Renewable Parts",
+      "invoice_number": "SRP-6102",
+      "date": "2026-04-22",
+      "total_amount": 11760.9,
+      "currency": "EUR"
+    },
+    "ext_07.pdf": {
+      "vendor_name": "Copper Finch Studios",
+      "invoice_number": "CFS-0926",
+      "date": "2026-05-01",
+      "total_amount": 1325.5,
+      "currency": "AUD"
+    },
+    "ext_08.pdf": {
+      "vendor_name": "North Quay Safety Equipment",
+      "invoice_number": "NQ-55109",
+      "date": "2026-05-16",
+      "total_amount": 6420.0,
+      "currency": "NZD"
+    },
+    "ext_09.pdf": {
+      "vendor_name": "Atlas Bioinformatics Lab",
+      "invoice_number": "ABL-2026-73",
+      "date": "2026-05-29",
+      "total_amount": 8888.88,
+      "currency": "USD"
+    },
+    "ext_10.pdf": {
+      "vendor_name": "Willow Creek Catering",
+      "invoice_number": "WCC-1408",
+      "date": "2026-06-03",
+      "total_amount": 2197.25,
+      "currency": "AUD"
+    },
+    "ext_11.pdf": {
+      "vendor_name": "Ember Network Services",
+      "invoice_number": "ENS-77820",
+      "date": "2026-06-18",
+      "total_amount": 4750.0,
+      "currency": "SGD"
+    },
+    "ext_12.pdf": {
+      "vendor_name": "Pacific Archive Solutions",
+      "invoice_number": "PAS/00917",
+      "date": "2026-07-01",
+      "total_amount": 10240.6,
+      "currency": "AUD"
+    },
+    "ext_13.pdf": {
+      "vendor_name": "Juniper Training Collective",
+      "invoice_number": "JTC-6631",
+      "date": "2026-07-09",
+      "total_amount": 3560.0,
+      "currency": "CAD"
+    },
+    "ext_14.pdf": {
+      "vendor_name": "Red Gum Laboratory Supplies",
+      "invoice_number": "RGLS-2245",
+      "date": "2026-07-21",
+      "total_amount": 7999.95,
+      "currency": "AUD"
+    },
+    "ext_15.pdf": {
+      "vendor_name": "Silverline Translation Bureau",
+      "invoice_number": "STB-1066",
+      "date": "2026-08-02",
+      "total_amount": 1680.45,
+      "currency": "EUR"
+    },
+    "ext_16.pdf": {
+      "vendor_name": "Eastbridge Civil Design",
+      "invoice_number": "ECD-2026-81",
+      "date": "2026-08-17",
+      "total_amount": 12550.0,
+      "currency": "AUD"
+    },
+    "ext_17.pdf": {
+      "vendor_name": "Nimbus Research Instruments",
+      "invoice_number": "NRI-48003",
+      "date": "2026-08-30",
+      "total_amount": 22100.75,
+      "currency": "USD"
+    },
+    "ext_18.pdf": {
+      "vendor_name": "Harbourlight Event Services",
+      "invoice_number": "HES-7310",
+      "date": "2026-09-04",
+      "total_amount": 4932.1,
+      "currency": "NZD"
+    },
+    "ext_19.pdf": {
+      "vendor_name": "Ironbark Data Security",
+      "invoice_number": "IDS-260919",
+      "date": "2026-09-19",
+      "total_amount": 6750.0,
+      "currency": "AUD"
+    },
+    "ext_20.pdf": {
+      "vendor_name": "Golden Wattle Publishing",
+      "invoice_number": "GWP-9914",
+      "date": "2026-09-28",
+      "total_amount": 2875.3,
+      "currency": "GBP"
+    },
+    "ext_21.pdf": {
+      "vendor_name": "Lighthouse Marine Testing",
+      "invoice_number": "LMT-4402",
+      "date": "2026-10-06",
+      "total_amount": 14420.0,
+      "currency": "AUD"
+    },
+    "ext_22.pdf": {
+      "vendor_name": "Fernhill Community Health",
+      "invoice_number": "FCH-12608",
+      "date": "2026-10-13",
+      "total_amount": 5340.8,
+      "currency": "CAD"
+    },
+    "ext_23.pdf": {
+      "vendor_name": "Quartz Automation Works",
+      "invoice_number": "QAW/2026/57",
+      "date": "2026-10-25",
+      "total_amount": 19850.0,
+      "currency": "USD"
+    },
+    "ext_24.pdf": {
+      "vendor_name": "Southern Cross Calibration",
+      "invoice_number": "SCC-87031",
+      "date": "2026-11-02",
+      "total_amount": 7125.65,
+      "currency": "AUD"
+    },
+    "ext_25.pdf": {
+      "vendor_name": "Mosaic Urban Planning",
+      "invoice_number": "MUP-3055",
+      "date": "2026-11-11",
+      "total_amount": 9600.0,
+      "currency": "SGD"
+    },
+    "ext_26.pdf": {
+      "vendor_name": "Tamarind Food Technology",
+      "invoice_number": "TFT-6127",
+      "date": "2026-11-19",
+      "total_amount": 4389.7,
+      "currency": "AUD"
+    },
+    "ext_27.pdf": {
+      "vendor_name": "Aurora Geological Services",
+      "invoice_number": "AGS-2026-204",
+      "date": "2026-12-01",
+      "total_amount": 17325.25,
+      "currency": "USD"
+    },
+    "ext_28.pdf": {
+      "vendor_name": "Banksia Workplace Consulting",
+      "invoice_number": "BWC-9408",
+      "date": "2026-12-08",
+      "total_amount": 3995.0,
+      "currency": "AUD"
+    },
+    "ext_29.pdf": {
+      "vendor_name": "Vertex Agricultural Robotics",
+      "invoice_number": "VAR-11802",
+      "date": "2026-12-17",
+      "total_amount": 26400.0,
+      "currency": "EUR"
+    },
+    "ext_30.pdf": {
+      "vendor_name": "Oceanview Compliance Group",
+      "invoice_number": "OCG-7609",
+      "date": "2026-12-23",
+      "total_amount": 6150.9,
+      "currency": "NZD"
+    }
+  }
+}

@@ -1,0 +1,1430 @@
+{
+  "model": "llama3.2:latest",
+  "dataset": "extended",
+  "fallbacks": "disabled",
+  "fallbacks_disabled": [
+    "_clean_vendor_label",
+    "_infer_missing_fields_fallback",
+    "_infer_vendor_fallback"
+  ],
+  "threshold": 0.8,
+  "rag": "enabled",
+  "rag_limit": 1,
+  "rag_examples": "/Users/jj/Desktop/Final Sem/Industry project/invoice-local-llm-demo-clean/evaluation/rag_examples.json",
+  "selective_retries": 0,
+  "selective_adoptions": 0,
+  "average_latency_seconds": 3.26,
+  "per_field": {
+    "vendor_name": {
+      "correct": 27,
+      "total": 30
+    },
+    "invoice_number": {
+      "correct": 25,
+      "total": 30
+    },
+    "date": {
+      "correct": 30,
+      "total": 30
+    },
+    "total_amount": {
+      "correct": 29,
+      "total": 30
+    },
+    "currency": {
+      "correct": 30,
+      "total": 30
+    }
+  },
+  "overall": {
+    "correct": 141,
+    "total": 150
+  },
+  "validated": 10,
+  "documents": 30,
+  "documents_correct": 24,
+  "rows": [
+    {
+      "file": "ext_01.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Blue Harbour Logistics Pty Ltd",
+          "actual": "Blue Harbour Logistics Pty Ltd",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "BHL-7841",
+          "actual": "BHL-7841",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-01-07",
+          "actual": "2026-01-07",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 1842.75,
+          "actual": 1842.75,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 1.0,
+      "status": "Validated",
+      "latency_seconds": 3.832,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_02.pdf",
+      "document_correct": false,
+      "fields": {
+        "vendor_name": {
+          "expected": "Orchid Medical Systems",
+          "actual": "Orchid Medical Systems",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "OMS/26/118",
+          "actual": "OMS/26/118",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-02-14",
+          "actual": "2026-02-14",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 9275.4,
+          "actual": 9225.4,
+          "correct": false
+        },
+        "currency": {
+          "expected": "USD",
+          "actual": "USD",
+          "correct": true
+        }
+      },
+      "score": 0.6,
+      "status": "NeedsReview",
+      "latency_seconds": 1.63,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 5.0,
+          "reason": [
+            "keyword tokens: professional, services",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_03.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Cedar Ridge Analytics",
+          "actual": "Cedar Ridge Analytics",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "CRA-00391",
+          "actual": "CRA-00391",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-03-02",
+          "actual": "2026-03-02",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 3150.0,
+          "actual": 3150.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "GBP",
+          "actual": "GBP",
+          "correct": true
+        }
+      },
+      "score": 0.73,
+      "status": "NeedsReview",
+      "latency_seconds": 1.617,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_04.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Kestrel Office Interiors",
+          "actual": "Kestrel Office Interiors",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "KOI-8807",
+          "actual": "KOI-8807",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-03-19",
+          "actual": "2026-03-19",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 2468.35,
+          "actual": 2468.35,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 1.0,
+      "status": "Validated",
+      "latency_seconds": 3.266,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_05.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Meridian Legal Research",
+          "actual": "Meridian Legal Research",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "MLR-2026-44",
+          "actual": "MLR-2026-44",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-04-05",
+          "actual": "2026-04-05",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 5800.0,
+          "actual": 5800.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "USD",
+          "actual": "USD",
+          "correct": true
+        }
+      },
+      "score": 0.9,
+      "status": "NeedsReview",
+      "latency_seconds": 5.829,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_06.pdf",
+      "document_correct": false,
+      "fields": {
+        "vendor_name": {
+          "expected": "Summit Renewable Parts",
+          "actual": null,
+          "correct": false
+        },
+        "invoice_number": {
+          "expected": "SRP-6102",
+          "actual": null,
+          "correct": false
+        },
+        "date": {
+          "expected": "2026-04-22",
+          "actual": "2026-04-22",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 11760.9,
+          "actual": 11760.9,
+          "correct": true
+        },
+        "currency": {
+          "expected": "EUR",
+          "actual": "EUR",
+          "correct": true
+        }
+      },
+      "score": 0.55,
+      "status": "NeedsReview",
+      "latency_seconds": 1.452,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_07.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Copper Finch Studios",
+          "actual": "Copper Finch Studios",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "CFS-0926",
+          "actual": "CFS-0926",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-05-01",
+          "actual": "2026-05-01",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 1325.5,
+          "actual": 1325.5,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 1.0,
+      "status": "Validated",
+      "latency_seconds": 3.132,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_08.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "North Quay Safety Equipment",
+          "actual": "North Quay Safety Equipment",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "NQ-55109",
+          "actual": "NQ-55109",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-05-16",
+          "actual": "2026-05-16",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 6420.0,
+          "actual": 6420.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "NZD",
+          "actual": "NZD",
+          "correct": true
+        }
+      },
+      "score": 0.73,
+      "status": "NeedsReview",
+      "latency_seconds": 1.653,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 5.0,
+          "reason": [
+            "keyword tokens: professional, services",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_09.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Atlas Bioinformatics Lab",
+          "actual": "Atlas Bioinformatics Lab",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "ABL-2026-73",
+          "actual": "ABL-2026-73",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-05-29",
+          "actual": "2026-05-29",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 8888.88,
+          "actual": 8888.88,
+          "correct": true
+        },
+        "currency": {
+          "expected": "USD",
+          "actual": "USD",
+          "correct": true
+        }
+      },
+      "score": 0.73,
+      "status": "NeedsReview",
+      "latency_seconds": 1.631,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_10.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Willow Creek Catering",
+          "actual": "Willow Creek Catering",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "WCC-1408",
+          "actual": "WCC-1408",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-06-03",
+          "actual": "2026-06-03",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 2197.25,
+          "actual": 2197.25,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 0.9,
+      "status": "NeedsReview",
+      "latency_seconds": 6.197,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_11.pdf",
+      "document_correct": false,
+      "fields": {
+        "vendor_name": {
+          "expected": "Ember Network Services",
+          "actual": "Ember Network Services",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "ENS-77820",
+          "actual": "ENSL-77820",
+          "correct": false
+        },
+        "date": {
+          "expected": "2026-06-18",
+          "actual": "2026-06-18",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 4750.0,
+          "actual": 4750.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "SGD",
+          "actual": "SGD",
+          "correct": true
+        }
+      },
+      "score": 0.75,
+      "status": "NeedsReview",
+      "latency_seconds": 1.752,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 5.0,
+          "reason": [
+            "keyword tokens: professional, services",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_12.pdf",
+      "document_correct": false,
+      "fields": {
+        "vendor_name": {
+          "expected": "Pacific Archive Solutions",
+          "actual": null,
+          "correct": false
+        },
+        "invoice_number": {
+          "expected": "PAS/00917",
+          "actual": null,
+          "correct": false
+        },
+        "date": {
+          "expected": "2026-07-01",
+          "actual": "2026-07-01",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 10240.6,
+          "actual": 10240.6,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 0.55,
+      "status": "NeedsReview",
+      "latency_seconds": 1.452,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_13.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Juniper Training Collective",
+          "actual": "Juniper Training Collective",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "JTC-6631",
+          "actual": "JTC-6631",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-07-09",
+          "actual": "2026-07-09",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 3560.0,
+          "actual": 3560.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "CAD",
+          "actual": "CAD",
+          "correct": true
+        }
+      },
+      "score": 1.0,
+      "status": "Validated",
+      "latency_seconds": 3.37,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_14.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Red Gum Laboratory Supplies",
+          "actual": "Red Gum Laboratory Supplies",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "RGLS-2245",
+          "actual": "RGLS-2245",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-07-21",
+          "actual": "2026-07-21",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 7999.95,
+          "actual": 7999.95,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 0.73,
+      "status": "NeedsReview",
+      "latency_seconds": 1.861,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 5.0,
+          "reason": [
+            "keyword tokens: professional, services",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_15.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Silverline Translation Bureau",
+          "actual": "Silverline Translation Bureau",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "STB-1066",
+          "actual": "STB-1066",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-08-02",
+          "actual": "2026-08-02",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 1680.45,
+          "actual": 1680.45,
+          "correct": true
+        },
+        "currency": {
+          "expected": "EUR",
+          "actual": "EUR",
+          "correct": true
+        }
+      },
+      "score": 0.73,
+      "status": "NeedsReview",
+      "latency_seconds": 1.66,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_16.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Eastbridge Civil Design",
+          "actual": "Eastbridge Civil Design",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "ECD-2026-81",
+          "actual": "ECD-2026-81",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-08-17",
+          "actual": "2026-08-17",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 12550.0,
+          "actual": 12550.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 0.9,
+      "status": "NeedsReview",
+      "latency_seconds": 6.406,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_17.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Nimbus Research Instruments",
+          "actual": "Nimbus Research Instruments",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "NRI-48003",
+          "actual": "NRI-48003",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-08-30",
+          "actual": "2026-08-30",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 22100.75,
+          "actual": 22100.75,
+          "correct": true
+        },
+        "currency": {
+          "expected": "USD",
+          "actual": "USD",
+          "correct": true
+        }
+      },
+      "score": 1.0,
+      "status": "Validated",
+      "latency_seconds": 4.144,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_18.pdf",
+      "document_correct": false,
+      "fields": {
+        "vendor_name": {
+          "expected": "Harbourlight Event Services",
+          "actual": null,
+          "correct": false
+        },
+        "invoice_number": {
+          "expected": "HES-7310",
+          "actual": null,
+          "correct": false
+        },
+        "date": {
+          "expected": "2026-09-04",
+          "actual": "2026-09-04",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 4932.1,
+          "actual": 4932.1,
+          "correct": true
+        },
+        "currency": {
+          "expected": "NZD",
+          "actual": "NZD",
+          "correct": true
+        }
+      },
+      "score": 0.55,
+      "status": "NeedsReview",
+      "latency_seconds": 1.587,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 5.0,
+          "reason": [
+            "keyword tokens: professional, services",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_19.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Ironbark Data Security",
+          "actual": "Ironbark Data Security",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "IDS-260919",
+          "actual": "IDS-260919",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-09-19",
+          "actual": "2026-09-19",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 6750.0,
+          "actual": 6750.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 1.0,
+      "status": "Validated",
+      "latency_seconds": 3.44,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_20.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Golden Wattle Publishing",
+          "actual": "Golden Wattle Publishing",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "GWP-9914",
+          "actual": "GWP-9914",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-09-28",
+          "actual": "2026-09-28",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 2875.3,
+          "actual": 2875.3,
+          "correct": true
+        },
+        "currency": {
+          "expected": "GBP",
+          "actual": "GBP",
+          "correct": true
+        }
+      },
+      "score": 0.73,
+      "status": "NeedsReview",
+      "latency_seconds": 1.775,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 5.0,
+          "reason": [
+            "keyword tokens: professional, services",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_21.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Lighthouse Marine Testing",
+          "actual": "Lighthouse Marine Testing",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "LMT-4402",
+          "actual": "LMT-4402",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-10-06",
+          "actual": "2026-10-06",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 14420.0,
+          "actual": 14420.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 0.73,
+      "status": "NeedsReview",
+      "latency_seconds": 1.766,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_22.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Fernhill Community Health",
+          "actual": "Fernhill Community Health",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "FCH-12608",
+          "actual": "FCH-12608",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-10-13",
+          "actual": "2026-10-13",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 5340.8,
+          "actual": 5340.8,
+          "correct": true
+        },
+        "currency": {
+          "expected": "CAD",
+          "actual": "CAD",
+          "correct": true
+        }
+      },
+      "score": 1.0,
+      "status": "Validated",
+      "latency_seconds": 6.085,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_23.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Quartz Automation Works",
+          "actual": "Quartz Automation Works",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "QAW/2026/57",
+          "actual": "QAW/2026/57",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-10-25",
+          "actual": "2026-10-25",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 19850.0,
+          "actual": 19850.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "USD",
+          "actual": "USD",
+          "correct": true
+        }
+      },
+      "score": 0.9,
+      "status": "NeedsReview",
+      "latency_seconds": 6.632,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_24.pdf",
+      "document_correct": false,
+      "fields": {
+        "vendor_name": {
+          "expected": "Southern Cross Calibration",
+          "actual": "Southern Cross Calibration",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "SCC-87031",
+          "actual": null,
+          "correct": false
+        },
+        "date": {
+          "expected": "2026-11-02",
+          "actual": "2026-11-02",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 7125.65,
+          "actual": 7125.65,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 0.69,
+      "status": "NeedsReview",
+      "latency_seconds": 1.636,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_25.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Mosaic Urban Planning",
+          "actual": "Mosaic Urban Planning",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "MUP-3055",
+          "actual": "MUP-3055",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-11-11",
+          "actual": "2026-11-11",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 9600.0,
+          "actual": 9600.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "SGD",
+          "actual": "SGD",
+          "correct": true
+        }
+      },
+      "score": 1.0,
+      "status": "Validated",
+      "latency_seconds": 7.163,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_26.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Tamarind Food Technology",
+          "actual": "Tamarind Food Technology",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "TFT-6127",
+          "actual": "TFT-6127",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-11-19",
+          "actual": "2026-11-19",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 4389.7,
+          "actual": 4389.7,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 0.73,
+      "status": "NeedsReview",
+      "latency_seconds": 1.905,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 5.0,
+          "reason": [
+            "keyword tokens: professional, services",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_27.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Aurora Geological Services",
+          "actual": "Aurora Geological Services",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "AGS-2026-204",
+          "actual": "AGS-2026-204",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-12-01",
+          "actual": "2026-12-01",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 17325.25,
+          "actual": 17325.25,
+          "correct": true
+        },
+        "currency": {
+          "expected": "USD",
+          "actual": "USD",
+          "correct": true
+        }
+      },
+      "score": 0.73,
+      "status": "NeedsReview",
+      "latency_seconds": 1.928,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 5.0,
+          "reason": [
+            "keyword tokens: professional, services",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_28.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Banksia Workplace Consulting",
+          "actual": "Banksia Workplace Consulting",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "BWC-9408",
+          "actual": "BWC-9408",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-12-08",
+          "actual": "2026-12-08",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 3995.0,
+          "actual": 3995.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "AUD",
+          "actual": "AUD",
+          "correct": true
+        }
+      },
+      "score": 0.9,
+      "status": "NeedsReview",
+      "latency_seconds": 6.96,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 9.0,
+          "reason": [
+            "vendor family: consulting",
+            "phrase: consulting",
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_29.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Vertex Agricultural Robotics",
+          "actual": "Vertex Agricultural Robotics",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "VAR-11802",
+          "actual": "VAR-11802",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-12-17",
+          "actual": "2026-12-17",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 26400.0,
+          "actual": 26400.0,
+          "correct": true
+        },
+        "currency": {
+          "expected": "EUR",
+          "actual": "EUR",
+          "correct": true
+        }
+      },
+      "score": 1.0,
+      "status": "Validated",
+      "latency_seconds": 3.938,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    },
+    {
+      "file": "ext_30.pdf",
+      "document_correct": true,
+      "fields": {
+        "vendor_name": {
+          "expected": "Oceanview Compliance Group",
+          "actual": "Oceanview Compliance Group",
+          "correct": true
+        },
+        "invoice_number": {
+          "expected": "OCG-7609",
+          "actual": "OCG-7609",
+          "correct": true
+        },
+        "date": {
+          "expected": "2026-12-23",
+          "actual": "2026-12-23",
+          "correct": true
+        },
+        "total_amount": {
+          "expected": 6150.9,
+          "actual": 6150.9,
+          "correct": true
+        },
+        "currency": {
+          "expected": "NZD",
+          "actual": "NZD",
+          "correct": true
+        }
+      },
+      "score": 0.85,
+      "status": "Validated",
+      "latency_seconds": 2.087,
+      "retrieval": [
+        {
+          "example_id": "consulting-001",
+          "score": 4.0,
+          "reason": [
+            "keyword tokens: professional",
+            "phrase: service"
+          ]
+        }
+      ],
+      "retry_triggered": false,
+      "rag_adopted": false
+    }
+  ]
+}

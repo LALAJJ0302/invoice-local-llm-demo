@@ -173,6 +173,35 @@ the current document and missing values must not be guessed. Existing determinis
 validation checks both attempts against the current source text, and the baseline is
 preserved unless RAG produces stronger evidence.
 
+## Extended 30-Document Evaluation
+
+To remove the three-document ceiling effect, a second benchmark adds 30 synthetic held-out
+text PDFs across six layouts. The files are generated locally from a frozen manifest; their
+vendors and invoice values do not occur in the RAG examples. Fallback repairs were disabled.
+Each configuration ran three times.
+
+| Metric | Baseline | Always-RAG | Selective-RAG |
+|---|---:|---:|---:|
+| Field accuracy | 91.3% | 94.0% | 94.0% |
+| Document exact match | 73.3% | 80.0% | 80.0% |
+| Validation pass rate | 36.7% | 33.3% | 43.3% |
+| Mean latency | 5.230 s | 3.781 s | 8.606 s |
+
+Accuracy was identical across all three repetitions. Both RAG modes improved three
+documents and four fields per run, with zero documents becoming less accurate. Selective
+RAG retried 19/30 documents and adopted 11/30 results per run. The gain is therefore
+repeatable on this synthetic benchmark, while remaining insufficient for a production
+claim because OCR and real vendor distributions are outside its scope.
+
+Reproduce the benchmark with:
+
+```bash
+./.venv/bin/python evaluation/run_eval.py --dataset extended --model llama3.2:latest
+./.venv/bin/python evaluation/run_eval.py --dataset extended --model llama3.2:latest --rag
+./.venv/bin/python evaluation/run_eval.py --dataset extended --model llama3.2:latest --selective-rag
+./.venv/bin/python evaluation/summarise_extended_eval.py
+```
+
 ## Limitations and Future Work
 
 - The evaluation contains only three held-out invoices.

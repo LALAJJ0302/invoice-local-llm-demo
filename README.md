@@ -153,6 +153,14 @@ weak, and it keeps the retry only when its evidence-based validation rank is str
 better. The evaluation command's `--rag` flag remains an always-RAG mode so controlled
 baseline comparisons stay reproducible.
 
+Run the larger 30-document extraction benchmark:
+
+```bash
+python3 evaluation/run_eval.py --dataset extended --model llama3.2:latest
+python3 evaluation/run_eval.py --dataset extended --model llama3.2:latest --rag
+python3 evaluation/run_eval.py --dataset extended --model llama3.2:latest --selective-rag
+```
+
 Check the setup worked:
 
 ```bash
