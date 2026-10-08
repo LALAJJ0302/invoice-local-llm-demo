@@ -79,24 +79,36 @@ comparison measures model behaviour rather than regex or filename repairs.
 
 ## Three Run Evaluation Result
 
+Revalidated on 2026-10-08 after merging `main` at commit `b9abb46`.
+
 | Metric | Baseline | RAG |
 |---|---:|---:|
 | Runs | 3 | 3 |
 | Evaluated fields per run | 15 | 15 |
 | Mean field accuracy | 100.0% | 100.0% |
 | Mean validation rate | 100.0% | 100.0% |
-| Mean latency | 4.088 seconds | 4.313 seconds |
-| Latency range | 3.957-4.236 seconds | 3.623-4.688 seconds |
+| Mean latency | 4.997 seconds | 5.936 seconds |
+| Median latency | 5.024 seconds | 5.222 seconds |
+| Latency range | 4.922-5.044 seconds | 4.580-8.005 seconds |
 
-RAG matched the baseline accuracy in all three controlled runs and added an average of
-approximately 0.225 seconds, or 5.5%, to processing time. It selected the cloud-services
-example for the cloud invoice, the hardware example for the hardware invoice, and the
-consulting example for the consulting invoice.
+RAG matched the baseline accuracy and validation rate in all three post-merge runs. The mean
+latency was approximately 0.939 seconds, or 18.8%, higher with RAG. The first RAG run took
+8.005 seconds per document, while the next two took 5.222 and 4.580 seconds, so local model
+warm-up or machine load materially affected the mean. The median difference was only 0.198
+seconds.
 
-The result does not demonstrate an accuracy improvement because the baseline already reached
-100% on this small dataset. An earlier exploratory baseline run scored 10/15 before the
-controlled three-run comparison, showing that a larger held-out dataset is still necessary
-before making a general reliability claim.
+The result still does not demonstrate an accuracy improvement because the baseline already
+reached 100% on this three-document dataset. It proves that the retrieval and prompt-
+augmentation mechanism still works after integration with the latest approval, History,
+authentication, task, and dashboard code. A larger held-out dataset with difficult layouts is
+required before making a reliability claim.
+
+The end-to-end pipeline also exposed a pre-existing test-design limitation: three UI tests
+assume that the local model always omits line items from one specific mock invoice. On the
+post-merge run the model correctly extracted those rows, changing the workflow state and
+causing those state-dependent assertions to fail. The RAG unit and integration tests passed
+13/13, and the remaining suite passed 653 tests. These three failures are not caused by RAG;
+the fixtures should be made deterministic instead of depending on a live model outcome.
 
 ## Measurement Definitions
 

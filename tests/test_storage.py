@@ -1050,6 +1050,48 @@ class TestAutoApprove:
             ).fetchone()
         assert row["state"] == "Done"
 
+    def test_a_worse_rerun_undoes_an_automatic_approval(self, store, run_id):
+        """NeedsReview after an automatic approval returns the document to Pending
+        and cancels the Payment or File task that approval opened. reviewed_at is
+        still null, which is how this is told apart from a person."""
+        invoice_id = save(store, run_id, validation_score=1.0,
+                          validation_status="Validated")["invoice_id"]
+        followup = store.auto_approve(invoice_id)
+        assert followup["task_type"] == "Payment"
+        save(store, run_id, validation_score=0.75, validation_status="NeedsReview")
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, reviewed_at FROM invoices WHERE invoice_id=?",
+                (invoice_id,)).fetchone()
+            task = conn.execute(
+                "SELECT state FROM tasks WHERE task_id=?", (followup["task_id"],)
+            ).fetchone()
+        assert row["approval_status"] == "Pending"
+        assert row["reviewed_at"] is None
+        assert task["state"] == "Cancelled"
+
+    def test_a_worse_rerun_leaves_a_human_decision(self, store, run_id):
+        invoice_id = save(store, run_id, validation_score=0.75,
+                          validation_status="NeedsReview")["invoice_id"]
+        with connect(store.db_path) as conn:
+            conn.execute(
+                "UPDATE invoices SET approval_status='Approved', "
+                "reviewed_at=datetime('now') WHERE invoice_id=?",
+                (invoice_id,))
+            conn.commit()
+        payment = store.open_task(invoice_id, "Payment", reason="follow-up")
+        save(store, run_id, validation_score=0.75, validation_status="NeedsReview")
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, reviewed_at FROM invoices WHERE invoice_id=?",
+                (invoice_id,)).fetchone()
+            task = conn.execute(
+                "SELECT state FROM tasks WHERE task_id=?", (payment["task_id"],)
+            ).fetchone()
+        assert row["approval_status"] == "Approved"
+        assert row["reviewed_at"] is not None
+        assert task["state"] == "Open"
+
 
 # =====================================================================
 # The outbox
@@ -1209,3 +1251,99 @@ class TestRecordDecision:
     def test_missing_invoice_returns_false(self, store):
         user_id = self._user(store)
         assert store.record_decision(404, "Approved", user_id) is False
+
+
+# =====================================================================
+# The decision log and reopening a decision (migration 016)
+# =====================================================================
+class TestReopenForReview:
+    """Reported 2026-09-29: once a person decided, the document could not be looked at again
+    or taken back. Reopening has to leave the first decision on record, withdraw the work that
+    followed it, and not let the machine re-approve what a person asked to look at again."""
+
+    def _approved(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        user_id = store.upsert_user("neo", "Neo", "hash", "acc-neo")
+        store.record_decision(invoice_id, "Approved", user_id)
+        store.open_followup_task(invoice_id)
+        return invoice_id, user_id
+
+    def _decisions(self, store, invoice_id):
+        with connect(store.db_path) as conn:
+            return [tuple(r) for r in conn.execute(
+                "SELECT decision, decided_by FROM invoice_decisions WHERE invoice_id = ? "
+                "ORDER BY decision_id", (invoice_id,))]
+
+    def test_every_decision_is_logged_with_its_reviewer(self, store, run_id):
+        invoice_id, user_id = self._approved(store, run_id)
+        assert self._decisions(store, invoice_id) == [("Approved", user_id)]
+
+    def test_pending_is_no_longer_a_decision(self, store, run_id):
+        """A second way back to Pending would skip the task and outbox handling."""
+        invoice_id, user_id = self._approved(store, run_id)
+        with pytest.raises(ValueError, match="unknown decision"):
+            store.record_decision(invoice_id, "Pending", user_id)
+
+    def test_reopen_returns_the_document_to_the_queue(self, store, run_id):
+        invoice_id, user_id = self._approved(store, run_id)
+        assert store.reopen_for_review(invoice_id, user_id) is True
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status, reviewed_at, reviewed_by FROM invoices "
+                "WHERE invoice_id = ?", (invoice_id,)).fetchone()
+        assert (row["approval_status"], row["reviewed_at"], row["reviewed_by"]) == (
+            "Pending", None, None)
+
+    def test_reopen_keeps_the_decision_it_takes_back(self, store, run_id):
+        invoice_id, user_id = self._approved(store, run_id)
+        store.reopen_for_review(invoice_id, user_id)
+        store.record_decision(invoice_id, "Rejected", user_id)
+        assert self._decisions(store, invoice_id) == [
+            ("Approved", user_id), ("Reopened", user_id), ("Rejected", user_id)]
+
+    def test_reopen_cancels_the_follow_up_and_opens_a_review(self, store, run_id):
+        invoice_id, user_id = self._approved(store, run_id)
+        store.reopen_for_review(invoice_id, user_id)
+        with connect(store.db_path) as conn:
+            tasks = {r["task_type"]: r["state"] for r in conn.execute(
+                "SELECT task_type, state FROM tasks WHERE invoice_id = ?", (invoice_id,))}
+        assert tasks["Payment"] == "Cancelled"
+        assert tasks["Review"] == "Open"
+
+    def test_a_pending_document_cannot_be_reopened(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        user_id = store.upsert_user("neo", "Neo", "hash", "acc-neo")
+        assert store.reopen_blocker(invoice_id) == "This document is already waiting for approval."
+        with pytest.raises(ValueError):
+            store.reopen_for_review(invoice_id, user_id)
+
+    def test_a_document_already_in_jira_cannot_be_reopened(self, store, run_id):
+        """The issue lives in a system this one does not control."""
+        invoice_id, user_id = self._approved(store, run_id)
+        with connect(store.db_path) as conn:
+            task_id = conn.execute("SELECT task_id FROM tasks WHERE invoice_id = ? "
+                                   "AND task_type = 'Payment'", (invoice_id,)).fetchone()[0]
+        outbox_id = store.queue_outbound(invoice_id, "Jira", "Payment", task_id=task_id)
+        store.mark_outbound_sent(outbox_id, "INV-7")
+        assert "INV-7" in store.reopen_blocker(invoice_id)
+        with pytest.raises(ValueError, match="INV-7"):
+            store.reopen_for_review(invoice_id, user_id)
+
+    def test_the_machine_does_not_reapprove_a_reopened_document(self, store, run_id):
+        invoice_id, user_id = self._approved(store, run_id)
+        store.reopen_for_review(invoice_id, user_id)
+        store.auto_approve(invoice_id)
+        with connect(store.db_path) as conn:
+            status = conn.execute("SELECT approval_status FROM invoices WHERE invoice_id = ?",
+                                  (invoice_id,)).fetchone()[0]
+        assert status == "Pending"
+
+    def test_the_score_is_copied_at_the_moment_of_deciding(self, store, run_id):
+        invoice_id, user_id = self._approved(store, run_id)
+        with connect(store.db_path) as conn:
+            conn.execute("UPDATE invoices SET validation_score = 0.25 WHERE invoice_id = ?",
+                         (invoice_id,))
+            conn.commit()
+            logged = conn.execute("SELECT validation_score FROM invoice_decisions "
+                                  "WHERE invoice_id = ?", (invoice_id,)).fetchone()[0]
+        assert logged != 0.25

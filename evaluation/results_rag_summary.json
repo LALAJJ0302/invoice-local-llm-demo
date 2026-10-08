@@ -6,24 +6,56 @@
   "fallbacks": "disabled",
   "rag_limit": 1,
   "baseline": {
-    "accuracy_runs_percent": [100.0, 100.0, 100.0],
+    "accuracy_runs_percent": [
+      100.0,
+      100.0,
+      100.0
+    ],
     "mean_accuracy_percent": 100.0,
-    "validation_runs_percent": [100.0, 100.0, 100.0],
+    "validation_runs_percent": [
+      100.0,
+      100.0,
+      100.0
+    ],
     "mean_validation_percent": 100.0,
-    "latency_runs_seconds": [4.071, 4.236, 3.957],
-    "mean_latency_seconds": 4.088,
-    "latency_range_seconds": [3.957, 4.236]
+    "latency_runs_seconds": [
+      5.044,
+      4.922,
+      5.024
+    ],
+    "mean_latency_seconds": 4.997,
+    "latency_range_seconds": [
+      4.922,
+      5.044
+    ]
   },
   "rag": {
-    "accuracy_runs_percent": [100.0, 100.0, 100.0],
+    "accuracy_runs_percent": [
+      100.0,
+      100.0,
+      100.0
+    ],
     "mean_accuracy_percent": 100.0,
-    "validation_runs_percent": [100.0, 100.0, 100.0],
+    "validation_runs_percent": [
+      100.0,
+      100.0,
+      100.0
+    ],
     "mean_validation_percent": 100.0,
-    "latency_runs_seconds": [4.628, 4.688, 3.623],
-    "mean_latency_seconds": 4.313,
-    "latency_range_seconds": [3.623, 4.688]
+    "latency_runs_seconds": [
+      8.005,
+      5.222,
+      4.58
+    ],
+    "mean_latency_seconds": 5.936,
+    "latency_range_seconds": [
+      4.58,
+      8.005
+    ]
   },
-  "rag_latency_difference_seconds": 0.225,
-  "rag_latency_difference_percent": 5.5,
-  "interpretation": "RAG matched baseline accuracy and validation on this small dataset. It selected domain-relevant examples but did not demonstrate an accuracy improvement because the baseline already reached 100 percent."
+  "rag_latency_difference_seconds": 0.939,
+  "rag_latency_difference_percent": 18.8,
+  "interpretation": "After merging main at b9abb46, RAG again matched baseline accuracy and validation on the three-document dataset. It did not demonstrate an accuracy improvement because the baseline already reached 100 percent. RAG latency varied more, including a slower first run that is consistent with local model warm-up or machine load.",
+  "revalidated_after_main_commit": "b9abb46",
+  "revalidated_on": "2026-10-08"
 }

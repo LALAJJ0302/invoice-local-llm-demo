@@ -46,6 +46,8 @@ m011 = load_migration("011_email_analysis.py")
 m012 = load_migration("012_invoice_ai_fields.py")
 m013 = load_migration("013_reviewer_login.py")
 m014 = load_migration("014_must_change_password.py")
+m015 = load_migration("015_review_note.py")
+m016 = load_migration("016_invoice_decisions.py")
 
 
 LEGACY_DDL = """
@@ -128,6 +130,8 @@ def migrated_db(legacy_db):
     assert m012.migrate(legacy_db) == 0
     assert m013.migrate(legacy_db) == 0
     assert m014.migrate(legacy_db) == 0
+    assert m015.migrate(legacy_db) == 0
+    assert m016.migrate(legacy_db) == 0
     return legacy_db
 
 
@@ -402,6 +406,7 @@ class TestEmailBodyAndAttachments:
 
     def test_adds_body_columns_and_the_attachments_table(self, at_v7):
         m012.migrate(at_v7)
+        m013.migrate(at_v7)
         with connect(at_v7) as conn:
             columns = [r["name"] for r in conn.execute("PRAGMA table_info(email_messages)")]
             tables = {r["name"] for r in conn.execute(
@@ -415,6 +420,7 @@ class TestEmailBodyAndAttachments:
                 "INSERT INTO email_messages (message_id, sender) VALUES ('<x@mail>', 'a@b.com')")
             conn.commit()
         m012.migrate(at_v7)
+        m013.migrate(at_v7)
         with connect(at_v7) as conn:
             row = conn.execute(
                 "SELECT body_text, body_source FROM email_messages").fetchone()
@@ -425,6 +431,8 @@ class TestEmailBodyAndAttachments:
         m012.migrate(at_v7)
         m013.migrate(at_v7)  # StorageManager requires the current SCHEMA_VERSION
         m014.migrate(at_v7)
+        m015.migrate(at_v7)
+        m016.migrate(at_v7)
         store = StorageManager(at_v7)
         email = store.record_email("<x@mail>", "a@b.com", attachment_count=1)
         assert store.has_seen_attachment(email["email_id"], "a" * 64) is False
@@ -437,12 +445,14 @@ class TestEmailBodyAndAttachments:
 
     def test_is_additive_and_moves_no_money(self, at_v7):
         m012.migrate(at_v7)
+        m013.migrate(at_v7)
         with connect(at_v7) as conn:
             rows = conn.execute("SELECT file_name, total_cents FROM invoices").fetchall()
         assert {r["file_name"]: r["total_cents"] for r in rows} == GROUND_TRUTH_CENTS
 
     def test_is_idempotent(self, at_v7):
         m012.migrate(at_v7)
+        m013.migrate(at_v7)
         assert m012.migrate(at_v7) == 0
 
     def test_refuses_to_run_out_of_order(self, legacy_db):
@@ -488,6 +498,7 @@ class TestAIDocumentFields:
 
     def test_adds_attachment_names_category_summary_and_action_items(self, at_v8):
         m012.migrate(at_v8)
+        m013.migrate(at_v8)
         with connect(at_v8) as conn:
             email_columns = [r["name"] for r in conn.execute("PRAGMA table_info(email_messages)")]
             invoice_columns = [r["name"] for r in conn.execute("PRAGMA table_info(invoices)")]
@@ -499,6 +510,7 @@ class TestAIDocumentFields:
 
     def test_existing_invoices_get_null_category_and_summary(self, at_v8):
         m012.migrate(at_v8)
+        m013.migrate(at_v8)
         with connect(at_v8) as conn:
             rows = conn.execute("SELECT category, summary FROM invoices").fetchall()
         assert all(r["category"] is None and r["summary"] is None for r in rows)
@@ -507,6 +519,8 @@ class TestAIDocumentFields:
         m012.migrate(at_v8)
         m013.migrate(at_v8)  # StorageManager requires the current SCHEMA_VERSION
         m014.migrate(at_v8)
+        m015.migrate(at_v8)
+        m016.migrate(at_v8)
         store = StorageManager(at_v8)
         run_id = store.start_run("llama3.2", 0.8)
         result = store.save_invoice(
@@ -526,12 +540,14 @@ class TestAIDocumentFields:
 
     def test_is_additive_and_moves_no_money(self, at_v8):
         m012.migrate(at_v8)
+        m013.migrate(at_v8)
         with connect(at_v8) as conn:
             rows = conn.execute("SELECT file_name, total_cents FROM invoices").fetchall()
         assert {r["file_name"]: r["total_cents"] for r in rows} == GROUND_TRUTH_CENTS
 
     def test_is_idempotent(self, at_v8):
         m012.migrate(at_v8)
+        m013.migrate(at_v8)
         assert m012.migrate(at_v8) == 0
 
     def test_refuses_to_run_out_of_order(self, legacy_db):
@@ -585,7 +601,7 @@ class TestChain:
         with connect(migrated_db) as conn:
             versions = [r["version"] for r in
                         conn.execute("SELECT version FROM schema_version ORDER BY version")]
-        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 
     def test_migrated_matches_fresh(self, migrated_db, tmp_path):
         """A replayed migration chain and a fresh storage.DDL database must agree.
@@ -647,7 +663,7 @@ class TestChain:
         """A teammate following the quickstart runs every migration in order. Doing that
         twice must succeed, not report failure on the ones already applied."""
         for module in (m001, m002, m003, m004, m005, m006, m007,
-                       m008, m009, m010, m011, m012, m013, m014):
+                       m008, m009, m010, m011, m012, m013, m014, m015, m016):
             assert module.migrate(migrated_db) == 0, f"{module.__name__} failed on re-run"
 
 
@@ -859,12 +875,15 @@ class TestEmailAnalysisTables:
     def test_the_pipeline_can_store_an_analysis_afterwards(self, before_011):
         """The real risk of a migration: it produces a schema the code cannot use.
 
-        Runs through 014 as well, because StorageManager refuses any database that is not at the
-        version the code expects, which is the whole point of that check."""
+        Runs every migration after this one as well, because StorageManager refuses any
+        database that is not at the version the code expects, which is the whole point of that
+        check. Each new migration adds a line here, and that is the intended cost."""
         m011.migrate(before_011)
         m012.migrate(before_011)
         m013.migrate(before_011)
         m014.migrate(before_011)
+        m015.migrate(before_011)
+        m016.migrate(before_011)
         store = StorageManager(before_011)
         store.record_email("<m@mail>", "pm@client.com", "Budget")
         run_id = store.start_email_run("llama3.2:latest")
@@ -946,3 +965,38 @@ class TestMustChangePassword:
 
     def test_refuses_to_run_out_of_order(self, legacy_db):
         assert m014.migrate(legacy_db) == 1
+
+
+# =====================================================================
+# Migration 016
+# =====================================================================
+class TestInvoiceDecisionsMigration:
+    @pytest.fixture
+    def at_v15(self, legacy_db):
+        for m in (m001, m002, m003, m004, m005, m006, m007, m008,
+                  m009, m010, m011, m012, m013, m014, m015):
+            assert m.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_backfills_one_row_per_decided_invoice_and_none_for_the_system(self, at_v15):
+        with connect(at_v15) as conn:
+            conn.execute("INSERT INTO users (username, display_name, password_hash) "
+                         "VALUES ('neo', 'Neo', 'hash')")
+            ids = [r[0] for r in conn.execute("SELECT invoice_id FROM invoices ORDER BY 1")]
+            conn.execute("UPDATE invoices SET approval_status = 'Rejected', reviewed_by = 1, "
+                         "reviewed_at = '2026-09-29 01:00:00' WHERE invoice_id = ?", (ids[0],))
+            # An auto-approval: Approved with nobody's name. Not a person's decision.
+            conn.execute("UPDATE invoices SET approval_status = 'Approved' "
+                         "WHERE invoice_id = ?", (ids[1],))
+            conn.commit()
+        assert m016.migrate(at_v15) == 0
+        with connect(at_v15) as conn:
+            rows = [tuple(r) for r in conn.execute(
+                "SELECT invoice_id, decision, decided_by, decided_at FROM invoice_decisions")]
+        assert rows == [(ids[0], "Rejected", 1, "2026-09-29 01:00:00")]
+
+    def test_refuses_a_database_that_is_not_at_15(self, legacy_db):
+        for m in (m001, m002, m003, m004, m005, m006, m007, m008,
+                  m009, m010, m011, m012, m013, m014):
+            assert m.migrate(legacy_db) == 0
+        assert m016.migrate(legacy_db) == 1

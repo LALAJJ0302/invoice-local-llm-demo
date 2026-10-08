@@ -9,8 +9,8 @@
   "threshold": 0.8,
   "rag": "enabled",
   "rag_limit": 1,
-  "rag_examples": "/Users/jj/Desktop/Final Sem/Industry project/invoice-local-llm-demo/evaluation/rag_examples.json",
-  "average_latency_seconds": 4.688,
+  "rag_examples": "/Users/jj/Desktop/Final Sem/Industry project/invoice-local-llm-demo-clean/evaluation/rag_examples.json",
+  "average_latency_seconds": 5.222,
   "per_field": {
     "vendor_name": {
       "correct": 3,
@@ -71,7 +71,7 @@
       },
       "score": 1.0,
       "status": "Validated",
-      "latency_seconds": 5.283,
+      "latency_seconds": 4.971,
       "retrieval": [
         {
           "example_id": "cloud-services-001",
@@ -117,7 +117,7 @@
       },
       "score": 1.0,
       "status": "Validated",
-      "latency_seconds": 4.7,
+      "latency_seconds": 6.677,
       "retrieval": [
         {
           "example_id": "hardware-001",
@@ -161,7 +161,7 @@
       },
       "score": 1.0,
       "status": "Validated",
-      "latency_seconds": 4.082,
+      "latency_seconds": 4.018,
       "retrieval": [
         {
           "example_id": "consulting-001",

@@ -19,12 +19,62 @@ different claims.
 
 ## Setup and run
 
-Requires Ollama serving and a virtualenv (both already set up on Neo's machine).
+### First run on a new machine
+
+**Verified end to end on 2026-09-24** against a clean copy with no database, no PDFs and no
+`.env`: this sequence ends with 587 tests passing. Nothing else is needed and nothing here is
+optional.
 
 ```bash
-ollama serve &                                   # must be running before main.py
-./.venv/bin/python generate_mock_invoices.py     # writes 3 sample PDFs to inbox/
+python3 -m venv .venv
 ./.venv/bin/python -m pip install -r requirements.txt
+ollama serve &                                   # separate install, https://ollama.com
+ollama pull llama3.2
+./.venv/bin/python generate_mock_invoices.py     # writes 3 sample PDFs to inbox/
+./.venv/bin/python seed_mock_emails.py           # loads the mock mailbox into email_messages
+./.venv/bin/python main.py                       # 3/3 stored in about 30s
+./.venv/bin/python -m pytest tests/ -q           # 587 passed
+./.venv/bin/python -m streamlit run app.py       # dashboard on :8501
+```
+
+**Do not run the migrations on a new machine.** They upgrade an existing database and a fresh
+clone has none. `StorageManager.__init__` creates the whole schema at the current version on
+first use, which is what `main.py` triggers. Running them anyway is harmless, they detect the
+missing database and stop, but it wastes a step and suggests they are part of setup.
+
+**`seed_mock_emails.py` is not optional.** Without it every invoice stores `email_id = NULL`,
+the covering-email chip never appears on a card, and
+`test_the_card_carries_everything_the_approved_design_carries` fails. It is idempotent, keyed on
+the RFC 5322 Message-ID, and reads the tracked `evaluation/mock_mailbox.json`, so it needs no
+mail credentials. It was missing from this list until 2026-09-24.
+
+**The database is gitignored, so a clone has no data.** Until `main.py` has run, the dashboard
+renders "No documents have been processed yet" and stops. That is correct behaviour, not a
+failure. Screen tests that need a document will fail until the sequence above is complete; the
+suite no longer dies at collection, which it did before 2026-09-24.
+
+**The dashboard asks you to sign in.** Since Luke's authentication landed, `app.py` stops at a
+login form before anything renders. The accounts are created on first run by
+`auth.ensure_default_users`, so there is nothing to set up:
+
+| Username | Password | Then |
+|---|---|---|
+| `luke`, `neo` or `jj` | `changeme` | The first login forces a password change |
+
+`changeme` is `auth.DEFAULT_PASSWORD`. It is a hardcoded default in a local prototype with no
+network exposure, which is acceptable here and would not be anywhere else; the report's Security
+and Privacy section is where that gets discussed rather than quietly fixed.
+
+Tests do not use this login. They seed a session through `tests/signed_in.py`, so that `app.py`
+keeps exactly one way in. Verified 2026-09-28 on a clean copy: bare clone is 585 passed with 18
+failing for lack of documents and no collection error, and the sequence above reaches **609
+passed**.
+
+### Everything else
+
+Requires Ollama serving and a virtualenv.
+
+```bash
 ./.venv/bin/python migrations/001_normalise.py   # one-off: flat table -> normalised schema
 ./.venv/bin/python migrations/002_rename_total_source.py
 ./.venv/bin/python migrations/003_fix_date_check.py
@@ -39,6 +89,8 @@ ollama serve &                                   # must be running before main.p
 ./.venv/bin/python migrations/012_invoice_ai_fields.py
 ./.venv/bin/python migrations/013_reviewer_login.py
 ./.venv/bin/python migrations/014_must_change_password.py
+./.venv/bin/python migrations/015_review_note.py
+./.venv/bin/python migrations/016_invoice_decisions.py
 ./.venv/bin/python main.py                       # process inbox -> SQLite -> archive/
 ./.venv/bin/python email_pipeline.py --threads   # analyse the stored mailbox -> SQLite
 ./.venv/bin/python query_db.py                   # inspect records
@@ -66,11 +118,18 @@ accumulating duplicates. It writes to SQLite first and archives only after the c
 
 The migrations are one-off and idempotent. 001 renames `workflow_records` to `workflow_records_v1`,
 keeps it, and takes a `.bak` copy of the database first. Running any of them twice is a no-op.
-Schema version is 14. 010 is the only one since 003 that rewrites an existing table.
+`storage.SCHEMA_VERSION` is the authority on the current version, not this sentence. 010 is
+the only one since 003 that rewrites an existing table.
 **Never renumber a migration that is already on `main`.** 012 exists because Luke's
 008 and 009 were written against numbers that were already taken and already applied;
 the SQL was fine, the numbering was not, and a renumbered migration refuses to run on
 any database that already has the original.
+
+**It happened a second time, 2026-09-24, and the rule decided it the same way.** The review
+note was written as 013 against a main that had no 013. Luke's `013_reviewer_login.py` and
+`014_must_change_password.py` landed on main first, so the review note moved rather than his,
+and it is now `015_review_note.py` starting at version 14. The rule is about which branch
+reached main, not about who wrote what or when.
 
 ## Ownership
 
@@ -212,9 +271,22 @@ only merged `main` into itself, so it added nothing. It runs locally on `neo/ema
 at 13.4s for 3 calls. Its thread summary returned the subject line instead of a summary, which is
 the first labelled failure case the group has for summarisation.
 
-**Luke has authored no commit under that name.** `email_listener.py`, his assigned lane, was
-written by JJ in the initial prototype. Contributor counts across all branches: Neo 40, JJ 5,
-`zethio44` 2.
+**`email_listener.py`, his assigned lane, was written by JJ in the initial prototype.** That
+was still true on 2026-09-12 and the sentence that used to sit here, "Luke has authored no commit
+under that name", is not: he has been committing steadily since 2026-09-03.
+
+**Contributor counts are deliberately not written here any more.** The figure recorded on
+2026-09-12 was `zethio44` 2, which was accurate then and had decayed sevenfold by 2026-09-28.
+Count it when you need it, and prefer the first-parent history, because that is what separates a
+direct push from a reviewed one:
+
+```bash
+git log --all --author=zethio44 --oneline | wc -l          # everything they authored
+git log --first-parent --pretty="%h %an %s" upstream/main   # what landed without review
+```
+
+On 2026-09-28 that showed fifteen commits, of which two, both on 2026-09-03, were pushed
+straight to main and thirteen arrived through pull requests.
 
 **Current direction, agreed 2026-09-03:** Luke takes task assignment. Neo and JJ work together
 on RAG, feeding real invoice PDFs rather than the three generated samples.

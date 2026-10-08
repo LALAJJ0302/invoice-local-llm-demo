@@ -10,7 +10,7 @@
   "rag": "disabled",
   "rag_limit": 0,
   "rag_examples": null,
-  "average_latency_seconds": 4.071,
+  "average_latency_seconds": 5.044,
   "per_field": {
     "vendor_name": {
       "correct": 3,
@@ -71,7 +71,7 @@
       },
       "score": 1.0,
       "status": "Validated",
-      "latency_seconds": 4.352,
+      "latency_seconds": 5.572,
       "retrieval": []
     },
     {
@@ -105,7 +105,7 @@
       },
       "score": 1.0,
       "status": "Validated",
-      "latency_seconds": 3.888,
+      "latency_seconds": 4.748,
       "retrieval": []
     },
     {
@@ -139,7 +139,7 @@
       },
       "score": 1.0,
       "status": "Validated",
-      "latency_seconds": 3.973,
+      "latency_seconds": 4.813,
       "retrieval": []
     }
   ]

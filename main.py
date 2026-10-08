@@ -510,6 +510,22 @@ class DownstreamDispatcher:
         # which is the difference between a queue a person can triage and one they cannot.
         reason = reason or f"Validation score {score:.2f}."
 
+        from storage import connect
+
+        with connect(self.storage.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status FROM invoices WHERE invoice_id = ?",
+                (invoice_id,),
+            ).fetchone()
+        if not row or row["approval_status"] != "Pending":
+            cancelled = self.storage.resolve_tasks(
+                invoice_id, state="Cancelled", task_type=task_type
+            )
+            if cancelled:
+                print(f"  └─ [Task Queue] Cancelled stale {task_type} task -- "
+                      "this invoice was already approved or rejected.")
+            return
+
         result = self.storage.open_task(invoice_id, task_type, reason)
 
         if result["was_created"]:
