@@ -22,8 +22,12 @@ sys.path.insert(0, EVAL_DIR)
 
 from samples_fixture import FIRST_SAMPLE, SAMPLES_DIR, ensure_samples, sample_path  # noqa: E402
 
-# The helper itself defines the directory, so it is not required to import itself.
-EXEMPT = {"samples_fixture.py"}
+# The helpers themselves define their directories, so they are not required to import themselves.
+# extended_samples_fixture.py is the second one: it generates the 30-document held-out set into
+# its own directory, extended_samples/, and is imported by the scripts that read that set. Added
+# 2026-10-09, when PR #12 merged with this guard failing on it. The guard is for scripts that READ
+# the original samples, and this file is a generator, not a reader.
+EXEMPT = {"samples_fixture.py", "extended_samples_fixture.py"}
 
 
 def eval_modules():
