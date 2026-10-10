@@ -210,7 +210,7 @@ section 3 fail the suite rather than going stale. Full suite is **271 passing**,
    at the taxonomy for the breakdown. One word, one line of output, no logic change.
 
 Neo's call. Option 2 is more honest and costs almost nothing, but it edits a file whose results
-are already quoted in `report/section-5-evaluation.md`, so the report text has to move with it.
+are already quoted in `report/section-07-evaluation.md`, so the report text has to move with it.
 
 ---
 

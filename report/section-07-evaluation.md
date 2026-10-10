@@ -1,6 +1,6 @@
-# 5. Evaluation and Testing
+# 7. Evaluation
 
-## 5.1 What was measured, and why it was measured this way
+## 7.1 What was measured, and why it was measured this way
 
 The project's claim is that a locally hosted language model can extract structured data
 from invoices reliably enough to be worth automating. That claim is only meaningful if it
@@ -21,12 +21,12 @@ extraction successes would measure our patches. The harness therefore disables e
 by default, and reports both figures separately.
 
 **Repairs are discovered, not listed.** This became important on 3 September 2026 and is
-discussed in §5.7.
+discussed in §7.7.
 
 The unit of measurement is a **field-value**: three documents with five fields each gives
 fifteen. All figures below are out of fifteen.
 
-## 5.2 What this evaluation does not measure
+## 7.2 What this evaluation does not measure
 
 Stated here rather than in the limitations section, because a reader needs it before the
 numbers rather than after them.
@@ -44,15 +44,18 @@ numbers rather than after them.
   rule that an amount must sit within two lines of a total label, holds because ReportLab
   puts them there. An invoice placing the amount in a table cell would fail it.
 
-- **The email half is not measured at all.** Everything from §5.3 to §5.8 concerns extraction
+- **The email half is not measured at all.** Everything from §7.3 to §7.8 concerns extraction
   from invoice PDFs, where ground truth exists. Classification, summarisation and action
-  extraction have no labelled set, so §5.10 reports what a run produces and explicitly claims
+  extraction have no labelled set, so §7.9 reports what a run produces and explicitly claims
   no accuracy for it.
 
 None of these invalidate the findings below. They bound them, and the bounds are wide.
 
-## 5.3 The baseline
+## 7.3 The baseline
 
+
+> **Gap: Figure 5.** The before-and-after totals recovered by migration 001 are stated in prose
+> and belong in a table with a caption, drawn from the migration rather than retyped.
 Measured 26 August 2026, frozen in `evaluation/results_before.json`, and still reproducible
 today with `evaluation/schema_comparison.py`:
 
@@ -74,9 +77,46 @@ heuristic rather than by the model.
 The obvious reading of a 20% result is that the model is too small for the task. **That
 reading is wrong**, and the rest of this section is the evidence.
 
-## 5.4 Isolating the cause
+### 7.3.1 The defects behind that number
 
-### 5.4.1 The first comparison
+The local pipeline ran end to end within days. It did not work. The defects below were found
+by measuring rather than by use, and they are ordered by how badly they would have misled
+someone relying on the system.
+
+**Extraction returned almost nothing, and reported success.** 3 of 15 field-values correct.
+Every field except the vendor name came back `None`, `0.0` or `"Unknown"`. No error was
+raised at any layer, because each layer was behaving correctly: the model returned valid
+JSON, Pydantic validated it, and the database stored it. §7.4 analyses the cause.
+
+**The validation gate never checked the amount.** A hallucinated total of 999,999.99 on a
+1,500.00 invoice scored 1.00 and passed as `Validated`, identically to the correct value.
+The gate scored field *presence*, not agreement with the document.
+
+**Correct totals were present but unreachable.** All three stored totals read 0.00 while the
+correct values sat inside a JSON blob in a text column, unqueryable.
+
+**Re-running the pipeline duplicated every row.** There was no uniqueness constraint, so four
+runs over three documents produced twelve rows and no way to tell which were current.
+
+**The approve button had never once executed.** It referenced a column by the wrong case,
+raising `KeyError` and destroying the entire detail panel. The feature had been demonstrated
+as working because the exception surfaced as an empty area of the page rather than an error.
+
+**A constraint rejected every valid date.** Discussed in §7.7.
+
+These share a property that shaped the rest of the project. **None of them produced an error
+message.** Every one was a component doing exactly what it had been told to do, where what it
+had been told was wrong. A system can be fully operational and produce nothing of value, and
+the only way to tell the difference is to measure it against known-correct answers.
+
+## 7.4 Isolating the cause
+
+
+> **Gap: Figure 4.** The two-by-two of schema against prompt is the report's central piece of
+> evidence and appears only as a code block. It should be a captioned table or a small chart
+> generated from `evaluation/prompt_schema_2x2.py`, so that the figure and the number cannot
+> drift apart.
+### 7.4.1 The first comparison
 
 A controlled comparison was built holding the model, the prompt, the documents and the
 ground truth constant, and varying one thing: whether the Pydantic schema declared its
@@ -102,7 +142,7 @@ This positions the finding inside existing work rather than beside it: JSONSchem
 across 10,000 real-world schemas, and one of its three dimensions is precisely coverage of
 constraint types.
 
-### 5.4.2 The second comparison, which corrected the first conclusion
+### 7.4.2 The second comparison, which corrected the first conclusion
 
 The comparison above varies the schema while holding the prompt fixed. That establishes the
 schema as **a** cause. The project reported it as **the** cause.
@@ -132,7 +172,7 @@ This is a stronger result than the one it replaces. A single-cause explanation f
 single comparison is a weaker piece of evidence than a two-by-two that identifies an
 interaction and quantifies both factors.
 
-### 5.4.3 A third factor: the shape of the schema, not only its required list
+### 7.4.3 A third factor: the shape of the schema, not only its required list
 
 The Original-Optional cell read **6/15** in the two-by-two above and **3/15** in
 `schema_comparison.py`, which still reproduces exactly. The difference was entirely in the
@@ -160,7 +200,7 @@ lost is `currency`, the last scalar property before `items` in the declaration o
 most plausible mechanism is that the larger and more complex grammar makes early
 termination of the object more likely, and the field nearest the end is the one dropped.
 
-This extends the finding in §5.4.1 rather than contradicting it. That section established
+This extends the finding in §7.4.1 rather than contradicting it. That section established
 that an empty `required` list permits omission. This establishes that **the shape of the
 schema also affects which fields are emitted**, independently of which are required. Schema
 design is therefore a variable with at least two dimensions, not one.
@@ -175,7 +215,7 @@ enforcement.
 actually declares, and it is the number quoted throughout this report. 6/15 is a controlled
 variant that exists to isolate the effect above, and is reported only in this subsection.
 
-## 5.5 What the fix costs
+## 7.5 What the fix costs
 
 A fix that improves a headline number while making behaviour worse elsewhere has not been
 evaluated until that second effect is measured.
@@ -199,7 +239,7 @@ therefore rejected. Recording a rejected hypothesis matters as much as recording
 accepted one, since it is the part that shows the alternatives were tested rather than
 assumed away.
 
-### 5.5.1 A fourth schema, and a prediction that was wrong
+### 7.5.1 A fourth schema, and a prediction that was wrong
 
 The two requirements in tension are "every field must be emitted" and "no value may be
 invented". Both preceding arms treat these as a trade. A fourth variant dissolves it in
@@ -261,7 +301,7 @@ does. **A computed value defeats that check by construction**, and no schema can
 because the model is obeying the schema exactly.
 
 This is the strongest available argument that schema design and the validation gate solve
-different problems. §5.5 asked what the fix costs; the answer is that the cost can be reduced
+different problems. §7.5 asked what the fix costs; the answer is that the cost can be reduced
 by more than half but not eliminated, and the remainder is not a schema defect at all.
 
 **Recommendation.** Adopt nullable-required, on the evidence that it matches the best
@@ -269,7 +309,7 @@ extraction accuracy measured, produces the fewest errors of any arm, and convert
 undetectable placeholder strings into detectable nulls. Do not adopt it on the grounds that
 it satisfies the "never invent" requirement, because it does not.
 
-## 5.6 Model comparison
+## 7.6 Model comparison
 
 Six models were shortlisted against two constraints: they must fit in the usable memory of
 the target machine (Apple M4, 24 GB unified, of which roughly 16 to 18 GB is available once
@@ -301,7 +341,7 @@ The variable that separates these models is **latency**. `phi4:14b` is 4.4 times
 than `llama3.2:3b` and, on this task, no more accurate. That is the justification for
 running the smallest model in the pipeline: it is a measured decision, not a default.
 
-## 5.7 What testing found
+## 7.7 What testing found
 
 A test suite of 242 automated tests covers the storage layer, the migration chain, the
 validation gate and the retrieval module. It has repaid its cost three times.
@@ -334,7 +374,7 @@ names which fields were empty.
 All three defects share a shape. **None produced an error.** Each was a component behaving
 exactly as written, where what was written was wrong.
 
-## 5.8 End-to-end verification
+## 7.8 End-to-end verification
 
 The full workflow was run on 8 September 2026:
 
@@ -366,14 +406,14 @@ currently reaches the extraction step.
 These are stated as unfinished rather than described as working, because a diagram of an
 intended architecture is not evidence that the architecture runs.
 
-## 5.9 The email half, which is run but not scored
+## 7.9 The email half, which is run but not scored
 
 Everything above concerns the invoice attachment. In September the project also began reading
 the message around it: classifying an email, summarising it, and extracting the actions people
 committed to. **This subsection is deliberately shaped differently from the ones above, because
 it cannot report accuracy.**
 
-### 5.9.1 What a full run produces
+### 7.9.1 What a full run produces
 
 One pass over the 18-message mock mailbox on 17 September 2026, `llama3.2:latest`, every email
 with a body:
@@ -393,7 +433,7 @@ says nothing about whether the 18 categories are right, whether the summaries ar
 whether the 5 action items are the ones a person would have found. Those questions need a
 labelled set that does not exist.
 
-### 5.9.2 The one finding the run does support
+### 7.9.2 The one finding the run does support
 
 All 18 messages were classified `Invoice`. The model had six labels available and used one.
 
@@ -404,11 +444,11 @@ working classifier from one that answers `Invoice` unconditionally.** Both produ
 output on it.
 
 That is a more useful result than a score would have been at this stage, and it is the same
-argument §5.2 makes about n = 3. A test set that every candidate passes measures nothing. The
+argument §7.2 makes about n = 3. A test set that every candidate passes measures nothing. The
 remedy is a labelled set with messages that are genuinely not invoices, and building one is the
 outstanding work rather than an afterthought.
 
-### 5.9.3 Evidence validation, and the decision to keep failures
+### 7.9.3 Evidence validation, and the decision to keep failures
 
 Every action item must carry a quote that occurs verbatim in the source. Where it does not, the
 model is asked again, up to three times. **If it still fails, the analysis is kept and marked
@@ -420,12 +460,12 @@ failure rate is exactly the measurement that would tell us whether this techniqu
 run it never fired: all 18 passed on the first attempt. **A mechanism that has not yet failed
 has not yet been tested**, and no claim is made for its effectiveness on this evidence.
 
-### 5.9.4 A defect the run found that reading the code did not
+### 7.9.4 A defect the run found that reading the code did not
 
 Asked for a field that may be absent, the model twice returned the four-character string
 `"null"` rather than an absent value. Stored literally, that is text, and SQL cannot tell it
 apart from a real answer: every count of "action items carrying a deadline" would have been
-inflated, including the one reported in §5.9.1.
+inflated, including the one reported in §7.9.1.
 
 It was caught by running two real messages end to end, not by reading either module. The fix
 maps that string, and the three others the module already recognised, to a genuine null before
@@ -436,21 +476,278 @@ Twenty-eight tests covered this path and none of them used the literal string `"
 nobody writing a test thinks to. A model's actual output found in one run what constructed
 inputs had not.
 
-## 5.10 Threats to validity
+## 7.10 Threats to validity
 
-- **Construct validity.** `validation_score` measures field completeness and agreement with
-  the source text. It is not a confidence score and does not estimate the probability that
-  an extraction is correct. It was renamed in the database for this reason; the in-memory
-  field retains the older name because it is a shared interface.
-- **Score comparability.** The gate's weighting changed on 28 August and again on
-  3 September 2026. Scores are not comparable across those dates and the report marks which
-  period each figure belongs to.
-- **Internal validity.** The 6/15 against 3/15 discrepancy in §5.4.3 was traced to a
-  schema difference and is resolved. It is retained in the report because finding it
-  required treating two disagreeing numbers as a defect rather than choosing one.
-- **External validity.** Three synthetic documents from one generator. Nothing here
-  supports a claim about performance on real invoices, and no such claim is made.
-- **Asymmetry between the two halves.** Extraction is scored against independently transcribed
-  ground truth. The email half in §5.9 is not scored at all. Presenting them side by side risks
-  implying the second is as well evidenced as the first, and it is not. Every figure in §5.9 is
-  a count of what the pipeline did, never of what it got right.
+Construct validity, score comparability, internal and external validity, and non-determinism
+all bound the results above. They are stated with the report's other limits in §9.3, rather
+than twice.
+
+---
+
+## 7.11 Where the validation score comes from, and what it actually decides
+
+Added after the supervisor asked for the reasoning behind the score to be made explicit. It is
+placed here for now and belongs early in the evaluation section once the report is renumbered,
+because everything in §7.3 to §7.5 is a statement about extraction quality and this is the
+mechanism that judges it.
+
+Every figure below is reproduced by:
+
+```bash
+./.venv/bin/python evaluation/score_breakdown.py
+```
+
+which recomputes each score from the archived PDF and the stored extraction rather than reading
+the number back out of the database.
+
+### 7.11.1 It is not the model's confidence
+
+The system never asks the model how sure it is. A language model's self-reported certainty is
+not a measurement of anything, and treating it as one would put the pipeline's most important
+safety decision in the hands of the component being checked.
+
+Instead the score is computed by `ConfidenceValidator`, deterministically, after extraction.
+Every term compares the model's output back against the text of the document it came from. The
+database column was renamed from `confidence_score` to `validation_score` for exactly this
+reason: the original name described something the system does not measure.
+
+### 7.11.2 Seven terms, in two families
+
+The score is a weighted sum out of 1.00.
+
+| Term | Maximum | The question it asks |
+|---|---|---|
+| Completeness, 0.06 for each of five header fields | 0.30 | Is the field non-empty? |
+| Line items stored | 0.10 | Were any rows extracted at all? |
+| Invoice number appears in the document | 0.10 | Does the value exist in the source? |
+| Vendor appears in the document | 0.08 | The same question for the vendor |
+| Vendor is not a field label | 0.07 | Did extraction capture `Vendor:` instead of the name? |
+| **Amount check** | **0.25** | `verified` 0.25, `present` 0.125, `absent` 0 |
+| Reconciliation | 0.10 | `exact`/`plausible` 0.10, `unknown` 0.05, `short` 0 |
+
+The two families are worth naming because they fail differently. **Completeness, 0.40 of the
+total, asks whether anything is missing.** **Agreement with the document, 0.60, asks whether
+anything is invented.** A field left empty is a visible failure that a person can see and
+correct. A field filled with a plausible value that is not in the document is an invisible one,
+which is why the second family carries more weight.
+
+The amount check is the heaviest single term. `verified` requires the extracted total to appear
+within two lines of a grand-total label. `present` means the value is somewhere on the page but
+not beside such a label, which is what a line-item total looks like. That distinction is not
+theoretical: on one of the sample documents the true total is 2,350.00 while 1,500.00 also
+appears, as a line item.
+
+### 7.11.3 The score does not decide. Four conditions do
+
+```python
+passes = (score >= self.threshold
+          and amount_state == "verified"
+          and reconciliation != "short"
+          and checks["vendor_is_not_a_label"])
+```
+
+**Three of those four have nothing to do with the score.** The design note in the source states
+the reason: *"Hard rules, not weightings. A weighted score that happens to land below the
+threshold is fragile: change one weight and the guarantee disappears silently."*
+
+If the gate were only `score >= 0.80`, then the guarantee that unverified money is never
+auto-approved would be an accident of arithmetic. Anyone retuning a weight, for any reason,
+could remove it without noticing. Stating the conditions separately makes the guarantee
+independent of the weights, and makes it reviewable: a reader can check what the system promises
+without recomputing a weighted sum.
+
+### 7.11.4 A worked pair: 0.87 is refused and 0.85 is approved
+
+
+> **Gap: screenshot, and an open decision.** `report/screenshots/approval-screen-before-prompt-fix-2026-09-28.png`
+> is the only record of this pair on screen and is not placed in the report. It also cannot be
+> captioned in the present tense: the prompt fix in §7.12 removes the state it shows, and the
+> group has not decided whether that fix ships before submission. Whatever is decided, the
+> caption must carry the date.
+The current sample set contains the clearest available demonstration that the score and the
+verdict are different measurements. Two documents sit side by side in the review queue:
+
+| | Harbour Review Supplies, INV-2026-004 | Apex Cloud Solutions, INV-2026-001 |
+|---|---|---|
+| Score | **0.87** | **0.85** |
+| Verdict | **NeedsReview** | **Validated** |
+
+Both are perfect on five of the seven terms. They differ in one place each.
+
+**Harbour loses 0.125 on a single term.** Its stated total of 990.00 does appear in the
+document, but not within two lines of a grand-total label, so the amount check returns `present`
+rather than `verified`. Everything else, including reconciliation, is full marks.
+
+**Apex loses 0.15 across two linked terms.** No line items were stored, which costs 0.10
+directly and a further 0.05 through reconciliation, because with no rows there is nothing to
+check the total against and the state falls to `unknown`. Its total, however, is `verified`.
+
+So Harbour scores higher for an arithmetically ordinary reason: one missing location check costs
+less than missing rows plus the reconciliation that depends on them.
+
+The verdict inverts that, and the second condition is why:
+
+| Condition | Harbour 0.87 | Apex 0.85 |
+|---|---|---|
+| score at or above 0.80 | pass | pass |
+| **amount located beside a grand-total label** | **fail**, `present` | pass, `verified` |
+| rows do not exceed the total | pass, `exact` | pass, `unknown` |
+| vendor is a name, not a caption | pass | pass |
+
+**A reader shown only the two numbers would rank these documents the wrong way round.** That is
+the argument for showing the gate's verdict beside the score wherever the score appears, and it
+is the reason the approval screen never displays the number on its own.
+
+It is also a direct answer to Objective O2, which asks the project to show where automation is
+safe and where a person must intervene. The score measures how complete and how corroborated an
+extraction is. The conditions decide whether it is safe to act on unattended. Harbour
+demonstrates that a high score is not the same as a safe one.
+
+### 7.11.5 One score in the current set sits on a rounding boundary
+
+Found on 2026-09-28 by the test that checks the breakdown against the gate, and recorded
+because it is a property of the arithmetic rather than a defect in either.
+
+Harbour's seven terms are `0.30 + 0.10 + 0.10 + 0.08 + 0.07 + 0.125 + 0.10`, which is exactly
+0.875. Summed in the order the validator evaluates them, floating-point representation gives
+0.8749999999999999, and Python rounds that to **0.87**. Summed as a list of the same seven
+values it gives exactly 0.875, which rounds to **0.88**.
+
+The terms are identical and the difference is one part in ten thousand million million. It is
+visible only because the value lands precisely on a half-cent boundary, and only because the
+score is displayed to two decimals.
+
+**Nothing downstream depends on which side it falls.** Both 0.87 and 0.88 clear the 0.80
+threshold, and the document was refused for an unrelated reason. The finding is reported for
+two narrower purposes: a reader reproducing the figure by hand will get 0.88 and should know
+why, and it is a small illustration of the standard this report is written to, which is that a
+figure is worth only as much as the procedure that produced it. The test asserts the terms
+account for the score to a tolerance tighter than the displayed precision rather than asserting
+an exact match, because an exact match would fail on any document that lands on a boundary.
+
+### 7.11.6 What the score cannot do
+
+Three limits, each of which constrains how far §7.11.4 generalises.
+
+**Two of the three text checks are substring matches.** `invoice_number` and `vendor_name` are
+counted as corroborated if the value appears anywhere in the document. Only `total_amount`
+receives real location verification. This is recorded as a partial requirement rather than a met
+one, and it was deliberately not hardened: a matching rule tuned against three synthetic
+invoices would encode the generator rather than the domain.
+
+**A computed value defeats the check by construction.** The question the gate asks is whether an
+extracted value appears in the document. A model that adds two numbers together and produces a
+sum which happens to appear on the page will pass that test. §7.5.1 records exactly this
+behaviour on a payment statement, where every required-schema variant returned 2,000.00 as the
+total of a document that states no total, by adding 1,200.00 and 800.00. A fabricated string can
+be caught by asking whether it is on the page. A computed one cannot.
+
+**A score of 1.00 does not mean the document is genuine.** It means the extraction is complete
+and internally corroborated. Every check reads the document itself, so a duplicate invoice, an
+invoice from an unknown vendor, and a well-formatted forgery all score 1.00. Nothing in the gate
+looks outside the page. This is the most important limitation in the system and §9.4 returns to
+it, because it is the gap that no amount of extraction accuracy closes.
+
+---
+
+## 7.12 One word in the prompt, and what it cost to not notice it
+
+Measured 2026-09-28. Reproduce with:
+
+```bash
+./.venv/bin/python evaluation/prompt_label_ablation.py
+```
+
+This is the largest single effect the project has measured, and it was found by reading a diff
+rather than by looking for it.
+
+### 7.12.1 The defect
+
+The extraction prompt contains a worked example followed by the document to be read. Both were
+introduced with the same words:
+
+```
+        Example:
+        Document Content:
+        """
+        Vendor: Bright Star Media Pty Ltd
+        ...
+        """
+        Expected JSON:
+        {...}
+
+        Document Content:
+        """{raw_text}"""
+```
+
+**The label `Document Content:` appears twice and means two different things.** The first
+introduces an invented invoice the model should imitate the handling of. The second introduces
+the real invoice it must extract from. Nothing in the prompt distinguishes them.
+
+### 7.12.2 The measurement
+
+Changing the second label to `Current Document Content:`, and changing nothing else, was run
+three times in each configuration against the same three documents, same model, same
+temperature, with every field repair disabled:
+
+| Prompt label | Runs | Overall |
+|---|---|---|
+| `Document Content:` | 10/15, 10/15, 10/15 | **10/15, 66.7%** |
+| `Current Document Content:` | 15/15, 15/15, 15/15 | **15/15, 100%** |
+
+Nine runs, no variance in either arm. The gate's automation pass rate moves from 2/3 to 3/3 at
+the same time.
+
+**Every one of the five failures was on one document**, `sample_invoice_1`, which returned
+`None` for the vendor, the invoice number and the date, `0.0` for the total and `Unknown` for
+the currency. A model that finds a document hard returns some fields and misses others. A model
+that returns nothing usable for a single document, while handling two others perfectly, is not
+struggling with the document. It is reading the wrong block.
+
+### 7.12.3 What this does to the rest of the evaluation
+
+Three earlier results in this report have to be read differently in light of it.
+
+**The gap this report attributes to repair code closes to zero.** §7.3 and §7.5 are built on the
+distinction between what the model produces alone, 10/15, and what the system ships, 15/15,
+with the difference credited to a 92-line regex fallback and a caption stripper. With the label
+corrected, the model alone returns 15/15, and running the evaluation with every repair enabled
+also returns 15/15. **On this sample set the repair code now repairs nothing.** It is not
+removed, because three synthetic documents are not evidence that it is unnecessary in general,
+but the claim that it is what produces the shipped figure is no longer true here.
+
+**It is a third confirmation of §7.4.2's conclusion.** The two-by-two in
+`evaluation/prompt_schema_2x2.py` found that either an improved prompt or a required schema
+alone reaches the ceiling, and that the two are not additive. This is the cleanest instance of
+the prompt half of that finding available: not a rewritten prompt, one word.
+
+**It caused the ceiling in the first retrieval comparison.** The initial experiment described
+in §6 compared baseline and retrieval on these same three documents and found no difference,
+both at 100%. This label change shipped in the same branch as retrieval, so that comparison had
+no baseline errors for retrieval to correct. A later 30-document benchmark was added for that
+reason; it removes the ceiling and measures an improvement from 91.3% to 94.0%. The first result
+remains uninformative, but it is no longer the final evidence for the RAG method.
+
+### 7.12.4 Why it matters beyond this project
+
+The finding generalises further than most in this report, and it is uncomfortable.
+
+**The defect is invisible to every form of testing this project performs.** The prompt is
+syntactically fine. The schema is satisfied. The output parses, validates, and passes type
+checking. The pipeline reports success. Two of the three documents extract perfectly, so the
+system does not look broken. The only visible symptom is an accuracy figure that is lower than
+it should be, and there is no baseline that says what it should be.
+
+**It was found by reading a diff, not by measurement.** Nobody was looking for it. It surfaced
+because an unrelated pull request happened to touch that line for an unrelated reason, and
+because the diff was read closely enough to ask what the changed word did. Had the same change
+arrived in a larger commit, it would have landed silently and the project's headline numbers
+would have moved with no recorded cause.
+
+That is the practical argument for a discipline this report has otherwise applied to itself: a
+figure is worth only as much as the procedure that reproduces it. This project keeps its
+evaluation runnable, so the effect could be isolated in minutes once suspected. What it did not
+have was anything that would have raised the suspicion. **For a system whose output is a
+confident, well-formed, wrong answer, a passing test suite is not evidence of correctness**, and
+the gap between "the pipeline ran" and "the pipeline was right" is exactly where this defect
+lived for the length of the project.
