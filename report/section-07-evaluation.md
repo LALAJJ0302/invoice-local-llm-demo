@@ -721,12 +721,12 @@ but the claim that it is what produces the shipped figure is no longer true here
 alone reaches the ceiling, and that the two are not additive. This is the cleanest instance of
 the prompt half of that finding available: not a rewritten prompt, one word.
 
-**It is the direct cause of a null result elsewhere.** The retrieval experiment described in §6
-compared a baseline against a retrieval-augmented arm and found no difference, both at 100%.
-The reason both reached 100% is that this label change shipped in the same branch as the
-retrieval work. The comparison therefore measured retrieval against a baseline already at the
-ceiling, which is a ceiling effect rather than a finding about retrieval. §6 states this
-explicitly rather than reporting the null result at face value.
+**It caused the ceiling in the first retrieval comparison.** The initial experiment described
+in §6 compared baseline and retrieval on these same three documents and found no difference,
+both at 100%. This label change shipped in the same branch as retrieval, so that comparison had
+no baseline errors for retrieval to correct. A later 30-document benchmark was added for that
+reason; it removes the ceiling and measures an improvement from 91.3% to 94.0%. The first result
+remains uninformative, but it is no longer the final evidence for the RAG method.
 
 ### 7.12.4 Why it matters beyond this project
 

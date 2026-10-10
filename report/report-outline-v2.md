@@ -54,7 +54,7 @@ to be written, and the third column says what it is assembled from rather than i
 | 4 | System Architecture and Data Flow | **Have** | §4.1 Architecture, §4.2 Data model; `database-spec.md` | Nobody |
 | 5 | Security and Privacy | **Written 2026-09-29**, 1,192 words | Read off the code: two outbound calls, the eight fields Jira receives, `auth.py`, and what is not protected | Nobody. Luke to confirm the Jira field list |
 | 6 | Implementation | **Have** | §6.1, thirteen numbered design decisions; §6.2 development process | Nobody |
-| 7 | RAG Method | **Written 2026-09-29**, 1,150 words | JJ's PR #12 read at `543fe12`: `rag-poc.md`, `results_rag_summary.json`. Reports the null result as a ceiling effect per §8.12.3 | Nobody. Numbers must be re-read if #12 changes before it merges |
+| 7 | RAG Method | **Updated 2026-10-10** | Merged PR #12 at `d90edab`: `rag-poc.md`, `results_extended_summary.json`. Reports the 30-document baseline, always-RAG and selective-RAG comparison | Nobody |
 | 8 | Evaluation | **Have** | Twelve subsections, 6,287 words. §8.11 answers the supervisor's question about where the score comes from; §8.12 carries the prompt-label finding, which is the largest single effect the project has measured. The RAG comparison lives in §7, not here | Nobody |
 | 9 | Deployment and System Requirements | **Written 2026-09-29**, 1,103 words | `deployment-spec.md`, `Dockerfile`, `docker-compose.yml`, plus hardware and footprint measured on this machine | Nobody. Route C has never reproduced the report's numbers, and §9.5 says so |
 | 10 | Limitations and Future Work | **Written 2026-09-28**, 1,752 words | Absorbed the old §7.1–7.3 and §5.10, and adds §10.6 on the decision §8.12 created | Nobody |
@@ -119,8 +119,8 @@ Ordered by dependency, so that nothing waits on a person who has not delivered y
 | Mon 28 Sep | §1 gains an explicit in-scope and out-of-scope statement | Nobody. **Written as §1.4, 660 words** |
 | Mon 29 Sep | §5 Security and Privacy | **Written from the code**, not from Luke. Two outbound calls found by searching every source file |
 | Mon 29 Sep | §9 Deployment | **Written**, with hardware and footprint measured rather than requested |
-| Mon 29 Sep | §7 RAG Method | **Written** from PR #12 at `543fe12`, reported as a ceiling effect |
-| Outstanding | Luke to confirm §5.2's Jira field list; JJ to confirm §7 if #12 changes | Both are confirmations of written text, not blockers |
+| Fri 10 Oct | §7 RAG Method | **Updated** from merged PR #12 and the 30-document benchmark: 91.3% baseline, 94.0% with RAG |
+| Outstanding | Luke to confirm §5.2's Jira field list | A confirmation of written text, not a blocker |
 
 ## What has not changed
 

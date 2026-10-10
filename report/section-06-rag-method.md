@@ -1,120 +1,121 @@
 # 6. RAG Method
 
-This section reports a retrieval-augmented generation experiment: whether showing the model a
-relevant worked example before it extracts improves what it extracts. It was built by JJ and
-sits in pull request #12, which is open and not merged at the time of writing. The figures
-below are read from the six result files in that branch rather than re-derived, and the branch
-they come from is named wherever a number is quoted, because it is not the branch the rest of
-this report was measured on.
+This section reports the project's local retrieval-augmented generation (RAG) experiment:
+whether showing the model a relevant worked example before extraction improves the five target
+invoice fields. The implementation was merged in pull request #12 on 8 October 2026 at commit
+`d90edab`. The final evidence is the 30-document benchmark in
+`evaluation/results_extended_summary.json`.
 
-**The headline result is null, and the reason it is null is the finding.** The comparison was
-run against a baseline that had already reached the ceiling, so it could not have shown an
-improvement whatever retrieval did. That is set out in §6.4 rather than buried under the table.
+**The final result is a small, repeatable improvement on a synthetic benchmark.** Baseline
+field accuracy was 91.3%; both always-on RAG and selective RAG reached 94.0%. The result supports
+the narrower claim that the worked examples helped this test set. It is not evidence that the
+same gain will hold for production invoices.
 
 ## 6.1 Two different retrieval problems, kept apart
 
-The word retrieval appears twice in this project and means different things each time, so they
-are separated before either is discussed.
+The word retrieval appears twice in this project and means different things each time.
 
-**Retrieval over the mailbox**, described in §5.1.10, finds a vendor's prior messages. It has
-two implemented strategies, `sender` and `keyword`, and its measured result is that keyword
-scores 1.00 on threads and 0.00 on vendors.
+**Retrieval over the mailbox**, described in §5.1.10, finds a vendor's prior messages. It uses
+sender and keyword matching to supply business context such as previous correspondence.
 
-**Retrieval over worked examples**, the subject of this section, finds an invoice similar to the
-one being extracted and puts it in the prompt as a demonstration. The corpus it searches is five
-synthetic examples written for the purpose, not the mailbox.
+**Retrieval over worked invoice examples**, the subject of this section, finds an invoice
+example similar to the current document and places that example in the extraction prompt. Its
+corpus is five synthetic examples, not the mailbox.
 
-They share a module name and nothing else. A reader who conflates them will attribute the null
-result below to the mailbox work, which it has no bearing on.
+The two paths solve different problems. Mailbox retrieval supplies business context; example
+retrieval tries to improve structured field extraction.
 
 ## 6.2 What was built
 
-`rag_retrieval.py` loads five anonymised examples from `evaluation/rag_examples.json`, one each
-for cloud services, hardware, consulting, office supplies and software subscriptions. Each
-carries an invoice text and its expected structured output. Given a new document, the module
-scores the examples on exact phrases and token overlap, ranks them, and formats the top one into
-the prompt ahead of the document being extracted.
+`rag_retrieval.py` loads five anonymised examples from `evaluation/rag_examples.json`, covering
+cloud services, hardware, consulting, office supplies and software subscriptions. Each example
+contains invoice text and its expected structured output. For a new document, the retriever
+scores exact phrases and token overlap, ranks the examples and formats the best match into the
+prompt ahead of the current invoice.
 
-The path is optional. `main.py` without `--rag` is the behaviour every other measurement in this
-report was taken against; `main.py --rag --rag-limit 1` adds one retrieved example.
+The pipeline supports three modes:
 
-**No embeddings and no vector database**, for the reason §5.1.10 gives for the other retrieval
-problem: whether embeddings help at this corpus size is a measurement nobody has taken, and
-implementing them first would mean never taking it. Five examples is also a corpus at which a
-deterministic scorer is defensible on its own terms.
+- **Baseline:** extract without a worked example.
+- **Always-on RAG:** retrieve an example before every extraction.
+- **Selective RAG:** run the baseline first, retry with RAG only when the first result is weak,
+  and keep the stronger evidence-supported result.
 
-The retrieved example is accompanied by an instruction that its values must not be copied into
-the current document, and the existing evidence check still validates the model's output against
-the current source text. Retrieval therefore cannot introduce a value that the gate would not
-otherwise catch, which matters because a demonstration containing plausible invoice numbers is
-exactly the kind of context that invites copying.
+The retriever is deterministic and local. It does not use embeddings or a vector database. At
+five examples, a transparent scorer is easier to audit and sufficient to test the PoC question.
 
-## 6.3 How the comparison was run
+The prompt tells the model not to copy values from the example. The evidence gate then checks
+the extracted values against the current invoice text. This does not eliminate every model
+error, but it prevents a retrieved example from bypassing the same checks applied to baseline
+output.
 
-Three runs of each arm, three held-out documents per run, five fields per document, so 15
-field-values per run and 45 per arm. Held out means the three evaluation documents are not among
-the five examples. **Repairs were disabled in both arms**, the same switch §7.1 describes, so
-the comparison measures what the model does rather than what the regex fallback does for it.
+## 6.3 Why the first comparison was inconclusive
 
-| Metric | Baseline | With retrieval |
-|---|---:|---:|
-| Runs | 3 | 3 |
-| Mean field accuracy | 100.0% | 100.0% |
-| Mean validation rate | 100.0% | 100.0% |
-| Mean latency | 4.088 s | 4.313 s |
-| Latency range | 3.957 to 4.236 s | 3.623 to 4.688 s |
+The original controlled comparison used three held-out invoices, three repetitions per mode and
+five fields per invoice. Repairs were disabled so that the model output, rather than a fallback,
+was measured. Both baseline and RAG scored 15/15 fields in every run.
 
-Retrieval selected the domain-appropriate example every time: cloud services for the cloud
-invoice, hardware for the hardware invoice, consulting for the consulting invoice. **The
-retriever works.** It costs 0.225 seconds on average, which is 5.5%, and the two latency ranges
-overlap heavily enough that three runs cannot separate them with confidence.
+That equality was a ceiling effect. A prompt-label correction had already removed the errors in
+those three documents, leaving no headroom for retrieval to improve the score. The result was
+useful because it showed that the evaluation set was too easy, but it could not answer whether
+RAG improved accuracy. The team therefore added a harder 30-document benchmark.
 
-## 6.4 The null result is a ceiling effect, and says nothing about retrieval
+## 6.4 Extended 30-document benchmark
 
-Both arms scored 100%. Read at face value that says retrieval does not help. It does not say
-that, and the reason is in this report rather than in the experiment.
+The extended evaluation contains 30 held-out synthetic text PDFs across six layout families.
+Each mode was run three times with `llama3.2:latest`, repairs disabled and five fields scored per
+document: vendor name, invoice number, date, total amount and currency. Each run therefore
+contains 150 field decisions.
 
-**The baseline in this comparison is not the baseline the rest of the report uses.** §7.12
-documents a one-word correction to the extraction prompt that takes the model alone from 66.7%
-to 100% on this sample. That correction shipped in the same branch as the retrieval work. So the
-baseline arm here is the post-fix model, which already answers every field correctly on all
-three documents.
+| Metric | Baseline | Always-on RAG | Selective RAG |
+|---|---:|---:|---:|
+| Mean field accuracy | 91.3% (137/150) | 94.0% (141/150) | 94.0% (141/150) |
+| Exact-document accuracy | 73.3% | 80.0% | 80.0% |
+| Validation rate | 36.7% | 33.3% | 43.3% |
+| Mean latency per document | 5.230 s | 3.781 s | 8.606 s |
 
-**An arm at 100% cannot be improved on.** Whatever retrieval contributed, there was no headroom
-in which it could appear. The experiment measured retrieval against a ceiling and reported the
-ceiling. JJ's own write-up reaches the same conclusion and records that an earlier exploratory
-run scored 10/15 before the controlled comparison, which is the pre-fix figure and is the
-clearest evidence that the two arms were compared after the ceiling was already reached.
+The accuracy result was identical in all three repetitions. Compared with baseline, each RAG
+mode improved three documents per run, made no document worse and left 27 unchanged. At field
+level, the change was:
 
-This is worth stating carefully, because the shape of the error is one the report warns about
-elsewhere. A null result and an uninformative experiment look identical in a results table. The
-only thing separating them is knowing what the baseline was capable of before the treatment was
-applied, and that knowledge lived in a different section of a different branch.
+| Field | Baseline correct | RAG correct | Change |
+|---|---:|---:|---:|
+| Vendor name | 26/30 | 27/30 | +1 |
+| Invoice number | 24/30 | 25/30 | +1 |
+| Date | 30/30 | 30/30 | 0 |
+| Total amount | 27/30 | 29/30 | +2 |
+| Currency | 30/30 | 30/30 | 0 |
 
-## 6.5 What would make the experiment informative
+The gain is four additional correct fields out of 150, or 2.7 percentage points. That is a
+positive PoC result, but its practical size is modest and should not be overstated.
 
-Three changes, in order of how much they would buy.
+## 6.5 Why selective RAG is the preferred design
 
-**A harder evaluation set.** Three documents that the model already extracts perfectly cannot
-discriminate between any two methods. The set has to contain documents the current pipeline
-fails on, which means real invoices or synthetic ones written to be difficult, and it means
-extending `evaluation/ground_truth.json` before rather than after.
+Always-on and selective RAG produced the same extraction accuracy, but selective RAG achieved
+the highest validation rate: 43.3%, compared with 36.7% for baseline and 33.3% for always-on
+RAG. Selective mode retried 19 of 30 documents and adopted the RAG result for 11.
 
-**More runs, with variance reported.** Three runs establish that a difference of 0.225 seconds
-exists; they do not establish that it is stable. Language models are not deterministic, and the
-latency ranges here already overlap.
+Selective RAG also had the highest measured latency because some documents required two model
+calls. The latency figures should be treated as operational observations rather than a clean
+speed comparison: local model warm-up and load state affected the runs, which is why always-on
+RAG happened to be faster than baseline in this small sample.
 
-**A comparison against embeddings.** The deterministic scorer selected correctly on three
-documents where the categories are distinct and the vocabulary does not overlap. That is the
-easiest possible case for keyword matching, and it is the case least likely to distinguish it
-from a semantic method.
+The design is still preferable for the PoC because it makes retrieval conditional and records
+whether the second answer was adopted. That gives the team an auditable place to tune the retry
+rule as more representative invoices become available.
 
 ## 6.6 What this section can and cannot claim
 
-It can claim that retrieval-augmented prompting was implemented locally, that it selects
-relevant examples deterministically, that it costs about 5.5% in latency, and that it introduces
-no new failure the validation gate does not already check.
+The evidence supports four claims:
 
-It cannot claim that retrieval improves extraction accuracy, and it cannot claim that retrieval
-fails to. The experiment as run is incapable of supporting either, and reporting the null result
-without that qualification would be the more serious error of the two available.
+1. local worked-example retrieval was implemented and integrated into the invoice pipeline;
+2. on the 30-document synthetic benchmark, RAG improved mean field accuracy from 91.3% to
+   94.0%;
+3. the improvement repeated in all three runs and caused no regressions in the scored documents;
+4. selective RAG matched always-on accuracy and produced the highest validation rate, at the cost
+   of additional latency.
+
+The evidence does not establish production accuracy. The benchmark uses generated, text-based
+PDFs rather than a representative sample of real vendor invoices, and it does not test OCR,
+scans, handwriting, stamps or the full distribution of invoice layouts. A production decision
+would require a larger labelled set of real invoices, error analysis by layout and vendor, and
+measurement under controlled hardware and model-temperature settings.

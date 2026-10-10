@@ -42,7 +42,7 @@ narrower.
 | 3 | System Architecture and Data Flow | 741 | Written. **Needs three figures** |
 | 4 | Security and Privacy | 1,192 | Written from the code: two outbound calls, eight fields to Jira, and what is not protected |
 | 5 | Implementation | 1,816 | Written. Thirteen design decisions, each with its alternative and its evidence. **Needs a diagram and two screenshots** |
-| 6 | RAG Method | 1,150 | Written from PR #12 at `543fe12`. Reports its null result as a ceiling effect |
+| 6 | RAG Method | Updated 2026-10-10 | Written from merged PR #12 and its 30-document benchmark. Baseline 91.3%; RAG 94.0% |
 | 7 | Evaluation | 6,434 | Written. Controlled experiments, a negative result, three defects found by testing. **Needs two figures**, and §7.11.4 rests on an open decision |
 | 8 | Deployment and System Requirements | 1,103 | Written. Hardware and footprint measured on the machine the report was produced on |
 | 9 | Limitations and Future Work | 1,752 | Written. Consolidates the limits stated throughout, deliberately read together |
@@ -68,14 +68,14 @@ a citable figure or removed. §13 names two candidate papers.
 
 **3. Page numbers and DOIs need a final check** on the entries in §13 that carry them.
 
-**4. §7.12 records a one-word prompt fix that the group has not decided whether to ship.** It
-takes extraction from 66.7% to 100% and in doing so destroys the worked example §7.11.4 is built
-on. The decision is not the report's to make and §9.6 says so, but the report cannot be
-submitted with §7.11.4 written in the present tense if the fix ships first.
+**4. §7.12 records a one-word prompt fix that has now shipped.** It takes extraction from 66.7%
+to 100% on the original sample and changes the meaning of the worked example in §7.11.4. That
+screenshot and caption must be presented as historical pre-fix evidence rather than as the
+current interface.
 
-**5. Two confirmations are owed, neither blocking.** Luke should check §4.2's list of what a Jira
-issue carries against what he intended the integration to send. JJ's figures in §6 must be
-re-read if PR #12 moves before it merges.
+**5. One confirmation is owed, and it is not blocking.** Luke should check §4.2's list of what a
+Jira issue carries against what he intended the integration to send. §6 has been re-read against
+the merged PR #12 result and the frozen 30-document benchmark.
 
 ## How this document is built
 
