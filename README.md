@@ -89,13 +89,11 @@ Make sure Ollama is running before using `main.py`.
 
 ### 4. Configure Gmail credentials
 
-Copy the example environment file:
+`email_listener.py` reads mail settings from `.env`. Copy the example and fill in the Gmail lines:
 
 ```bash
 cp .env.example .env
 ```
-
-Edit `.env`:
 
 ```env
 EMAIL_HOST=imap.gmail.com
@@ -105,11 +103,26 @@ EMAIL_PASSWORD=your_gmail_app_password
 ATTACHMENT_DIR=./inbox
 ```
 
-Important:
+| Variable | Required | What to put |
+|---|---|---|
+| `EMAIL_HOST` | No | `imap.gmail.com`. This is the default if the line is missing. |
+| `EMAIL_PORT` | No | `993`, the IMAP SSL port. This is the default if the line is missing. |
+| `EMAIL_USER` | Yes | The full Gmail address, such as `name@gmail.com`. |
+| `EMAIL_PASSWORD` | Yes | A Gmail App Password. The normal Gmail password is rejected by IMAP. |
+| `ATTACHMENT_DIR` | No | Folder for saved files. Defaults to `./inbox`, which is also where `main.py` reads from. |
 
-- Use a Gmail App Password, not your normal Gmail password.
-- Do not commit `.env`.
-- Do not share screenshots showing credentials.
+The Jira lines further down `.env.example` are optional and are not used by the listener.
+
+Create the App Password:
+
+1. Turn on 2-Step Verification: https://myaccount.google.com/signinoptions/two-step-verification
+2. Open https://myaccount.google.com/apppasswords and create one named `invoice demo`.
+3. Copy the 16-character code into `EMAIL_PASSWORD`. Spaces in the code do not matter.
+4. Google shows that code once. If it is lost, create a new App Password on the same page and replace `EMAIL_PASSWORD`. The old one can be revoked there after the new code works.
+
+In Gmail, turn IMAP on: Settings, See all settings, Forwarding and POP/IMAP, Enable IMAP.
+
+Do not commit `.env`, and do not share a screenshot that shows it. A school or work Google account will hide the App Passwords page when an admin has turned them off.
 
 ## How to Run
 
@@ -191,30 +204,48 @@ Then open:
 http://localhost:8501
 ```
 
-### Option B: Test with Gmail attachments
+### Option B: Run from Gmail intake
 
-Send an email to your Gmail account with:
+Finish the `.env` setup above first. The listener is one pass: it fetches what matches, writes files, marks those messages read, and exits. It does not keep watching the mailbox.
 
-- Subject containing `invoice`
-- One or more invoice/receipt attachments
-
-Download matching attachments:
+1. Put a message in the Gmail Inbox with `invoice` in the subject and a document attached, or use one that is already there.
+2. Download it:
 
 ```bash
 python3 email_listener.py
 ```
 
-Process downloaded files:
+3. Extract and store whatever landed in `inbox/`:
 
 ```bash
 python3 main.py
 ```
 
-Open the dashboard:
+4. Open the dashboard:
 
 ```bash
 python3 -m streamlit run app.py
 ```
+
+What `email_listener.py` does on that run, in order:
+
+1. Logs in over IMAP with `EMAIL_USER` and `EMAIL_PASSWORD`.
+2. Searches the Inbox for messages whose subject contains `invoice`. Read and unread messages both match. A subject such as `Invoice 1042` or `Re: invoice for March` matches. `Receipt` or `Bill` does not.
+3. Stores each match in SQLite: Message-ID, sender, subject, date, body, and attachment filenames.
+4. Saves qualifying attachments into `ATTACHMENT_DIR` (`./inbox` by default).
+5. Marks every matched message as read, including one whose attachments were skipped.
+
+`main.py` is a separate step. It reads `inbox/`, extracts the invoice, and links the file back to the stored email by filename.
+
+A message or file is skipped when:
+
+- It is outside the Inbox. Other labels and folders are not searched.
+- The subject does not contain `invoice`.
+- That Message-ID is already in the database. The listener records it once, skips its attachments on later runs, and still marks it read.
+- The message has no file attachment. Inline images and signature files are ignored.
+- The attachment is not `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.csv`, or `.txt`. A photo of an invoice is skipped here.
+- The same file bytes were already saved for this email.
+- The attachment has no content.
 
 ### Option C: Run everything in Docker
 
