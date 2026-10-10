@@ -1,4 +1,16 @@
-# References
+# 13. References
+
+> **Citation status, checked 2026-09-29.** All sixteen entries in the list below are cited in
+> the body, by a script that counts narrative citations (`Reddy et al. (2026) describe…`) as well
+> as parenthetical ones and tolerates a citation wrapped across a line break. Two things remain:
+> page numbers and DOIs need a final check on the entries that carry them, and §1.1 still states
+> an industry-context figure with no source at all. See "Still missing" at the end of this
+> section.
+>
+> Citations are concentrated in §11 and §7. That is expected rather than a defect: sections 2
+> to 6 and 8 to 10 describe and measure this project's own system, and their evidence is the
+> repository rather than the literature. Every figure and table drawn from this project's own
+> code still needs a source line saying so.
 
 Every entry below was verified on 16 September 2026 against the work's arXiv abstract page, ACL
 Anthology record or publisher record. Author lists are transcribed from those records rather than
@@ -89,12 +101,12 @@ arXiv:2307.09702. https://arxiv.org/abs/2307.09702
 Ollama. (n.d.). *Structured outputs.* https://docs.ollama.com/capabilities/structured-outputs
 
 Cited as the authoritative vendor source for the `format` parameter, and identified as vendor
-documentation rather than peer-reviewed work at the point of use in §2.1.
+documentation rather than peer-reviewed work at the point of use in §11.1.
 
 ## Consulted and deliberately not cited
 
 Three vendor and blog sources informed the literature search and are **not cited as evidence**
-anywhere in this report. They are listed so that the claims discussed in §5.6 can be traced and
+anywhere in this report. They are listed so that the claims discussed in §7.6 can be traced and
 tested by a reader who wants to check them. One of them reports a model returning empty JSON
 under constrained decoding, which would have corroborated this project's own defect; it is not
 cited because this project's five-model run does not reproduce it.
