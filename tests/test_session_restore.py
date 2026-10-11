@@ -80,3 +80,31 @@ def test_log_out_clears_the_token():
     logout[0].click().run()
     assert auth.SESSION_PARAM not in at.query_params
     assert _shows_login_form(at)
+
+
+def _needs_documents(at):
+    if not at.radio:
+        pytest.skip("no documents in this database, so no sidebar to read")
+
+
+def test_a_refresh_stays_on_the_page_it_was_on():
+    at = sign_in(AppTest.from_file(APP, default_timeout=120))
+    at.query_params["v"] = "history"
+    at.run()
+    _needs_documents(at)
+    assert at.radio(key="view").value == "history"
+
+
+def test_an_unknown_page_in_the_url_falls_back_to_overview():
+    at = sign_in(AppTest.from_file(APP, default_timeout=120))
+    at.query_params["v"] = "not-a-page"
+    at.run()
+    _needs_documents(at)
+    assert at.radio(key="view").value == "overview"
+
+
+def test_the_current_page_is_written_to_the_url():
+    at = sign_in(AppTest.from_file(APP, default_timeout=120)).run()
+    _needs_documents(at)
+    at.radio(key="view").set_value("outbox").run()
+    assert at.query_params["v"] == ["outbox"]  # AppTest returns a list

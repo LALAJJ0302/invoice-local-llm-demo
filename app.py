@@ -24,6 +24,8 @@ st.set_page_config(
 )
 
 DB_PATH = DEFAULT_DB_PATH
+# The page the sidebar is on, kept in the URL as ?v= so a refresh stays on it.
+VIEW_PARAM = "v"
 
 def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
     """Loads invoices from the normalised schema. Money is converted to dollars here, at the edge.
@@ -859,6 +861,19 @@ st.markdown("""
   box-shadow: 0 0 0 3px rgba(91,91,214,0.16) !important;
   border-radius: 8px;
 }
+
+/* Sign-in and first-login password screens: one narrow card in the middle of the page rather
+   than full-width inputs. width:min() and auto margins, not max-width alone, because the
+   container's parent is a flex column and auto margins on a flex child need an explicit
+   width to centre against. */
+.st-key-login-card {
+  width: min(400px, 100%); margin: 14vh auto 0; padding: 36px 36px 28px;
+  background: var(--surface); border-radius: 16px; box-shadow: var(--lift);
+}
+.st-key-login-card h1 { text-align: center; font-size: 26px; padding: 0 0 4px; }
+.st-key-login-card { gap: 0.5rem; }
+.st-key-login-card [data-testid="stCaptionContainer"] { text-align: center; margin: 0; }
+.st-key-login-card [data-testid="stForm"] { border: none; padding: 0; margin-top: -0.25rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1563,6 +1578,9 @@ def sidebar(frame, pending, auto, outbox, history):
     requested = st.session_state.pop("goto", None)
     if requested in dest:
         st.session_state["view"] = requested
+    elif "view" not in st.session_state and st.query_params.get(VIEW_PARAM) in dest:
+        # A refreshed page has an empty session but still has its URL.
+        st.session_state["view"] = st.query_params[VIEW_PARAM]
     with st.sidebar:
         st.markdown(
             "<div class='side-id'><div class='side-mark'>"
@@ -1602,6 +1620,9 @@ def sidebar(frame, pending, auto, outbox, history):
             sign_out_session()
             st.rerun()
 
+    if st.query_params.get(VIEW_PARAM) != chosen:
+        st.query_params[VIEW_PARAM] = chosen
+
     return chosen, query
 
 
@@ -1620,31 +1641,32 @@ def sidebar(frame, pending, auto, outbox, history):
 
 def require_password_change(store: StorageManager) -> None:
     """Stops the page until a first-time user replaces the temporary password."""
-    st.title("Invoice approvals")
-    st.caption(
-        f"Signed in as **{st.session_state['display_name']}**. "
-        "This is the first login for this account. Choose a new password to continue."
-    )
-    with st.form("change_password"):
-        new_password = st.text_input("New password", type="password")
-        confirm = st.text_input("Confirm new password", type="password")
-        submitted = st.form_submit_button("Save password")
-    if submitted:
-        if not new_password or new_password != confirm:
-            st.error("Enter the new password twice, and make sure both match.")
-        else:
-            try:
-                auth.change_password(store, int(st.session_state["user_id"]), new_password)
-            except ValueError as error:
-                st.error(str(error))
+    with st.container(key="login-card"):
+        st.title("Invoice approvals")
+        st.caption(
+            f"Signed in as **{st.session_state['display_name']}**. "
+            "This is the first login for this account. Choose a new password to continue."
+        )
+        with st.form("change_password", border=False):
+            new_password = st.text_input("New password", type="password")
+            confirm = st.text_input("Confirm new password", type="password")
+            submitted = st.form_submit_button("Save password", type="primary", width="stretch")
+        if submitted:
+            if not new_password or new_password != confirm:
+                st.error("Enter the new password twice, and make sure both match.")
             else:
-                st.session_state["must_change_password"] = False
-                st.query_params[auth.SESSION_PARAM] = auth.issue_session_token(
-                    store, int(st.session_state["user_id"]))
-                st.rerun()
-    if st.button("Log out"):
-        sign_out_session()
-        st.rerun()
+                try:
+                    auth.change_password(store, int(st.session_state["user_id"]), new_password)
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    st.session_state["must_change_password"] = False
+                    st.query_params[auth.SESSION_PARAM] = auth.issue_session_token(
+                        store, int(st.session_state["user_id"]))
+                    st.rerun()
+        if st.button("Log out", width="stretch"):
+            sign_out_session()
+            st.rerun()
     st.stop()
 
 
@@ -1658,8 +1680,9 @@ def sign_in_session(store: StorageManager, user: dict) -> None:
 
 def sign_out_session() -> None:
     st.session_state.clear()
-    if auth.SESSION_PARAM in st.query_params:
-        del st.query_params[auth.SESSION_PARAM]
+    for param in (auth.SESSION_PARAM, VIEW_PARAM):
+        if param in st.query_params:
+            del st.query_params[param]
 
 
 def restore_session(store: StorageManager) -> None:
@@ -1704,18 +1727,19 @@ def require_login() -> None:
             require_password_change(store)
         return
 
-    st.title("Invoice approvals")
-    st.caption("Sign in to review documents. Your name is recorded on each decision.")
-    with st.form("login"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Log in")
-    if submitted:
-        user = auth.authenticate(store, username, password)
-        if user:
-            sign_in_session(store, user)
-            st.rerun()
-        st.error("Unknown username or password.")
+    with st.container(key="login-card"):
+        st.title("Invoice approvals")
+        st.caption("Sign in to review documents. Your name is recorded on each decision.")
+        with st.form("login", border=False):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Log in", type="primary", width="stretch")
+        if submitted:
+            user = auth.authenticate(store, username, password)
+            if user:
+                sign_in_session(store, user)
+                st.rerun()
+            st.error("Unknown username or password.")
     st.stop()
 
 
