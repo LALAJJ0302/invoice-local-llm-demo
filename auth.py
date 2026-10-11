@@ -5,8 +5,14 @@ Usernames and password hashes live in the users table. Create an account with:
     ./.venv/bin/python auth.py add --username luke --display-name Luke --password changeme
 
 The plaintext password is hashed before it is written. This is a three-person demo
-gate, not a production identity system: no signup page, no reset, and the session
-is Streamlit's tab session.
+gate, not a production identity system: no signup page, no reset.
+
+A login survives a browser refresh through a signed token the dashboard keeps in the page
+URL as `?s=...`. Streamlit's own session dies on refresh, and a database table for sessions
+would have meant a schema bump that breaks every teammate's database on `git pull` until they
+run a migration. So the token is stateless instead: it names the user and an expiry, and is
+signed with a secret kept in `.session_secret` beside the database. The signature also covers
+the user's password hash, so changing a password signs that user out everywhere.
 """
 
 from __future__ import annotations
@@ -15,6 +21,7 @@ import argparse
 import hashlib
 import hmac
 import os
+import time
 from typing import Any, Dict, Optional
 
 from storage import DEFAULT_DB_PATH, StorageManager
@@ -22,6 +29,9 @@ from storage import DEFAULT_DB_PATH, StorageManager
 _ITERATIONS = 200_000
 _ALGO = "pbkdf2_sha256"
 DEFAULT_PASSWORD = "changeme"
+SESSION_PARAM = "s"
+SESSION_SECONDS = 8 * 60 * 60
+_SECRET_FILE = ".session_secret"
 # Present on every fresh database. Missing usernames are inserted; an existing
 # username is left alone so a password chosen at first login is not reset.
 DEFAULT_USERS = (
@@ -89,6 +99,10 @@ def authenticate(
     row = store.user_by_username(username)
     if row is None or not verify_password(password, row["password_hash"]):
         return None
+    return _public(row)
+
+
+def _public(row) -> Dict[str, Any]:
     return {
         "user_id": int(row["user_id"]),
         "username": row["username"],
@@ -96,6 +110,68 @@ def authenticate(
         "jira_account_id": row["jira_account_id"],
         "must_change_password": bool(row["must_change_password"]),
     }
+
+
+def _secret(store: StorageManager) -> bytes:
+    """The signing key, created on first use beside the database and never committed."""
+    path = os.path.join(os.path.dirname(os.path.abspath(store.db_path)), _SECRET_FILE)
+    try:
+        with open(path, "rb") as handle:
+            key = handle.read().strip()
+        if key:
+            return key
+    except FileNotFoundError:
+        pass
+    key = os.urandom(32).hex().encode("ascii")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(key)
+    return key
+
+
+def _sign(store: StorageManager, payload: str, password_hash: str) -> str:
+    message = f"{payload}.{password_hash}".encode("utf-8")
+    return hmac.new(_secret(store), message, hashlib.sha256).hexdigest()
+
+
+def issue_session_token(
+    store: StorageManager, user_id: int, *, now: Optional[float] = None
+) -> str:
+    """A token that proves this user signed in, valid for SESSION_SECONDS."""
+    row = store.user_by_id(user_id)
+    if row is None:
+        raise ValueError(f"unknown user {user_id}")
+    current = store.user_by_username(row["username"])
+    expires = int((time.time() if now is None else now) + SESSION_SECONDS)
+    payload = f"{int(user_id)}.{expires}"
+    return f"{payload}.{_sign(store, payload, current['password_hash'])}"
+
+
+def user_from_session_token(
+    store: StorageManager, token: str, *, now: Optional[float] = None
+) -> Optional[Dict[str, Any]]:
+    """The user a token belongs to, or None if it is malformed, forged, expired or stale.
+
+    Stale means the password changed since the token was issued, because the signature
+    covers the password hash that was current then.
+    """
+    try:
+        user_id_text, expires_text, signature = token.split(".")
+        user_id, expires = int(user_id_text), int(expires_text)
+    except (ValueError, AttributeError):
+        return None
+    if expires < (time.time() if now is None else now):
+        return None
+    row = store.user_by_id(user_id)
+    if row is None:
+        return None
+    current = store.user_by_username(row["username"])
+    if current is None:
+        return None
+    expected = _sign(store, f"{user_id}.{expires}", current["password_hash"])
+    if not hmac.compare_digest(expected, signature):
+        return None
+    return _public(current)
 
 
 def change_password(store: StorageManager, user_id: int, new_password: str) -> None:

@@ -1599,7 +1599,7 @@ def sidebar(frame, pending, auto, outbox, history):
             f"<span class='side-sub'>Signed in on this machine</span></span></div>",
             unsafe_allow_html=True)
         if st.button("Log out", key="logout", width="stretch"):
-            st.session_state.clear()
+            sign_out_session()
             st.rerun()
 
     return chosen, query
@@ -1639,11 +1639,46 @@ def require_password_change(store: StorageManager) -> None:
                 st.error(str(error))
             else:
                 st.session_state["must_change_password"] = False
+                st.query_params[auth.SESSION_PARAM] = auth.issue_session_token(
+                    store, int(st.session_state["user_id"]))
                 st.rerun()
     if st.button("Log out"):
-        st.session_state.clear()
+        sign_out_session()
         st.rerun()
     st.stop()
+
+
+def sign_in_session(store: StorageManager, user: dict) -> None:
+    """Puts a verified user in the session and in the URL, so a refresh keeps them in."""
+    st.session_state["user_id"] = user["user_id"]
+    st.session_state["display_name"] = user["display_name"]
+    st.session_state["must_change_password"] = user["must_change_password"]
+    st.query_params[auth.SESSION_PARAM] = auth.issue_session_token(store, user["user_id"])
+
+
+def sign_out_session() -> None:
+    st.session_state.clear()
+    if auth.SESSION_PARAM in st.query_params:
+        del st.query_params[auth.SESSION_PARAM]
+
+
+def restore_session(store: StorageManager) -> None:
+    """Signs a person back in from the ?s= token after a browser refresh.
+
+    Streamlit gives a refreshed page an empty session, which is why the login form used to
+    come back every time. A bad, expired or stale token is dropped from the URL and the form
+    shows as normal.
+    """
+    token = st.query_params.get(auth.SESSION_PARAM)
+    if not token or st.session_state.get("user_id"):
+        return
+    user = auth.user_from_session_token(store, token)
+    if user is None:
+        del st.query_params[auth.SESSION_PARAM]
+        return
+    st.session_state["user_id"] = user["user_id"]
+    st.session_state["display_name"] = user["display_name"]
+    st.session_state["must_change_password"] = user["must_change_password"]
 
 
 def require_login() -> None:
@@ -1663,6 +1698,7 @@ def require_login() -> None:
         return
     store = StorageManager(DB_PATH)
     auth.ensure_default_users(store)
+    restore_session(store)
     if st.session_state.get("user_id"):
         if st.session_state.get("must_change_password"):
             require_password_change(store)
@@ -1677,9 +1713,7 @@ def require_login() -> None:
     if submitted:
         user = auth.authenticate(store, username, password)
         if user:
-            st.session_state["user_id"] = user["user_id"]
-            st.session_state["display_name"] = user["display_name"]
-            st.session_state["must_change_password"] = user["must_change_password"]
+            sign_in_session(store, user)
             st.rerun()
         st.error("Unknown username or password.")
     st.stop()

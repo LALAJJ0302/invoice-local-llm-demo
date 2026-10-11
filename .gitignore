@@ -7,6 +7,8 @@ __pycache__/
 .venv/
 
 workflow_platform.db
+# Signing key for the login token in the page URL, created on first sign-in.
+.session_secret
 inbox/
 archive/
 *.pdf

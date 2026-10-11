@@ -89,3 +89,51 @@ class TestAuth:
         assert auth.ensure_default_users(store) == 0
         assert auth.authenticate(store, "luke", "chosen")["must_change_password"] is False
         assert auth.authenticate(store, "luke", "changeme") is None
+
+
+class TestSessionToken:
+    def test_a_fresh_token_returns_its_user(self, store):
+        auth.create_user(store, "luke", "Luke", "secret")
+        user_id = store.user_by_username("luke")["user_id"]
+        user = auth.user_from_session_token(store, auth.issue_session_token(store, user_id))
+        assert user["username"] == "luke"
+        assert user["user_id"] == user_id
+
+    def test_an_expired_token_is_refused(self, store):
+        auth.create_user(store, "luke", "Luke", "secret")
+        user_id = store.user_by_username("luke")["user_id"]
+        token = auth.issue_session_token(store, user_id, now=1_000_000)
+        later = 1_000_000 + auth.SESSION_SECONDS + 1
+        assert auth.user_from_session_token(store, token, now=later) is None
+        assert auth.user_from_session_token(store, token, now=later - 5) is not None
+
+    def test_a_forged_or_malformed_token_is_refused(self, store):
+        auth.create_user(store, "luke", "Luke", "secret")
+        auth.create_user(store, "neo", "Neo", "secret")
+        luke = store.user_by_username("luke")["user_id"]
+        neo = store.user_by_username("neo")["user_id"]
+        token = auth.issue_session_token(store, luke)
+        _, expires, signature = token.split(".")
+        # Same signature claimed for another user.
+        assert auth.user_from_session_token(store, f"{neo}.{expires}.{signature}") is None
+        # A later expiry on the same signature.
+        assert auth.user_from_session_token(store, f"{luke}.{int(expires) + 99}.{signature}") is None
+        for junk in ("", "abc", "1.2", "x.y.z", "1.2.3.4"):
+            assert auth.user_from_session_token(store, junk) is None
+
+    def test_changing_the_password_signs_the_user_out(self, store):
+        auth.create_user(store, "luke", "Luke", "secret")
+        user_id = store.user_by_username("luke")["user_id"]
+        token = auth.issue_session_token(store, user_id)
+        auth.change_password(store, user_id, "something-else")
+        assert auth.user_from_session_token(store, token) is None
+
+    def test_the_secret_is_stable_private_and_beside_the_database(self, store):
+        auth.create_user(store, "luke", "Luke", "secret")
+        user_id = store.user_by_username("luke")["user_id"]
+        first = auth.issue_session_token(store, user_id, now=5)
+        second = auth.issue_session_token(store, user_id, now=5)
+        assert first == second
+        path = os.path.join(os.path.dirname(store.db_path), ".session_secret")
+        assert os.path.exists(path)
+        assert os.stat(path).st_mode & 0o077 == 0
