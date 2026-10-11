@@ -43,7 +43,7 @@ Following supervisor feedback, the project was de-scoped into a local-first work
 | File / Folder | Purpose |
 |---|---|
 | `generate_mock_invoices.py` | Generates sample invoice PDFs for testing. |
-| `email_listener.py` | Connects to Gmail via IMAP and downloads invoice-related attachments into `inbox/`. |
+| `email_listener.py` | Connects to Gmail via IMAP, downloads invoice-related attachments into `inbox/`, and while polling processes claimed batches in the background. |
 | `.env.example` | Template for local email configuration. Copy this to `.env`. |
 | `inbox/` | Local folder for incoming invoice files. Ignored by Git. |
 | `main.py` | Core processing pipeline: reads files, extracts text, calls Ollama, validates confidence, saves records, and archives files. |
@@ -206,22 +206,16 @@ http://localhost:8501
 
 ### Option B: Run from Gmail intake
 
-Finish the `.env` setup above first. The listener is one pass: it fetches what matches, writes files, marks those messages read, and exits. It does not keep watching the mailbox.
+Finish the `.env` setup above first. The listener keeps polling the inbox until you stop it with Ctrl+C. It fetches unread matches, writes files, marks those messages read, and starts processing whatever is in `inbox/` in the background (the same pipeline as `python3 main.py`). It does not wait for that processing to finish before the next check. Files already claimed are not part of the next batch. `EMAIL_POLL_INTERVAL` is the wait in seconds (default 10). A single pass that only downloads is `python3 email_listener.py --once`.
 
 1. Put a message in the Gmail Inbox with `invoice` in the subject and a document attached, or use one that is already there.
-2. Download it:
+2. With Ollama already running, watch the inbox. New files are claimed and extracted in the background after each check:
 
 ```bash
 python3 email_listener.py
 ```
 
-3. Extract and store whatever landed in `inbox/`:
-
-```bash
-python3 main.py
-```
-
-4. Open the dashboard:
+3. Open the dashboard, or refresh it if it is already open. It reads the database on the next page load:
 
 ```bash
 python3 -m streamlit run app.py
@@ -230,12 +224,13 @@ python3 -m streamlit run app.py
 What `email_listener.py` does on that run, in order:
 
 1. Logs in over IMAP with `EMAIL_USER` and `EMAIL_PASSWORD`.
-2. Searches the Inbox for messages whose subject contains `invoice`. Read and unread messages both match. A subject such as `Invoice 1042` or `Re: invoice for March` matches. `Receipt` or `Bill` does not.
+2. Searches the Inbox for unread messages whose subject contains `invoice`. Mail that is already read is not fetched. A subject such as `Invoice 1042` or `Re: invoice for March` matches. `Receipt` or `Bill` does not.
 3. Stores each match in SQLite: Message-ID, sender, subject, date, body, and attachment filenames.
 4. Saves qualifying attachments into `ATTACHMENT_DIR` (`./inbox` by default).
-5. Marks every matched message as read, including one whose attachments were skipped.
+5. Marks each successfully handled message as read, including one whose attachments were skipped. A message that could not be fetched or recorded stays unread so the next poll can try again.
+6. Claims the files in `inbox/` (moves them to `inbox/.processing/`) and processes that batch in the background with the same pipeline as `python3 main.py`, then waits `EMAIL_POLL_INTERVAL` seconds (default 10) and checks again. A later check does not take files already claimed. A check that could not reach Gmail still claims files already saved. A file the pipeline does not archive is returned to `inbox/` when that batch finishes, so a later check can retry it.
 
-`main.py` is a separate step. It reads `inbox/`, extracts the invoice, and links the file back to the stored email by filename.
+`python3 email_listener.py --once` only downloads. `python3 main.py` is still how you process files dropped straight into `inbox/` without the listener. Ollama must be running either way. The dashboard does not update by itself: refresh the browser, or click in the app, to see the new rows.
 
 A message or file is skipped when:
 
@@ -271,8 +266,8 @@ way, and `docker-compose.yml`'s header comment for the full command list.
 |---|---|
 | Generate mock invoices | `python3 generate_mock_invoices.py` |
 | Load the mock mailbox | `python3 seed_mock_emails.py` |
-| Download Gmail invoice attachments | `python3 email_listener.py` |
-| Process inbox files | `python3 main.py` |
+| Watch Gmail and process new files | `python3 email_listener.py` (`--once` downloads once and does not process) |
+| Process inbox files without the listener | `python3 main.py` |
 | Inspect SQLite records | `python3 query_db.py` |
 | Start dashboard | `python3 -m streamlit run app.py` |
 | Run the tests | `python3 -m pytest tests/ -q` |
