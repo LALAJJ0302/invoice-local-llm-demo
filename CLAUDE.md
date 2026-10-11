@@ -65,6 +65,11 @@ login form before anything renders. The accounts are created on first run by
 network exposure, which is acceptable here and would not be anywhere else; the report's Security
 and Privacy section is where that gets discussed rather than quietly fixed.
 
+A refresh keeps you signed in: the dashboard puts a signed token in the URL as `?s=` and checks
+it on the next page load, for eight hours or until Log out. There is no sessions table, so
+`git pull` needs no migration. The signing key is `.session_secret` beside the database, created on
+first sign-in and gitignored. Changing a password signs that user out everywhere.
+
 Tests do not use this login. They seed a session through `tests/signed_in.py`, so that `app.py`
 keeps exactly one way in. Verified 2026-09-28 on a clean copy: bare clone is 585 passed with 18
 failing for lack of documents and no collection error, and the sequence above reaches **609
