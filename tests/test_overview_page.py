@@ -59,3 +59,17 @@ def test_the_removed_sections_are_not_on_overview_but_their_destinations_still_e
     assert "decisions a person made, including rejections" not in html
     assert at.sidebar.radio[0].options  # the sidebar still lists every destination
     assert any("History" in str(o) for o in at.sidebar.radio[0].options)
+
+
+def test_the_empty_overview_shows_placeholders_and_no_number():
+    """The empty database is drawn by empty_overview_html. It must never show a figure that is
+    not real, so every stat is a grey placeholder and there is no ov-number at all."""
+    import app
+    html = app.empty_overview_html()
+    labels = re.findall(r"<span class='ov-label'>([^<]+)</span>", html)
+    assert labels == ["Invoices", "Total amount", "Waiting for you", "Approved by a person",
+                      "Needs attention", "Approved by the system"]
+    assert "ov-number" not in html
+    assert html.count("ph-value") == 6
+    assert "title-art" in html and "Nothing has been stored yet." in html
+    assert "<code>main.py</code>" in html

@@ -119,7 +119,7 @@ def test_overview_shows_the_waiting_documents_and_not_only_a_count():
     at = run()
     rendered = " ".join(m.value for m in at.markdown if m.value)
     if pending.empty:
-        assert "Nothing is waiting for you" in rendered
+        assert "Nothing is waiting" in rendered
     else:
         top = pending.sort_values("email_received_at", na_position="last").iloc[0]
         assert str(top["vendor_name"]) in rendered, (

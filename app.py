@@ -894,7 +894,7 @@ st.markdown("""
    places the theme reaches. Not on :root: --text and --caution-text exist there with other values
    and a global change would move every page at once. */
 .st-key-ovroot, [data-testid="stDialog"] [role="dialog"], .st-key-login-card,
-[data-testid="stSidebar"] {
+[data-testid="stSidebar"], .title-art, .eyebrow {
   --page:#FFFFFF; --rule:#E6E6E6; --text:#111111; --text-muted:#6B6B6B; --control-fill:#F0F0F0;
   --blue:#0A66FF; --blue-wash:#CFE0FF; --blue-text:#0A57D6;
   --caution:#A65A1E; --caution-wash:#FAF0E2; --caution-text:#8A4612; --caution-chip:#F2DFC6;
@@ -1097,8 +1097,8 @@ st.markdown("""
 [data-testid="stHeaderActionElements"] { display:none; }
 
 /* Title art: used by Overview and the sign-in card. */
-.title-art { margin:0; font-size:48px; font-weight:800; letter-spacing:-0.005em; line-height:1.1;
-  color:var(--text); padding:0; }
+h1.title-art { margin:0; font-size:48px !important; font-weight:800 !important;
+  letter-spacing:-0.005em; line-height:1.1 !important; color:var(--text); padding:0; }
 .title-art .line { display:block; }
 .swash { position:relative; display:inline-block; color:var(--blue-text); isolation:isolate; }
 .swash svg { position:absolute; left:-2px; right:-2px; bottom:-12px; width:calc(100% + 4px); height:16px; }
@@ -1117,7 +1117,8 @@ st.markdown("""
   display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; }
 .login-name { font-size:12px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase;
   color:var(--text-muted); }
-.st-key-login-card .title-art { font-size:44px; line-height:1.05; margin:28px 0 0; text-align:left; }
+.st-key-login-card h1.title-art { font-size:44px !important; line-height:1.05 !important;
+  margin:28px 0 0; text-align:left; }
 .st-key-login-card h1 { text-align:left; font-size:44px; font-weight:800; padding:0; margin-top:28px;
   letter-spacing:-0.005em; line-height:1.05; }
 .st-key-login-card [data-testid="stCaptionContainer"] { text-align:left; margin:36px 0 0;
@@ -1136,6 +1137,37 @@ st.markdown("""
   border-radius:var(--radius); background:var(--blue); color:#fff; font-size:16px; font-weight:600; }
 .st-key-login-card [data-testid="stBaseButton-secondary"] { min-height:44px; border:0;
   border-radius:var(--radius); background:var(--control-fill); color:var(--blue-text); font-weight:600; }
+
+/* Overview details from the design. */
+.st-key-ovroot [class*="st-key-sechead-awaiting"] .sec-title::before { content:""; display:inline-block;
+  width:8px; height:8px; border-radius:50%; background:var(--caution); margin-right:10px; vertical-align:middle; }
+.rc-flag { display:none; }
+.st-key-ovroot [class*="st-key-ovrec-"]:has(.rc-flag) { background:var(--caution-wash); }
+.eyebrow + .title-art { margin-top:0; }
+.title-art { margin-bottom:8px; }
+.st-key-ovroot .ph { display:block; background:var(--control-fill); border-radius:4px; }
+.st-key-ovroot .ph-value { width:96px; height:30px; margin-top:8px; }
+.st-key-ovroot .ph-pill { width:140px; height:24px; margin-top:10px; }
+.st-key-ovroot .ov-empty-cols { display:grid; grid-template-columns:1fr 1px 1fr; column-gap:48px;
+  border-top:1px solid var(--rule); margin-top:48px; padding-top:48px; }
+.st-key-ovroot .ov-vrule { background:var(--rule); }
+.st-key-ovroot .ov-empty-cols .sec-sub { margin:6px 0 0; font-size:14px; color:var(--text-muted); }
+
+/* Empty Awaiting approval: ghost cards, one sentence, one button. */
+.st-key-ovroot .ghost-card { border:1px solid var(--rule); border-radius:var(--radius-lg); margin-bottom:24px;
+  overflow:hidden; }
+.st-key-ovroot .ghost-card.ghost-small { opacity:0.6; }
+.st-key-ovroot .ghost-head { display:flex; justify-content:space-between; padding:28px 32px 24px; }
+.st-key-ovroot .ghost-right { display:flex; flex-direction:column; align-items:flex-end; }
+.st-key-ovroot .ghost-strip { height:56px; background:#F5F5F5; }
+.st-key-ovroot .ghost-foot { display:flex; align-items:center; gap:8px; padding:20px 32px; }
+.st-key-ovroot .empty-q { text-align:center; margin:40px 0 20px; }
+.st-key-ovroot .empty-q .empty-title { font-size:20px; font-weight:700; color:var(--text); }
+.st-key-ovroot .empty-q .empty-note { font-size:14px; color:var(--text-muted); margin-top:6px; }
+.st-key-empty-open-documents, .st-key-empty-open-documents [data-testid="stButton"] {
+  display:flex; justify-content:center; width:100%; }
+.st-key-empty-open-documents button { min-height:44px; padding:0 20px; }
+.stApp:has(.title-art) .page-sub { margin-top:18px; }
 
 /* Empty state: grey placeholder bars and one blue button, as in the reference. */
 .ov-ph-bars { display:flex; align-items:flex-end; gap:8px; height:140px; margin:24px 0 8px; }
@@ -1677,14 +1709,32 @@ def empty_queue():
     decided = decided[(decided["approval_status"] == "Approved") & (decided["reviewed_at"].isna())]
     latest = decided["system_processed_at"].max() if not decided.empty else None
     when = f" The last {len(decided)} it cleared on its own at {local_time(latest)[11:16]}." if latest else ""
+    # Two ghost cards in the shape of a document card, so an empty queue reads as a queue with
+    # nothing in it rather than a page that failed to load. Then the sentence, which is a query
+    # result and not a constant, and one way out.
+    ghost = (
+        "<div class='ghost-card'><div class='ghost-head'>"
+        "<div><span class='ph' style='width:280px;height:22px'></span>"
+        "<span class='ph' style='width:200px;height:14px;margin-top:12px'></span></div>"
+        "<div class='ghost-right'><span class='ph' style='width:160px;height:30px'></span>"
+        "<span class='ph' style='width:240px;height:6px;margin-top:22px'></span></div></div>"
+        "<div class='ghost-strip'></div>"
+        "<div class='ghost-foot'><span class='ph' style='width:180px;height:26px'></span>"
+        "<span class='ph' style='width:160px;height:26px'></span>"
+        "<span class='ph' style='width:170px;height:44px;margin-left:auto'></span>"
+        "<span class='ph' style='width:150px;height:44px'></span></div></div>"
+        "<div class='ghost-card ghost-small'><div class='ghost-head'>"
+        "<div><span class='ph' style='width:220px;height:22px'></span>"
+        "<span class='ph' style='width:160px;height:14px;margin-top:12px'></span></div>"
+        "<div class='ghost-right'><span class='ph' style='width:130px;height:30px'></span>"
+        "</div></div></div>")
     st.markdown(
-        f"<div class='empty'>"
-        f"<div class='empty-mark'><svg width='20' height='20' viewBox='0 0 16 16' fill='none'>"
-        f"<path d='m3.6 8.3 2.9 2.9 5.9-6.1' stroke='var(--positive)' stroke-width='1.6' "
-        f"stroke-linecap='round' stroke-linejoin='round'/></svg></div>"
-        f"<div class='empty-title'>Nothing is waiting for you</div>"
+        f"{ghost}<div class='empty-q'><div class='empty-title'>Nothing is waiting.</div>"
         f"<div class='empty-note'>Everything the pipeline read today has been decided.{when}</div>"
         f"</div>", unsafe_allow_html=True)
+    if st.button("Open documents", type="primary", key="empty-open-documents"):
+        st.session_state["goto"] = "documents"   # same hand-off as section_head
+        st.rerun()
 
 
 def document_rows(frame, *, actionable: bool, context: str = "queue",
@@ -1937,6 +1987,42 @@ def auth_brand() -> None:
                 "<span class='login-name'>Payables</span></div>", unsafe_allow_html=True)
 
 
+OVERVIEW_SUBTITLE = ("What is waiting for a person, what the system cleared on its own, and what "
+                     "needs a closer look.")
+
+
+def empty_overview_html() -> str:
+    """The Overview with nothing stored yet: grey placeholders, never a number that is not real.
+
+    Drawn inside the early stop for an empty database, so it has no sidebar and no buttons that
+    would lead anywhere. The design's blue Open documents button is replaced by the one
+    instruction that applies, because a documents page with nothing on it is a dead end.
+    """
+    labels = ["Invoices", "Total amount", "Waiting for you", "Approved by a person",
+              "Needs attention", "Approved by the system"]
+    stats = "".join(
+        f"<div class='ov-tile'><span class='ov-label'>{label}</span>"
+        f"<span class='ph ph-value'></span><span class='ph ph-pill'></span></div>"
+        for label in labels)
+    bars = "".join(f"<span style='height:{h}%'></span>" for h in (12, 16, 14, 22, 28, 34, 40, 52, 70, 100))
+    return (
+        f"<p class='eyebrow'>Overview</p>{title_art()}"
+        f"<p class='page-sub'>{OVERVIEW_SUBTITLE}</p>"
+        f"<div class='ov-strip'>{stats}</div>"
+        f"<div class='ov-empty-cols'>"
+        f"<div><div class='sec-head'><span class='sec-title'>Needs attention</span></div>"
+        f"<p class='sec-sub'>waiting documents with a reason to look closely</p>"
+        f"<div class='ov-ph-bars' aria-hidden='true'>{bars}</div></div>"
+        f"<div class='ov-vrule'></div>"
+        f"<div><div class='sec-head'><span class='sec-title'>Recent invoices</span></div>"
+        f"<p class='sec-sub'>Nothing has been stored yet.</p>"
+        f"<div class='ov-ph-bars' aria-hidden='true'>{bars}</div>"
+        f"<p class='tab-note'>No documents have been processed yet. Run <code>main.py</code> over "
+        f"a document in <code>inbox/</code>.</p></div></div>"
+        f"<p class='ov-foot'>Approving opens a Jira task for someone else, so the decision is "
+        f"made inside the document, not from this page.</p>")
+
+
 def require_password_change(store: StorageManager) -> None:
     """Stops the page until a first-time user replaces the temporary password."""
     with st.container(key="login-card"):
@@ -2047,8 +2133,8 @@ require_login()
 
 df = load_data()
 if df.empty:
-    st.title("Invoice approvals")
-    st.write("No documents have been processed yet. Run `main.py` over a document in `inbox/`.")
+    with st.container(key="ovroot", gap=None):
+        st.markdown(empty_overview_html(), unsafe_allow_html=True)
     st.stop()
 
 # The search runs before the counts, so what the sidebar says and what the body shows are the
@@ -2484,6 +2570,7 @@ def overview_body(pending, auto, outbox, history, frame):
                         f"<span class='dense-doc'>{r['invoice_number'] or '-'}</span>"
                         f"<span class='dense-amount'>{money(r['total_amount'], r['currency'])}</span>"
                         f"<span class='dense-right'>{local_time(received)[:10]}</span>"
+                        f"{'' if r['validation_status'] == 'Validated' else '<span class=rc-flag></span>'}"
                         f"<span class='rc-chip "
                         f"{'rc-ok' if r['validation_status'] == 'Validated' else 'rc-risk'}'>"
                         f"{r['validation_status']}</span>"
@@ -2501,8 +2588,7 @@ def overview_body(pending, auto, outbox, history, frame):
 # person was on was only told by the sidebar. The product name stays, small, above the page's own
 # name. It is Luke's choice of 2026-09-28 and the sign-in screens still carry it as their title.
 PAGE_HEADINGS = {
-    "overview": ("Welcome back", "What is waiting for a person, what the system cleared on its "
-                                 "own, and what needs a closer look."),
+    "overview": ("Invoice approval", OVERVIEW_SUBTITLE),
     "awaiting": ("Awaiting approval", "Documents a person has to decide on. Open one to approve "
                                       "or reject it."),
     "auto": ("Approved by the system", "Documents the system approved without asking anyone. A "
@@ -2516,9 +2602,12 @@ PAGE_HEADINGS = {
     "runs": ("Pipeline runs", "Each time the pipeline ran, and the model that read the documents."),
 }
 _heading, _subtitle = PAGE_HEADINGS.get(view, ("Invoice approvals", ""))
-if view != "overview":
+if view == "overview":
+    # Title art, drawn with markup so Streamlit adds no anchor icon. Other pages keep st.title.
+    st.markdown(f"<p class='eyebrow'>Overview</p>{title_art()}", unsafe_allow_html=True)
+else:
     st.markdown("<div class='page-eyebrow'>Invoice approvals</div>", unsafe_allow_html=True)
-st.title(_heading)
+    st.title(_heading)
 if _subtitle:
     st.markdown(f"<p class='page-sub'>{_subtitle}</p>", unsafe_allow_html=True)
 
