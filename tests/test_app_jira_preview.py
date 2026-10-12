@@ -1,13 +1,14 @@
-"""The line that warns a person before they approve has to be true.
+"""What the review dialog says about Jira.
 
-`fe-backlog.md` FE-12 asks for the name of the Jira task to be on screen before the button is
-pressed. It was built, and what it said was wrong: it promised an issue "immediately" on a
-system where `dispatch_task_to_jira` returns without contacting anything unless Jira is
-configured. Approving still does something, a local task and a queued outbox row, so the fix is
-to say that rather than to remove the line.
+`fe-backlog.md` FE-12 put the Jira task title in the dialog footer. It was built, and what it
+said was wrong: it promised an issue "immediately" on a system where `dispatch_task_to_jira`
+returns without contacting anything unless Jira is configured. It was corrected, then removed on
+2026-10-12 (fe-ui-review-spec.md F11): the footer holds Reject and Approve and nothing else, and
+the fact lives on the Overview footnotes and the Outbox note.
 
-These tests pin the two things that could quietly rot: the title drifting from the issue that
-gets created, and the unconfigured copy being softened back into a promise.
+These tests pin what must stay true now that the sentence is gone: the footer carries no Jira
+copy and no config variable name, nothing anywhere promises an immediate issue, and the title
+format the dispatcher builds is still the one it builds.
 """
 import pathlib
 
@@ -17,13 +18,18 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 APP = (ROOT / "app.py").read_text()
 
 
-def test_preview_uses_the_dispatchers_own_summary():
-    """The dialog must not re-spell the title format.
+def dialog_source() -> str:
+    start = APP.index("def review_dialog")
+    end = APP.index("\ndef ", start + 1)
+    return APP[start:end]
 
-    Two copies of `f"{task_type}: {file_name} - {vendor}"` drift the moment either side is
-    edited, and the screen would go on showing a title no issue ever carries.
-    """
-    assert "task_dispatch._build_summary(" in APP
+
+def test_the_dialog_footer_carries_no_jira_copy():
+    """Reject and Approve only. A config variable name does not belong in front of a reviewer."""
+    dialog = dialog_source()
+    assert "JIRA_ENABLED" not in dialog
+    assert "queues it for Jira" not in dialog
+    assert "task_title" not in dialog
 
 
 def test_the_title_is_the_one_jira_would_get():
@@ -31,15 +37,9 @@ def test_the_title_is_the_one_jira_would_get():
             == "Payment: invoice_001.pdf - Apex Cloud Solutions Pty Ltd")
 
 
-def test_unconfigured_copy_says_nothing_is_sent():
-    """The whole point of the correction. If this sentence goes, the screen overstates again."""
-    assert "Jira is not configured, so nothing is sent" in APP
-
-
-def test_configured_and_unconfigured_copy_both_exist():
-    """One branch each. A single unconditional sentence cannot be true in both states."""
-    assert "Approving creates a Jira issue immediately" in APP
-    assert "queues it for Jira" in APP
+def test_nothing_promises_an_immediate_issue():
+    """The original defect. Approving writes a local task and an outbox row; Jira is another step."""
+    assert "Approving creates a Jira issue immediately" not in APP
 
 
 def test_follow_up_type_per_document():
