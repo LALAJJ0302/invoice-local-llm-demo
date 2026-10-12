@@ -349,6 +349,8 @@ def test_the_auth_screens_carry_the_product_name():
     # whether the two screens Luke named are the ones that carry it.
     import inspect
 
-    for screen in (app.require_login, app.require_password_change):
-        body = inspect.getsource(screen)
-        assert 'st.title("Invoice approvals")' in body, screen.__name__
+    # The sign-in card now carries the name as the title art (INVOICE APPROVAL, singular, drawn
+    # by title_art), per the Square-style design accepted on 2026-10-12. The password screen keeps
+    # the plain st.title, so the name is still on both screens.
+    assert "title_art(stacked=True)" in inspect.getsource(app.require_login)
+    assert 'st.title("Invoice approvals")' in inspect.getsource(app.require_password_change)

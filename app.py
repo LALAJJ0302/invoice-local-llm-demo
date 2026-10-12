@@ -1096,6 +1096,47 @@ st.markdown("""
 /* Streamlit puts an anchor-link icon beside every st.title; the design has none. */
 [data-testid="stHeaderActionElements"] { display:none; }
 
+/* Title art: used by Overview and the sign-in card. */
+.title-art { margin:0; font-size:48px; font-weight:800; letter-spacing:-0.005em; line-height:1.1;
+  color:var(--text); padding:0; }
+.title-art .line { display:block; }
+.swash { position:relative; display:inline-block; color:var(--blue-text); isolation:isolate; }
+.swash svg { position:absolute; left:-2px; right:-2px; bottom:-12px; width:calc(100% + 4px); height:16px; }
+.swash svg.tick { left:auto; right:-36px; bottom:auto; top:50%; width:120px; height:120px;
+  transform:translateY(-50%); z-index:-1; opacity:0.2; }
+.eyebrow { margin:0 0 12px; font-size:12px; font-weight:700; letter-spacing:0.14em;
+  text-transform:uppercase; color:var(--text-muted); }
+
+/* Sign-in and first-login password cards, from square-handoff/result-login. */
+.stApp:has(.st-key-login-card) { background:#FFFFFF; }
+.st-key-login-card { width:min(440px,100%); margin:7vh auto 0; padding:40px;
+  background:var(--page); border:1px solid var(--rule); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-soft); gap:0; font-family:var(--font); }
+.login-brand { display:flex; align-items:center; gap:10px; }
+.login-mark { width:28px; height:28px; border-radius:var(--radius); background:var(--text); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; }
+.login-name { font-size:12px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase;
+  color:var(--text-muted); }
+.st-key-login-card .title-art { font-size:44px; line-height:1.05; margin:28px 0 0; text-align:left; }
+.st-key-login-card h1 { text-align:left; font-size:44px; font-weight:800; padding:0; margin-top:28px;
+  letter-spacing:-0.005em; line-height:1.05; }
+.st-key-login-card [data-testid="stCaptionContainer"] { text-align:left; margin:36px 0 0;
+  font-size:15px; opacity:1; }
+.st-key-login-card [data-testid="stCaptionContainer"] p { color:var(--text-muted); font-size:15px; }
+.st-key-login-card .title-art, .st-key-login-card h1 { color:var(--text) !important; }
+.st-key-login-card [data-testid^="stBaseButton-primary"] p { font-size:16px; font-weight:600; }
+.st-key-login-card [data-testid="stForm"] { border:0; border-top:1px solid var(--rule); border-radius:0;
+  padding:28px 0 0; margin-top:28px; }
+.st-key-login-card [data-testid="stWidgetLabel"] p { font-size:14px; font-weight:600; color:var(--text); }
+.st-key-login-card [data-testid="stTextInputRootElement"] { border:1px solid var(--field-border);
+  border-radius:var(--radius); background:var(--page); min-height:46px; }
+.st-key-login-card [data-testid="stTextInputRootElement"] input { font-size:15px; color:var(--text); }
+.st-key-login-card [data-testid="stTextInputRootElement"] button { color:var(--text-muted); }
+.st-key-login-card [data-testid^="stBaseButton-primary"] { min-height:48px; border:0;
+  border-radius:var(--radius); background:var(--blue); color:#fff; font-size:16px; font-weight:600; }
+.st-key-login-card [data-testid="stBaseButton-secondary"] { min-height:44px; border:0;
+  border-radius:var(--radius); background:var(--control-fill); color:var(--blue-text); font-weight:600; }
+
 /* Empty state: grey placeholder bars and one blue button, as in the reference. */
 .ov-ph-bars { display:flex; align-items:flex-end; gap:8px; height:140px; margin:24px 0 8px; }
 .ov-ph-bars span { flex:1; background:var(--ov-fill, #F0F0F0); border-radius:2px 2px 0 0; }
@@ -1864,9 +1905,42 @@ def sidebar(frame, pending, auto, outbox, history):
 # That is also why every test rendering this file seeds st.session_state before running it:
 # without a session there is nothing to assert against but a login form.
 
+# The title art: "APPROVAL" in blue with a hand-drawn underline and a large tick behind it. Both
+# marks are inline SVG, copied from square-handoff/result/overview.html. Overview and the sign-in
+# card use it; every other page keeps a plain heading.
+SWASH_SVG = (
+    '<svg viewBox="0 0 120 16" preserveAspectRatio="none" aria-hidden="true">'
+    '<path d="M3 11 C 28 4, 70 2, 117 8" fill="none" stroke="#0A66FF" stroke-width="4" '
+    'stroke-linecap="round" vector-effect="non-scaling-stroke"></path>'
+    '<path d="M30 14 C 55 10, 85 9, 108 12" fill="none" stroke="#CFE0FF" stroke-width="3" '
+    'stroke-linecap="round" vector-effect="non-scaling-stroke"></path></svg>'
+    '<svg class="tick" viewBox="0 0 48 48" aria-hidden="true">'
+    '<path d="M8 26 L19 37 L41 10" fill="none" stroke="#0A66FF" stroke-width="6" '
+    'stroke-linecap="round" stroke-linejoin="round"></path></svg>')
+
+
+def title_art(*, stacked: bool = False) -> str:
+    """INVOICE APPROVAL, drawn with markup rather than st.title so no anchor icon rides along.
+
+    `stacked` puts the two words on separate lines, as the sign-in card does.
+    """
+    word = f"<span class='swash'>APPROVAL{SWASH_SVG}</span>"
+    if stacked:
+        return (f"<h1 class='title-art stacked'><span class='line'>INVOICE</span>"
+                f"<span class='line'>{word}</span></h1>")
+    return f"<h1 class='title-art'>INVOICE {word}</h1>"
+
+
+def auth_brand() -> None:
+    """The small black mark and the product word above the sign-in and password cards."""
+    st.markdown("<div class='login-brand'><span class='login-mark' aria-hidden='true'>P</span>"
+                "<span class='login-name'>Payables</span></div>", unsafe_allow_html=True)
+
+
 def require_password_change(store: StorageManager) -> None:
     """Stops the page until a first-time user replaces the temporary password."""
     with st.container(key="login-card"):
+        auth_brand()
         st.title("Invoice approvals")
         st.caption(
             f"Signed in as **{st.session_state['display_name']}**. "
@@ -1953,7 +2027,8 @@ def require_login() -> None:
         return
 
     with st.container(key="login-card"):
-        st.title("Invoice approvals")
+        auth_brand()
+        st.markdown(title_art(stacked=True), unsafe_allow_html=True)
         st.caption("Sign in to review documents. Your name is recorded on each decision.")
         with st.form("login", border=False):
             username = st.text_input("Username")
