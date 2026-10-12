@@ -27,7 +27,7 @@ DB_PATH = DEFAULT_DB_PATH
 # The page the sidebar is on, kept in the URL as ?v= so a refresh stays on it.
 VIEW_PARAM = "v"
 # How often the page checks the database for rows another process wrote.
-LIVE_REFRESH_SECONDS = 10
+LIVE_REFRESH_SECONDS = 3
 
 def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
     """Loads invoices from the normalised schema. Money is converted to dollars here, at the edge.
