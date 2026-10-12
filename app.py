@@ -1,4 +1,5 @@
 import os
+from html import escape
 from datetime import datetime, timezone
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -10,7 +11,7 @@ from streamlit.runtime.scriptrunner import get_script_run_ctx
 import auth
 import overview_data
 import task_dispatch
-from review_signals import (GATE_THRESHOLD, SCORE_NOTE, SCORE_NOTE_SHORT, risk_detail,
+from review_signals import (DOCUMENTS_SCORE_NOTE, GATE_THRESHOLD, SCORE_NOTE, SCORE_NOTE_SHORT, risk_detail,
                             risk_signal, verdict_word)
 from line_item_check import contradiction
 from storage import DEFAULT_DB_PATH, StorageManager, connect
@@ -631,6 +632,11 @@ st.markdown("""
 .dense-score { font-family:'IBM Plex Mono',monospace; font-size:12.5px;
                font-variant-numeric:tabular-nums; min-width:44px; text-align:right;
                color:var(--text-strong); }
+.dense-head { padding-top:9px; padding-bottom:9px; background:var(--row-hover); }
+.dense-h { font-size:11.5px; font-weight:600; letter-spacing:.02em; color:var(--text-muted); text-align:right; }
+.dense-h:nth-child(2), .dense-h:nth-child(3) { text-align:left; }
+.dense-head .dot-blank { background:transparent; }
+.dense-status { display:block; margin-top:2px; font-size:12px; font-weight:400; color:var(--text-muted); }
 .dense-right { font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-muted);
                min-width:44px; text-align:right; }
 
@@ -843,7 +849,8 @@ st.markdown("""
 
 .panel { background:var(--surface); border-radius:12px; box-shadow:var(--lift);
          padding:16px 18px; }
-.panel-label { font-size:12px; color:var(--text-muted); margin-bottom:10px; }
+.panel-label { font-size:15px; font-weight:600; color:var(--text); margin-bottom:10px; }
+.panel-sub { font-size:12px; color:var(--text-muted); margin:-4px 0 10px; }
 .doc-marked { color:var(--caution-text); }
 .doc-text { font-family:'IBM Plex Mono',monospace; font-size:12px; line-height:1.5;
             color:var(--text-strong); max-height:250px; overflow-y:auto; }
@@ -1212,7 +1219,9 @@ h1.title-art { margin:0; font-size:48px !important; font-weight:800 !important;
   align-items:flex-end; justify-content:center; width:100%; }
 .st-key-ovroot [class*="st-key-docrow-"] [data-testid="stMarkdownContainer"] { margin:0 !important; }
 .st-key-ovroot [class*="st-key-docrow-"] .dense-panel { background:transparent; }
-.st-key-ovroot [class*="st-key-docrow-"] .dense { grid-template-columns:auto minmax(200px,1.2fr) minmax(0,2.2fr) auto auto auto; gap:12px; }
+/* Fixed tracks for the last three columns, so the header row lines up with every row under it.
+   Each row is its own grid; with auto tracks the columns only lined up by accident. */
+.st-key-ovroot [class*="st-key-docrow-"] .dense { grid-template-columns:auto minmax(200px,1fr) minmax(0,1.15fr) 100px 100px 152px; gap:12px; }
 .st-key-ovroot [class*="st-key-docrow-"] .dense-doc { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* Empty state: grey placeholder bars and one blue button, as in the reference. */
@@ -1342,7 +1351,7 @@ def contradiction_panel(clash, tiles: str = "") -> str:
     agreement = ("the exact total the model did read"
                  if clash["matches_stored_total"] else "which the model's total does not match")
     return (f"<div class='clash'>"
-            f"<div class='clash-title'>The document shows {clash['count']}</div>"
+            f"<div class='clash-title'>The document shows {clash['count']} line item{'' if clash['count'] == 1 else 's'}</div>"
             f"{tiles}"
             f"<div class='clash-note'>They are marked in the panel on the left. They sum to "
             f"<strong>{clash['sum']:,.2f}</strong>, {agreement}. The model stored none of "
@@ -1455,10 +1464,10 @@ def review_dialog(row):
     with left:
         if text.strip():
             marked = clash["rows"] if clash else []
-            note = (f" &middot; <span class='doc-marked'>the {clash['count']} rows it missed "
-                    f"are marked</span>" if clash else "")
-            st.markdown(f"<div class='panel'><div class='panel-label'>What the model read{note}"
-                        f"</div>{document_panel(text, marked)}</div>", unsafe_allow_html=True)
+            note = (f"<div class='panel-sub'><span class='doc-marked'>The {clash['count']} rows "
+                    f"it missed are marked.</span></div>" if clash else "")
+            st.markdown(f"<div class='panel'><div class='panel-label'>What the model read</div>"
+                        f"{note}{document_panel(text, marked)}</div>", unsafe_allow_html=True)
         else:
             st.markdown("<div class='panel'><div class='panel-label'>What the model read</div>"
                         "<p class='ov-more'>Nothing could be read from this file. Scanned pages "
@@ -1481,8 +1490,8 @@ def review_dialog(row):
             + field_row("Currency", shown(row.get("currency")))
             + field_row("Total", money(row["total_amount"], row["currency"]),
                         shown(row.get("total_source"), ""))
-            + field_row("Vendor", "read from the document"
-                        if row.get("vendor_source") == "model" else "recovered by our code")
+            + field_row("Vendor", escape(str(row.get("vendor_name") or "-")),
+                        "model" if row.get("vendor_source") == "model" else "recovered")
             # SC-3. The panel lists what the model stored, so it should also list what our own
             # check made of it. This is the one place with room for the full sentence, which is
             # why the note is visible here and only a tooltip on the card.
@@ -1563,34 +1572,15 @@ def review_dialog(row):
                 record_decision(int(row["id"]), "Rejected")
                 st.rerun()
             return
-        # FE-12, corrected 2026-09-20. This said "Approving creates a Jira task Payment
-        # immediately", which is false whenever Jira is unconfigured, and it is unconfigured
-        # now. `record_decision` always writes a local follow-up task and queues an outbox row;
-        # `dispatch_task_to_jira` then returns without contacting anything unless JIRA_ENABLED
-        # and the .env are set. A screen that claims more than the system does is the exact
-        # failure this project exists to catch, and it was doing it on the one line that exists
-        # to warn a person before they act.
-        #
-        # The title is built by the dispatcher's own function rather than re-spelled here, so
-        # the preview cannot drift from the issue. `_build_summary` is private and lives in
-        # Luke's file; it is called read-only and pinned by tests/test_app_jira_preview.py.
-        task_title = task_dispatch._build_summary(
-            follow_up_for(row["document_type"]), row["file_name"], row["vendor_name"])
-        # Two identical full-width buttons made Reject look as inviting as Approve. Reject is
-        # grey on the far left, Approve is the only solid button on the far right, and the line
-        # that says what approving will do sits between them, so it is read on the way to the
-        # click. The text wraps in the middle column when Jira is not configured.
-        reject, middle, approve = st.columns([1.1, 4.2, 1.5], vertical_alignment="center")
+        # The footer holds the two decisions and nothing else. It used to carry a sentence about
+        # the Jira task that approving opens (FE-12). Neo removed it on 2026-10-12: the same fact
+        # is on the Overview footnotes and the Outbox note, and a config variable name does not
+        # belong in front of a person deciding on an invoice. Reject is grey on the left and
+        # Approve the only solid button on the right, so the two are not equally inviting.
+        reject, spacer, approve = st.columns([1.1, 4.2, 1.5], vertical_alignment="center")
         if reject.button("Reject", key=f"reject-{row['id']}", width="stretch"):
             record_decision(int(row["id"]), "Rejected")
             st.rerun()
-        if jira_ready():
-            middle.markdown(f"Approving creates a Jira issue immediately, titled `{task_title}`.")
-        else:
-            middle.markdown(
-                f"Approving opens a task titled `{task_title}` and queues it for Jira. "
-                f"**Jira is not configured, so nothing is sent**: the row waits in the Outbox "
-                f"until `JIRA_ENABLED` is set.")
         if approve.button("Approve", type="primary", key=f"approve-{row['id']}",
                           width="stretch"):
             record_decision(int(row["id"]), "Approved")
@@ -1606,7 +1596,7 @@ def meta_parts(row) -> list[str]:
     parts = [shown(row["invoice_number"])]
     if row.get("invoice_date") and not pd.isna(row["invoice_date"]):
         parts.append(f"issued {row['invoice_date']}")
-    waited = waiting_days(row)
+    waited = waiting_days(row) if row.get("approval_status") == "Pending" else None
     if waited is not None:
         parts.append(f"waiting {waited}d")
     return parts
@@ -2606,7 +2596,7 @@ def record_row(*, key, dot, left, doc, value, right, action, on_action,
             on_action()
 
 
-def dense_rows(rows) -> str:
+def dense_rows(rows, header=None) -> str:
     """C7. One line per record, for the sections that summarise rather than ask for a decision.
 
     Each row carries its own currency symbol and no total is drawn beneath them, because the
@@ -2618,11 +2608,17 @@ def dense_rows(rows) -> str:
     was the change that left both of them untouched.
     """
     out = []
+    if header:
+        # A column header for the panels that have more than a name and an amount. The cells
+        # follow the row's own order (dot, left, doc, amount, score, right).
+        cells = "".join(f"<span class='dense-h'>{h}</span>" for h in header)
+        out.append(f"<div class='dense dense-head{' scored' if len(header) >= 5 else ''}'>"
+                   f"<span class='dot dot-blank'></span>{cells}</div>")
     for row in rows:
         dot, left, doc, amount, right = row[:5]
         score = f"<span class='dense-score'>{row[5]}</span>" if len(row) > 5 else ""
         out.append(f"<div class='dense{' scored' if len(row) > 5 else ''}'>"
-                   f"<span class='dot' style='background:{dot}'></span>"
+                   f"<span class='dot' style='background:{dot}' aria-hidden='true'></span>"
                    f"<span class='dense-left'>{left}</span>"
                    f"<span class='dense-doc'>{doc}</span>"
                    f"<span class='dense-amount'>{amount}</span>{score}"
@@ -2666,7 +2662,7 @@ def overview_body(pending, auto, outbox, history, frame):
         + tile("Invoices", len(frame), "stored by the pipeline")
         + tile("Total amount", biggest, amount_note)
         + tile("Waiting for you", len(pending), waiting_total or
-               ("more than one currency" if len(pending) > 1 else "nothing waiting"))
+               ("in more than one currency, so no single total" if len(pending) > 1 else "nothing waiting"))
         + tile("Approved by a person", by_a_person, "a name is on each")
         + tile("Needs attention", len(attention), "listed below" if attention else "nothing flagged")
         + tile("Approved by the system", len(auto), "no person involved")
@@ -2805,9 +2801,9 @@ def vendors_panel(frame):
                .agg(documents=("id", "count"), total=("total_amount", "sum"),
                     waiting=("approval_status", lambda c: int((c == "Pending").sum())))
                .reset_index().sort_values("total", ascending=False))
-    st.markdown("<p class='tab-note'>Every vendor that appears across the documents, grouped "
-                "with its own currency. Totals are never summed across currencies: that is the "
-                "arithmetic this project watches the model for.</p>", unsafe_allow_html=True)
+    st.markdown("<p class='tab-note'>Amounts in different currencies are never added "
+                "together, so a vendor paid in two currencies has two lines.</p>",
+                unsafe_allow_html=True)
     rows = [("var(--caution)" if r["waiting"] else "var(--positive)",
              r["vendor_name"] or "Unknown vendor",
              f"{int(r['documents'])} document{'' if r['documents'] == 1 else 's'}",
@@ -2829,10 +2825,9 @@ def runs_panel():
         runs = pd.read_sql_query(
             "SELECT run_id, started_at, finished_at, model_name, threshold, doc_count, run_kind "
             "FROM processing_runs ORDER BY run_id DESC LIMIT 12", conn)
-    st.markdown("<p class='tab-note'>The last twelve times the pipeline ran, newest first. This "
-                "is the only place in the interface that names the model the documents were "
-                "read by, which is worth knowing when a result is being compared against an "
-                "older one.</p>", unsafe_allow_html=True)
+    st.markdown("<p class='tab-note'>The last twelve runs, newest first. This is the only "
+                "screen that shows which model read the documents.</p>",
+                unsafe_allow_html=True)
     rows = [("var(--caution)" if not r["finished_at"] else "var(--positive)",
              f"run {int(r['run_id'])} &middot; {shown(r['run_kind'], 'unknown kind')}",
              shown(r["model_name"]),
@@ -2842,17 +2837,22 @@ def runs_panel():
     st.markdown(dense_rows(rows), unsafe_allow_html=True)
 
 
+DOCUMENTS_HEADER = ["Vendor", "File", "Total", "Validation score", "Run"]
+
+
 def documents_panel(frame):
     """What `Documents` resolves to: every document, with the fields the card leaves out."""
-    st.markdown("<p class='tab-note'>Every document the pipeline has stored. The approval card "
-                "leaves these fields out because none of them changes a decision, which is not "
-                "the same as them being worth hiding.</p>", unsafe_allow_html=True)
+    st.markdown(f"<p class='tab-note'>The approval card leaves some of these fields out because "
+                f"none of them changes a decision. {DOCUMENTS_SCORE_NOTE}</p>",
+                unsafe_allow_html=True)
     # SC-6. This is the one panel that shows every document at once, so it is the only place
     # the spread of scores is visible: a column of 1.00, 1.00, 0.85 says something no single
     # card can, which is that the gate clears almost everything it is given.
     rows = [("var(--caution)" if r["approval_status"] == "Pending" else "var(--positive)",
-             shown(r["vendor_name"], "Unknown vendor"),
-             shown(r["file_name"]),
+             f"{escape(shown(r['vendor_name'], 'Unknown vendor'))}"
+             f"<span class='dense-status'>"
+             f"{'Waiting' if r['approval_status'] == 'Pending' else 'Decided'}</span>",
+             escape(shown(r["file_name"])),
              money(r["total_amount"], r["currency"]),
              f"run {int(r['run_id'])} &middot; {local_time(r['system_processed_at'])}",
              "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}")
@@ -2860,10 +2860,13 @@ def documents_panel(frame):
     # One container per row so each can carry a real button: a widget cannot live inside the
     # markdown. Open shows the same review dialog as Recent invoices, which holds the document
     # text and the original to download.
+    first = True
     for (_, r), row_items in zip(frame.sort_values("id").iterrows(), rows):
         with st.container(key=f"docrow-{r['id']}", gap=None):
-            body, act = st.columns([6, 1.1], vertical_alignment="center")
-            body.markdown(dense_rows([row_items]), unsafe_allow_html=True)
+            body, act = st.columns([9, 1], vertical_alignment="center")
+            body.markdown(dense_rows([row_items], header=DOCUMENTS_HEADER if first else None),
+                          unsafe_allow_html=True)
+            first = False
             if act.button("Open", key=f"docopen-{r['id']}"):
                 review_dialog(r)
 
