@@ -1169,6 +1169,22 @@ h1.title-art { margin:0; font-size:48px !important; font-weight:800 !important;
 .st-key-empty-open-documents button { min-height:44px; padding:0 20px; }
 .stApp:has(.title-art) .page-sub { margin-top:18px; }
 
+/* Contradiction tiles and the decision row in the review dialog. */
+[data-testid="stDialog"] .clash-tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:10px;
+  margin:12px 0 16px; }
+[data-testid="stDialog"] .clash-tile { background:#FFFFFF; border-radius:var(--radius); padding:12px 14px;
+  display:flex; flex-direction:column; gap:3px; min-width:0; }
+[data-testid="stDialog"] .ct-label { font-size:13px; color:var(--text-muted); }
+[data-testid="stDialog"] .ct-num { font-size:20px; font-weight:700; line-height:1.2; white-space:nowrap;
+  font-family:var(--font); color:var(--text); }
+[data-testid="stDialog"] .ct-risk .ct-num { color:var(--caution-text); }
+[data-testid="stDialog"] .ct-note { font-size:12px; color:var(--text-muted); }
+[data-testid="stDialog"] [class*="st-key-dlg-foot-"] [data-testid="stColumn"]:nth-child(2) p {
+  text-align:right; font-size:14px; margin:0; }
+[data-testid="stDialog"] [class*="st-key-dlg-foot-"] { border-top:1px solid var(--rule);
+  margin-top:8px; padding-top:20px !important; }
+@media (max-width:900px) { [data-testid="stDialog"] .clash-tiles { grid-template-columns:1fr; } }
+
 /* Empty state: grey placeholder bars and one blue button, as in the reference. */
 .ov-ph-bars { display:flex; align-items:flex-end; gap:8px; height:140px; margin:24px 0 8px; }
 .ov-ph-bars span { flex:1; background:var(--ov-fill, #F0F0F0); border-radius:2px 2px 0 0; }
@@ -1228,7 +1244,31 @@ def document_panel(text: str, missed) -> str:
     return f"<div class='doc-text'>{''.join(out)}</div>"
 
 
-def contradiction_panel(clash) -> str:
+def clash_tiles(total, currency, stored_sum: float, stored_count: int) -> str:
+    """Stated total, sum of the stored line items and the difference, side by side.
+
+    Numbers rather than a sentence, so the gap cannot be read past. The difference is the stated
+    total minus what the model stored, which is the whole amount when it stored no rows.
+    """
+    if total is None or pd.isna(total):
+        return ""
+    diff = float(total) - float(stored_sum)
+    risk = " ct-risk" if abs(diff) >= 0.005 else ""
+    cur = currency or ""
+    stored_note = "none stored" if stored_count == 0 else f"{stored_count} stored"
+    return (
+        "<div class='clash-tiles'>"
+        f"<div class='clash-tile'><span class='ct-label'>Stated total</span>"
+        f"<span class='ct-num'>{float(total):,.2f}</span><span class='ct-note'>{cur}</span></div>"
+        f"<div class='clash-tile'><span class='ct-label'>Sum of line items</span>"
+        f"<span class='ct-num'>{float(stored_sum):,.2f}</span>"
+        f"<span class='ct-note'>{stored_note}</span></div>"
+        f"<div class='clash-tile{risk}'><span class='ct-label'>Difference</span>"
+        f"<span class='ct-num'>{diff:,.2f}</span><span class='ct-note'>{cur}</span></div>"
+        "</div>")
+
+
+def contradiction_panel(clash, tiles: str = "") -> str:
     """The most useful thing on the screen, said out loud.
 
     `fe-screen-spec.md` §5 called the contradiction the most useful thing here and it was only
@@ -1244,6 +1284,7 @@ def contradiction_panel(clash) -> str:
                  if clash["matches_stored_total"] else "which the model's total does not match")
     return (f"<div class='clash'>"
             f"<div class='clash-title'>The document shows {clash['count']}</div>"
+            f"{tiles}"
             f"<div class='clash-note'>They are marked in the panel on the left. They sum to "
             f"<strong>{clash['sum']:,.2f}</strong>, {agreement}. The model stored none of "
             f"them.</div>{rows}"
@@ -1354,6 +1395,8 @@ def review_dialog(row):
 
     with right:
         stored = "none" if items.empty else str(len(items))
+        stored_sum = 0.0 if items.empty else float(
+            items.loc[items["Summary Row"] != "yes", "Line Total"].sum())
         st.markdown(
             "<div class='panel'><div class='panel-label'>What the model stored</div>"
             + field_row("Date", row.get("invoice_date") or "-")
@@ -1373,7 +1416,8 @@ def review_dialog(row):
             + "<div class='field-rule'></div>"
             + field_row("Line items",
                         f"<span class='field-miss'>{stored}</span>" if clash else stored)
-            + (contradiction_panel(clash) if clash else "")
+            + (contradiction_panel(clash, clash_tiles(row["total_amount"], row["currency"],
+                                                      stored_sum, len(items))) if clash else "")
             + "</div>", unsafe_allow_html=True)
 
     email = load_email_for(row)
@@ -1438,20 +1482,21 @@ def review_dialog(row):
         # Luke's file; it is called read-only and pinned by tests/test_app_jira_preview.py.
         task_title = task_dispatch._build_summary(
             follow_up_for(row["document_type"]), row["file_name"], row["vendor_name"])
-        if jira_ready():
-            st.markdown(f"Approving creates a Jira issue immediately, titled `{task_title}`.")
-        else:
-            st.markdown(
-                f"Approving opens a task titled `{task_title}` and queues it for Jira. "
-                f"**Jira is not configured, so nothing is sent**: the row waits in the Outbox "
-                f"until `JIRA_ENABLED` is set.")
-        # Two identical full-width buttons made Reject look as inviting as Approve. Approve is
-        # filled and Reject is quiet, both at the right edge under the line that says what
-        # approving will do.
-        _spacer, reject, approve = st.columns([4, 1.1, 1.2], vertical_alignment="center")
+        # Two identical full-width buttons made Reject look as inviting as Approve. Reject is
+        # grey on the far left, Approve is the only solid button on the far right, and the line
+        # that says what approving will do sits between them, so it is read on the way to the
+        # click. The text wraps in the middle column when Jira is not configured.
+        reject, middle, approve = st.columns([1.1, 4.2, 1.5], vertical_alignment="center")
         if reject.button("Reject", key=f"reject-{row['id']}", width="stretch"):
             record_decision(int(row["id"]), "Rejected")
             st.rerun()
+        if jira_ready():
+            middle.markdown(f"Approving creates a Jira issue immediately, titled `{task_title}`.")
+        else:
+            middle.markdown(
+                f"Approving opens a task titled `{task_title}` and queues it for Jira. "
+                f"**Jira is not configured, so nothing is sent**: the row waits in the Outbox "
+                f"until `JIRA_ENABLED` is set.")
         if approve.button("Approve", type="primary", key=f"approve-{row['id']}",
                           width="stretch"):
             record_decision(int(row["id"]), "Approved")

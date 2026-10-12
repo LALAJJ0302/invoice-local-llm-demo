@@ -73,3 +73,16 @@ def test_the_empty_overview_shows_placeholders_and_no_number():
     assert html.count("ph-value") == 6
     assert "title-art" in html and "Nothing has been stored yet." in html
     assert "<code>main.py</code>" in html
+
+
+def test_the_contradiction_tiles_show_stated_sum_and_difference():
+    """Rule 3 of the restyle: the gap is numbers side by side, not a sentence."""
+    import app
+    html = app.clash_tiles(1500.0, "USD", 0.0, 0)
+    assert "Stated total</span><span class='ct-num'>1,500.00" in html
+    assert "Sum of line items</span><span class='ct-num'>0.00" in html and "none stored" in html
+    assert "ct-risk" in html and "Difference</span><span class='ct-num'>1,500.00" in html
+    # Rows that do add up leave no difference, and nothing is marked as a risk.
+    ok = app.clash_tiles(1500.0, "USD", 1500.0, 3)
+    assert "Difference</span><span class='ct-num'>0.00" in ok and "ct-risk" not in ok
+    assert app.clash_tiles(None, "USD", 0.0, 0) == ""
