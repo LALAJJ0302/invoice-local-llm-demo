@@ -1,4 +1,3 @@
-import contextlib
 import os
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -1011,6 +1010,77 @@ st.markdown("""
 [data-testid="stSidebar"] [data-testid="stTextInputRootElement"] { background:#F0F0F0; border:0; }
 [data-testid="stSidebar"] [data-testid="stBaseButton-secondary"] { border:0; border-radius:8px;
   background:#F0F0F0; color:#0A57D6; font-weight:600; }
+
+/* Document cards (Awaiting approval, Approved by the system), from square-handoff/result2. */
+.st-key-ovroot [class*="st-key-doc-"] { border:1px solid var(--ov-rule) !important; border-radius:12px;
+  box-shadow:0 1px 2px rgba(17,17,17,0.04), 0 4px 12px rgba(17,17,17,0.04); margin-bottom:8px; }
+.st-key-ovroot [class*="st-key-doc-"]:hover { box-shadow:0 1px 2px rgba(17,17,17,0.05), 0 6px 16px rgba(17,17,17,0.06); }
+.st-key-ovroot .card-head { grid-template-columns:minmax(0,1fr) 240px; padding:28px 32px 24px; gap:24px; align-items:start; }
+.st-key-ovroot .doc-icon { display:none; }
+.st-key-ovroot .vendor { font-size:22px; font-weight:700; letter-spacing:-0.01em; }
+.st-key-ovroot .card-meta { font-family:var(--ov-font); font-size:15px; color:var(--ov-muted); }
+.st-key-ovroot .card-head .amount { font-family:var(--ov-font); font-size:34px; font-weight:700;
+  letter-spacing:-0.01em; }
+.st-key-ovroot .amount-stack { width:240px; align-items:flex-end; gap:16px; }
+.st-key-ovroot .amount-stack .score { width:100%; align-items:flex-start; }
+.st-key-ovroot .score-label, .st-key-ovroot .score-gate { font-family:var(--ov-font); font-size:13px; }
+.st-key-ovroot .score-value { font-family:var(--ov-font); font-size:20px; font-weight:600; color:var(--ov-text); }
+.st-key-ovroot .score-verdict { font-size:14px; font-weight:600; }
+.st-key-ovroot .score-track { height:6px; border-radius:3px; background:var(--ov-fill); width:100%; }
+.st-key-ovroot .score-fill { border-radius:3px; }
+.st-key-ovroot .chip { background:var(--ov-fill); border-radius:6px; font-size:14px; color:var(--ov-text);
+  padding:5px 10px; margin:0 8px 8px 0; }
+.st-key-ovroot .signal-strip { border-top:0; padding:20px 32px; gap:6px 12px; background:var(--caution-wash); }
+.st-key-ovroot .signal-strip.clear { background:var(--ov-fill); }
+.st-key-ovroot .verdict { border-radius:6px; background:#F2DFC6; padding:3px 10px; font-size:13px; }
+.st-key-ovroot .verdict-clear { background:var(--positive-wash); }
+.st-key-ovroot .signal { font-size:18px; font-weight:700; }
+.st-key-ovroot .signal-detail { flex-basis:100%; font-size:15px; color:var(--ov-text); }
+.st-key-ovroot [class*="st-key-foot-"] { border-top:0; padding:20px 32px 24px !important; }
+.st-key-ovroot .queue-count { font-size:15px; color:var(--ov-muted); }
+.st-key-ovroot [class*="st-key-foot-"] button { min-height:44px; padding:0 18px; font-size:15px; }
+.st-key-ovroot [class*="st-key-doc-"] { margin-top:8px; }
+
+/* The review dialog. It is drawn in a portal outside .st-key-ovroot, so it is scoped by its own
+   test id instead, and takes the same palette. Design: square-handoff/result2/review-dialog. */
+[data-testid="stDialog"] [role="dialog"] { background:#FFFFFF; border-radius:16px;
+  font-variant-numeric:tabular-nums; --text:#111111; --text-muted:#6B6B6B; }
+[data-testid="stDialog"] [data-testid="stBaseButton-secondary"] { border:0; border-radius:8px;
+  background:#F0F0F0; color:#0A57D6; font-weight:600; }
+[data-testid="stDialog"] [data-testid="stBaseButton-secondary"]:hover { background:#E6E6E6; }
+[data-testid="stDialog"] [data-testid="stBaseButton-primary"] { border:0; border-radius:8px;
+  background:#0A66FF; color:#FFFFFF; font-weight:600; }
+[data-testid="stDialog"] [data-testid="stBaseButton-primary"]:hover { background:#0A57D6; }
+[data-testid="stDialog"] [class*="st-key-approve-"] button { min-height:52px; font-size:16px; }
+[data-testid="stDialog"] [class*="st-key-reject-"] button { min-height:44px; }
+[data-testid="stDialog"] .dlg-vendor { font-size:22px; font-weight:700; }
+[data-testid="stDialog"] .dlg-amount, [data-testid="stDialog"] .dlg-meta,
+[data-testid="stDialog"] .field-value, [data-testid="stDialog"] .field-note,
+[data-testid="stDialog"] .score-value, [data-testid="stDialog"] .score-gate {
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif; }
+[data-testid="stDialog"] .dlg-amount { font-size:34px; font-weight:700; letter-spacing:-0.01em; }
+[data-testid="stDialog"] .dlg-meta { font-size:14px; }
+[data-testid="stDialog"] .score-value { font-size:18px; font-weight:600; color:#111111; }
+[data-testid="stDialog"] .score-track { background:#F0F0F0; height:6px; }
+[data-testid="stDialog"] .chip { background:#F0F0F0; border-radius:6px; }
+[data-testid="stDialog"] .dlg-risk { border-radius:12px; padding:16px 20px; margin-top:28px; }
+[data-testid="stDialog"] .doc-text { max-height:380px; }
+[data-testid="stDialog"] [class*="st-key-dlgdl-"] { margin-top:14px; }
+[data-testid="stDialog"] .panel { background:transparent; box-shadow:none; padding:0 4px; }
+[data-testid="stDialog"] .doc-text { background:#FAFAFA; border:1px solid #E6E6E6; border-radius:8px;
+  padding:14px 16px; }
+[data-testid="stDialog"] .doc-missed { box-shadow:none; }
+[data-testid="stDialog"] .clash { box-shadow:none; border-radius:12px; padding:20px; }
+[data-testid="stDialog"] .clash-title { font-size:17px; }
+[data-testid="stDialog"] .clash-note { color:#111111; font-size:14px; }
+[data-testid="stDialog"] .field { padding:12px 0; border-bottom:1px solid #E6E6E6; }
+[data-testid="stDialog"] .field-label { font-size:14px; }
+[data-testid="stDialog"] .field-value { font-size:15px; font-weight:600; }
+[data-testid="stDialog"] [data-testid="stExpander"] details { border:0; border-top:1px solid #E6E6E6;
+  border-radius:0; background:transparent; }
+[data-testid="stDialog"] [data-testid="stExpander"] summary { font-weight:700; padding:20px 0; }
+[data-testid="stDialog"] textarea { background:#FFFFFF; border:1px solid #8F8F8F; border-radius:8px; }
+[data-testid="stDialog"] a { color:#0A57D6; }
 
 /* Empty state: grey placeholder bars and one blue button, as in the reference. */
 .ov-ph-bars { display:flex; align-items:flex-end; gap:8px; height:140px; margin:24px 0 8px; }
@@ -2434,10 +2504,9 @@ def documents_panel(frame):
     st.markdown(dense_rows(rows), unsafe_allow_html=True)
 
 
-# The Square-feel theme (see the block marked "Overview, Square feel" in the stylesheet) covers
-# every page except the two that draw document cards. Those wait for the decision-screen design.
-CARD_VIEWS = {"awaiting", "auto"}
-with (contextlib.nullcontext() if view in CARD_VIEWS else st.container(key="ovroot", gap=None)):
+# The Square-feel theme (the block marked "Overview, Square feel" in the stylesheet) covers every
+# page. The review dialog is drawn outside this container, so it has its own rules in that block.
+with st.container(key="ovroot", gap=None):
     if view == "documents":
         documents_panel(df)
     elif view == "vendors":
