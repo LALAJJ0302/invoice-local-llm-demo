@@ -16,6 +16,8 @@ APP = str(pathlib.Path(__file__).resolve().parents[1] / "app.py")
 LABELS = {"overview": "Overview", "awaiting": "Awaiting approval",
           "auto": "Approved by the system", "outbox": "Outbox", "history": "History",
           "documents": "Documents", "vendors": "Vendors", "runs": "Pipeline runs"}
+# Overview greets instead of naming itself (Square-feel restyle, 2026-10-12).
+TITLES = {"overview": "Welcome back"}
 
 
 @pytest.mark.parametrize("view,label", LABELS.items())
@@ -26,9 +28,10 @@ def test_the_heading_names_the_page(view, label):
                                   next(o for o in at.sidebar.radio[0].options
                                        if o.startswith(label))).run()
     assert not at.exception, [str(e.value) for e in at.exception]
-    assert at.title[0].value == label
+    assert at.title[0].value == TITLES.get(view, label)
     rendered = " ".join(m.value for m in at.markdown)
-    assert "Invoice approvals" in rendered, "the product name should still appear above the page"
+    if view != "overview":
+        assert "Invoice approvals" in rendered, "the product name should still appear above the page"
 
 
 def test_row_actions_cannot_wrap_their_labels():

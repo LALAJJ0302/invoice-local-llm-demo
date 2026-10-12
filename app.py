@@ -1,3 +1,4 @@
+import contextlib
 import os
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -884,6 +885,136 @@ st.markdown("""
 .st-key-login-card { gap: 0.5rem; }
 .st-key-login-card [data-testid="stCaptionContainer"] { text-align: center; margin: 0; }
 .st-key-login-card [data-testid="stForm"] { border: none; padding: 0; margin-top: -0.25rem; }
+/* Overview, Square feel. Everything is scoped under .st-key-ovroot, which overview_body's caller
+   sets with key="ovroot", so no other page changes. The palette is local to that container on
+   purpose: switching it for the whole app would sink the white cards on the tinted ground that
+   the document card and the review dialog depend on. square-handoff/ carries the design this
+   was built from, and the colours there were estimated by eye from a screenshot. */
+.stApp:has(.st-key-ovroot) { background:#FFFFFF; }
+.st-key-ovroot { --ov-rule:#E6E6E6; --ov-text:#111111; --ov-muted:#6B6B6B; --ov-fill:#F0F0F0;
+  --ov-blue:#0A66FF; --ov-blue-text:#0A57D6;
+  --ov-font:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif;
+  font-family:var(--ov-font); font-variant-numeric:tabular-nums; }
+.st-key-ovroot, .st-key-ovroot * { --text:var(--ov-text); --text-muted:var(--ov-muted); }
+.st-key-ovroot .ov-number, .st-key-ovroot .ov-note, .st-key-ovroot .dense-doc,
+.st-key-ovroot .dense-amount, .st-key-ovroot .dense-right { font-family:var(--ov-font); }
+
+/* Quick actions under the greeting. */
+.st-key-ovactions button { height:44px; padding:0 18px; border:0 !important; border-radius:8px;
+  background:var(--ov-fill) !important; color:var(--ov-blue-text) !important; font-weight:600; }
+.st-key-ovact-review button { background:var(--ov-blue) !important; color:#fff !important; }
+
+/* Six stats: no box, no shadow, a big plain number with a grey pill beneath it. */
+.st-key-ovroot .ov-strip { grid-template-columns:repeat(3,1fr); gap:40px 48px;
+  margin:32px 0 8px; padding-top:40px; border-top:1px solid var(--ov-rule); }
+.st-key-ovroot .ov-tile, .st-key-ovroot .ov-strip > .ov-tile:nth-child(n) {
+  background:transparent; border:0; box-shadow:none; padding:0; border-radius:0; gap:6px; }
+.st-key-ovroot .ov-label { font-size:13px; color:var(--ov-muted); }
+.st-key-ovroot .ov-value { flex-direction:column; align-items:flex-start; gap:10px; }
+.st-key-ovroot .ov-number { font-size:30px; font-weight:600; line-height:1.15; color:var(--ov-text); }
+.st-key-ovroot .ov-note { font-size:13px; font-weight:500; color:var(--ov-muted);
+  background:var(--ov-fill); border-radius:6px; padding:2px 8px; }
+.st-key-ovroot .ov-strip > .ov-tile:nth-child(5) .ov-number { color:var(--caution-text); }
+.st-key-ovroot .ov-strip > .ov-tile:nth-child(5) .ov-note { background:var(--caution-wash);
+  color:var(--caution-text); }
+
+/* Section headings: a rule and space, not a tinted band with a coloured edge. */
+.st-key-ovroot [class*="st-key-sechead-"] { background:transparent !important; border:0 !important;
+  border-top:1px solid var(--ov-rule) !important; border-radius:0 !important;
+  margin:56px 0 12px !important; padding:40px 0 0 !important; }
+.st-key-ovroot .sec-icon { display:none; }
+.st-key-ovroot .sec-title { font-size:20px; font-weight:700; color:var(--ov-text); }
+.st-key-ovroot .sec-note { font-size:14px; color:var(--ov-muted); }
+.st-key-ovroot [class*="st-key-open-"] button { border:0 !important; background:var(--ov-fill) !important;
+  color:var(--ov-blue-text) !important; border-radius:8px; font-weight:600; }
+.st-key-ovroot [class*="st-key-sechead-outbox-failed"] .sec-title,
+.st-key-ovroot [class*="st-key-sechead-awaiting"] .sec-title { color:var(--ov-text); }
+
+/* Row panels. Needs attention keeps the one warm fill on the page. */
+.st-key-ovroot .dense-panel, .st-key-ovroot [class*="st-key-ovpanel-"] {
+  box-shadow:none; border-radius:8px; background:transparent; }
+.st-key-ovroot .st-key-ovpanel-attention { background:var(--caution-wash); padding:0 20px; }
+.st-key-ovroot .st-key-ovpanel-attention > [data-testid="stLayoutWrapper"]:not(:last-child)
+  > [class*="st-key-ovattn-"] { border-bottom:1px solid #EBDCC6; }
+.st-key-ovroot [class*="st-key-ovattn-"] button { border:0 !important; border-radius:8px;
+  background:var(--ov-blue) !important; color:#fff !important; font-weight:600; }
+.st-key-ovroot .st-key-ovpanel-attention .dense-right { color:var(--caution-text); font-size:14px; }
+.st-key-ovroot [class*="st-key-ovout-"] button { border:0 !important; border-radius:8px;
+  background:var(--ov-fill) !important; color:var(--ov-blue-text) !important; font-weight:600; }
+
+/* Recent invoices: hairlines between rows, plain text, a dot for the validation state. */
+.st-key-ovroot .rc-head { font-size:13px; font-weight:500; letter-spacing:0; text-transform:none;
+  color:var(--ov-muted); padding:0 20px 12px; }
+.st-key-ovroot [class*="st-key-ovrec-"] { border-top:1px solid var(--ov-rule); }
+.st-key-ovroot .rc-row { padding:14px 14px; font-size:15px; }
+.st-key-ovroot .rc-chip { background:transparent; padding:0; border-radius:0; font-size:15px;
+  color:var(--ov-text); display:inline-flex; align-items:center; gap:8px; }
+.st-key-ovroot .rc-ok { color:var(--positive-text); font-weight:500; }
+.st-key-ovroot .rc-ok::before { content:""; width:8px; height:8px; border-radius:50%;
+  background:var(--positive); display:inline-block; }
+.st-key-ovroot .rc-risk { background:var(--caution-wash); color:var(--caution-text);
+  padding:2px 8px; border-radius:6px; font-size:13px; }
+.st-key-ovroot [class*="st-key-ovrec-"] button { border:0 !important; border-radius:8px;
+  background:var(--ov-fill) !important; color:var(--ov-blue-text) !important; font-weight:600; }
+.st-key-ovroot .ov-foot { background:transparent; border-top:1px solid var(--ov-rule);
+  border-radius:0; padding:20px 0 0; margin-top:40px; font-size:13px; }
+.st-key-ovroot .ov-more { color:var(--ov-muted); }
+
+.stApp:has(.st-key-ovroot) [data-testid="stHeader"] { background:#FFFFFF; }
+/* One set of column widths for every row, so the figures line up from row to row. */
+.st-key-ovroot [class*="st-key-ovattn-"] .dense, .st-key-ovroot [class*="st-key-ovout-"] .dense {
+  grid-template-columns:8px minmax(190px,1.6fr) 120px 128px minmax(0,2fr); padding:14px 0; }
+.st-key-ovroot [class*="st-key-ovpanel-out"] { border-left:0 !important; box-shadow:none; }
+.st-key-ovroot .dense-left { font-size:15px; }
+/* The header spans the page but the rows leave the last column to the Open button, so the
+   header is cut to the width the row text actually gets. */
+.st-key-ovroot .rc-head, .st-key-ovroot .rc-row {
+  grid-template-columns:minmax(200px,2.2fr) 1.2fr 1.1fr 1fr 1.1fr 1.5fr; }
+.st-key-ovroot .rc-head { width:calc(100% * 6 / 7.1 - 8px); }
+
+/* Row buttons: centred on the row and flush with its right edge, like the other panels. */
+.st-key-ovroot [class*="st-key-ovrec-"] [data-testid="stColumn"]:last-child,
+.st-key-ovroot [class*="st-key-ovattn-"] [data-testid="stColumn"]:last-child { display:flex; align-items:center; }
+.st-key-ovroot [class*="st-key-ovrec-"] [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"],
+.st-key-ovroot [class*="st-key-ovattn-"] [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"] {
+  align-items:flex-end; justify-content:center; width:100%; }
+.st-key-ovroot [class*="st-key-ovrec-"] [data-testid="stMarkdownContainer"],
+.st-key-ovroot [class*="st-key-ovattn-"] [data-testid="stMarkdownContainer"] { margin:0 !important; }
+.st-key-ovroot [class*="st-key-ovrec-"] { padding:6px 0 !important; }
+.st-key-ovroot .rc-row { padding:8px 14px; }
+
+/* Group A pages: Documents, Vendors, Pipeline runs, Outbox, History. */
+.st-key-ovroot [data-testid="stBaseButton-secondary"] { border:0; border-radius:8px;
+  background:var(--ov-fill); color:var(--ov-blue-text); font-weight:600; }
+.st-key-ovroot [data-testid="stBaseButton-secondary"]:hover { background:#E6E6E6; color:var(--ov-blue-text); }
+.st-key-ovroot [data-testid="stBaseButton-secondary"]:disabled { background:var(--ov-fill);
+  color:var(--ov-muted); opacity:0.7; }
+.st-key-ovroot [data-testid="stBaseButton-primary"] { border:0; border-radius:8px;
+  background:var(--ov-blue); color:#fff; font-weight:600; }
+.st-key-ovroot [class*="st-key-out-"] { box-shadow:none !important; border:0 !important;
+  border-bottom:1px solid var(--ov-rule) !important; border-radius:0 !important;
+  background:transparent !important; }
+.st-key-ovroot .tab-note { background:var(--ov-fill); border-radius:8px; }
+.st-key-ovroot .tab-warn { border-radius:8px; }
+.st-key-ovroot .empty { box-shadow:none; background:var(--ov-fill); border-radius:8px; }
+.st-key-ovroot .dense-panel { border-radius:0; }
+.st-key-ovroot [class*="st-key-ovauto-"], .st-key-ovroot [class*="st-key-ovhist-"] {
+  border-bottom:1px solid var(--ov-rule); }
+.st-key-ovroot .page-eyebrow { display:none; }
+
+/* The sidebar is on every page, so it takes the theme everywhere, not only under ovroot. */
+[data-testid="stSidebar"] { background:#FFFFFF; border-right:1px solid #E6E6E6; }
+[data-testid="stSidebar"] .side-mark { background:#111111; }
+[data-testid="stSidebar"] label[data-testid="stRadioOption"]:hover { background:#F5F5F5; }
+[data-testid="stSidebar"] label[data-selected="true"] { background:#F0F0F0; color:#0A57D6; }
+[data-testid="stSidebar"] label[data-selected="true"]::after { background:#0A66FF; }
+[data-testid="stSidebar"] [data-testid="stTextInputRootElement"] { background:#F0F0F0; border:0; }
+[data-testid="stSidebar"] [data-testid="stBaseButton-secondary"] { border:0; border-radius:8px;
+  background:#F0F0F0; color:#0A57D6; font-weight:600; }
+
+/* Empty state: grey placeholder bars and one blue button, as in the reference. */
+.ov-ph-bars { display:flex; align-items:flex-end; gap:8px; height:140px; margin:24px 0 8px; }
+.ov-ph-bars span { flex:1; background:var(--ov-fill, #F0F0F0); border-radius:2px 2px 0 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1572,7 +1703,7 @@ def sidebar_css(dest: dict) -> str:
             f'::before{{background-image:url("{icon_uri(item["icon"], "#5F667A")}");}}')
         rules.append(
             f'[data-testid="stSidebar"] label[data-selected="true"]:nth-of-type({i})'
-            f'::before{{background-image:url("{icon_uri(item["icon"], "#5B5BD6")}");}}')
+            f'::before{{background-image:url("{icon_uri(item["icon"], "#0A57D6")}");}}')
         if item["count"] is not None:
             rules.append(
                 f'[data-testid="stSidebar"] label[data-testid="stRadioOption"]:nth-of-type({i})'
@@ -2084,6 +2215,15 @@ def overview_body(pending, auto, outbox, history, frame):
     answers three questions and points at the tabs for the rest, so it is a summary rather than
     a second copy of them. History and Approved by the system became one table, Recent invoices.
     """
+    # --- Quick actions, under the greeting -------------------------------------------------
+    with st.container(key="ovactions", horizontal=True, gap="small"):
+        for slug, label, target in (("review", "Review waiting", "awaiting"),
+                                    ("outbox", "Open outbox", "outbox"),
+                                    ("documents", "Open documents", "documents")):
+            if st.button(label, key=f"ovact-{slug}"):
+                st.session_state["goto"] = target   # same hand-off as section_head
+                st.rerun()
+
     # --- Summary cards -------------------------------------------------------------------
     currencies = overview_data.totals_by_currency(frame)
     waiting_total = single_currency_total(pending)
@@ -2163,7 +2303,10 @@ def overview_body(pending, auto, outbox, history, frame):
     section_head("Recent invoices", "the latest ten, newest first", opens="documents",
                  key="recent")
     if frame.empty:
-        st.markdown("<p class='ov-more'>Nothing has been stored yet.</p>", unsafe_allow_html=True)
+        bars = "".join(f"<span style='height:{h}%'></span>" for h in (12, 16, 14, 22, 28, 34, 40, 52, 70, 100))
+        st.markdown(f"<p class='ov-more'>Nothing has been stored yet.</p>"
+                    f"<div class='ov-ph-bars' aria-hidden='true'>{bars}</div>",
+                    unsafe_allow_html=True)
     else:
         jira_state = overview_data.jira_state_by_invoice(outbox)
         st.markdown(
@@ -2182,7 +2325,9 @@ def overview_body(pending, auto, outbox, history, frame):
                         f"<span class='dense-doc'>{r['invoice_number'] or '-'}</span>"
                         f"<span class='dense-amount'>{money(r['total_amount'], r['currency'])}</span>"
                         f"<span class='dense-right'>{local_time(received)[:10]}</span>"
-                        f"<span class='rc-chip'>{r['validation_status']}</span>"
+                        f"<span class='rc-chip "
+                        f"{'rc-ok' if r['validation_status'] == 'Validated' else 'rc-risk'}'>"
+                        f"{r['validation_status']}</span>"
                         f"<span class='rc-chip'>{workflow}</span></div>",
                         unsafe_allow_html=True)
                     if act.button("Open", key=f"ovrec-{r['id']}-act"):
@@ -2197,8 +2342,8 @@ def overview_body(pending, auto, outbox, history, frame):
 # person was on was only told by the sidebar. The product name stays, small, above the page's own
 # name. It is Luke's choice of 2026-09-28 and the sign-in screens still carry it as their title.
 PAGE_HEADINGS = {
-    "overview": ("Overview", "What is waiting for a person, what the system cleared on its own, "
-                             "and what has happened since."),
+    "overview": ("Welcome back", "What is waiting for a person, what the system cleared on its "
+                                 "own, and what needs a closer look."),
     "awaiting": ("Awaiting approval", "Documents a person has to decide on. Open one to approve "
                                       "or reject it."),
     "auto": ("Approved by the system", "Documents the system approved without asking anyone. A "
@@ -2212,7 +2357,8 @@ PAGE_HEADINGS = {
     "runs": ("Pipeline runs", "Each time the pipeline ran, and the model that read the documents."),
 }
 _heading, _subtitle = PAGE_HEADINGS.get(view, ("Invoice approvals", ""))
-st.markdown("<div class='page-eyebrow'>Invoice approvals</div>", unsafe_allow_html=True)
+if view != "overview":
+    st.markdown("<div class='page-eyebrow'>Invoice approvals</div>", unsafe_allow_html=True)
 st.title(_heading)
 if _subtitle:
     st.markdown(f"<p class='page-sub'>{_subtitle}</p>", unsafe_allow_html=True)
@@ -2288,22 +2434,26 @@ def documents_panel(frame):
     st.markdown(dense_rows(rows), unsafe_allow_html=True)
 
 
-if view == "documents":
-    documents_panel(df)
-elif view == "vendors":
-    vendors_panel(df)
-elif view == "runs":
-    runs_panel()
-elif view == "awaiting":
-    document_rows(pending, actionable=True)
-elif view == "auto":
-    st.markdown(
-        f"<p class='tab-note'>{SYSTEM_APPROVAL_NOTE}</p>",
-        unsafe_allow_html=True)
-    document_rows(auto, actionable=False)
-elif view == "outbox":
-    outbox_body(outbox)
-elif view == "history":
-    history_body(history)
-else:
-    overview_body(pending, auto, outbox, history, df)
+# The Square-feel theme (see the block marked "Overview, Square feel" in the stylesheet) covers
+# every page except the two that draw document cards. Those wait for the decision-screen design.
+CARD_VIEWS = {"awaiting", "auto"}
+with (contextlib.nullcontext() if view in CARD_VIEWS else st.container(key="ovroot", gap=None)):
+    if view == "documents":
+        documents_panel(df)
+    elif view == "vendors":
+        vendors_panel(df)
+    elif view == "runs":
+        runs_panel()
+    elif view == "awaiting":
+        document_rows(pending, actionable=True)
+    elif view == "auto":
+        st.markdown(
+            f"<p class='tab-note'>{SYSTEM_APPROVAL_NOTE}</p>",
+            unsafe_allow_html=True)
+        document_rows(auto, actionable=False)
+    elif view == "outbox":
+        outbox_body(outbox)
+    elif view == "history":
+        history_body(history)
+    else:
+        overview_body(pending, auto, outbox, history, df)
