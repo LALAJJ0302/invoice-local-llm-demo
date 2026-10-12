@@ -148,7 +148,10 @@ def test_the_card_carries_the_score():
 
 def test_the_dialog_carries_the_score():
     """SC-2 and SC-3, asserted against the rendered dialog rather than the source."""
-    at = run()
+    at = sign_in(AppTest.from_file(APP, default_timeout=120))
+    at.query_params["v"] = "awaiting"  # the cards live here, no longer on Overview
+    at.run()
+    assert not at.exception, [str(e.value) for e in at.exception]
     review = next(b for b in at.button if b.key and b.key.startswith("rev-"))
     review.click().run()
     assert not at.exception, [str(e.value) for e in at.exception]

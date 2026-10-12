@@ -72,7 +72,9 @@ def test_the_dialog_draws_the_contradiction_rather_than_only_exposing_it():
 
     from signed_in import sign_in
 
-    at = sign_in(AppTest.from_file(str(ROOT / "app.py"), default_timeout=120)).run()
+    at = sign_in(AppTest.from_file(str(ROOT / "app.py"), default_timeout=120))
+    at.query_params["v"] = "awaiting"  # the cards live here, no longer on Overview
+    at.run()
 
     # Open the document the contradiction is about, not whichever card happens to be first.
     # It used to take the first `rev-` button, which worked only while the queue held exactly

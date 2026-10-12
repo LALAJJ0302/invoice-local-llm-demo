@@ -24,6 +24,16 @@ def run():
     return at
 
 
+def run_view(view):
+    """Renders one sidebar destination. The Overview page no longer hosts the document cards,
+    so the tests about the card read the Awaiting approval destination, where it lives."""
+    at = sign_in(AppTest.from_file(APP, default_timeout=120))
+    at.query_params["v"] = view
+    at.run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    return at
+
+
 def tab_labels(at):
     return [label for block in at.get("tabs") for label in getattr(block, "labels", [])] or None
 
@@ -83,9 +93,16 @@ def test_overview_agrees_with_the_tab_labels():
     at = run()
     rendered = " ".join(m.value for m in at.markdown if m.value)
 
-    tiles = [int(n) for n in re.findall(r"<span class='ov-number'>(\d+)</span>", rendered)]
-    assert tiles[:2] == [len(pending), len(auto)], (
-        f"the tiles show {tiles[:2]}, the tabs count {[len(pending), len(auto)]}")
+    def tile_number(label):
+        found = re.search(
+            rf"<span class='ov-label'>{label}</span><div class='ov-value'>"
+            rf"<span class='ov-number'>(\d+)</span>", rendered)
+        assert found, f"no tile labelled {label!r}"
+        return int(found.group(1))
+
+    assert tile_number("Waiting for you") == len(pending), "the tile and the tab disagree"
+    assert tile_number("Approved by the system") == len(auto), "the tile and the tab disagree"
+    assert tile_number("Invoices") == len(df)
 
     jira = outbox[outbox["channel"] == "Jira"]
     pushable = len(jira[jira["state"].isin(["Pending", "Failed"])])
@@ -161,7 +178,7 @@ def test_the_card_carries_everything_the_approved_design_carries():
     df = app.load_data()
     if df.empty:
         return
-    at = run()
+    at = run_view("awaiting")
     rendered = " ".join(m.value for m in at.markdown if m.value)
     assert "Covering email" in rendered, "the covering email chip is missing from the card"
     assert [b for b in at.button if b.label == "Open the document"] or \
@@ -180,7 +197,7 @@ def test_the_signal_explanation_comes_from_the_module():
     flagged = [r for _, r in on_a_card.iterrows() if risk_detail(r)]
     if not flagged:
         return
-    at = run()
+    at = run_view("awaiting")
     rendered = " ".join(m.value for m in at.markdown if m.value)
     assert risk_detail(flagged[0]) in rendered
     assert not any(d in pathlib.Path(APP).read_text(encoding="utf-8") for d in DETAIL.values())
@@ -235,8 +252,12 @@ def test_a_section_header_opens_its_destination():
     two commits while the button did nothing. So this asserts the thing a person would notice:
     the sidebar's selection moves.
     """
-    for key, destination in (("open-awaiting", "awaiting"), ("open-outbox", "outbox"),
-                             ("open-history", "history")):
+    # Outbox appears on Overview only while something is waiting to go out, so it is checked
+    # when it is there rather than required.
+    headers = [("open-awaiting", "awaiting"), ("open-recent", "documents")]
+    if any(b.key == "open-outbox" for b in run().button):
+        headers.append(("open-outbox", "outbox"))
+    for key, destination in headers:
         at = run()
         assert at.sidebar.radio[0].value == "overview"
         next(b for b in at.button if b.key == key).click().run()

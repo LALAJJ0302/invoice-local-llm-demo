@@ -8,6 +8,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 import auth
+import overview_data
 import task_dispatch
 from review_signals import (GATE_THRESHOLD, SCORE_NOTE, SCORE_NOTE_SHORT, risk_detail,
                             risk_signal, verdict_word)
@@ -618,6 +619,15 @@ st.markdown("""
 .ov-line { display:flex; align-items:center; gap:10px; margin:14px 0 0;
            font-size:13px; color:var(--text-strong); }
 .ov-more { font-size:13px; color:var(--text-muted); margin:10px 0 0; }
+/* Recent invoices: one grid for the header and every row, so the columns line up. */
+.rc-head, .rc-row { display:grid; grid-template-columns:1.6fr 1.1fr 1fr 0.9fr 1fr 1.5fr;
+                    gap:12px; align-items:center; }
+.rc-head { font-size:11.5px; letter-spacing:0.04em; text-transform:uppercase;
+           color:var(--text-faint); padding:2px 14px 6px; }
+.rc-row { padding:8px 14px; }
+.rc-chip { font-size:12px; color:var(--text-strong); background:var(--surface-sunk);
+           border-radius:999px; padding:2px 10px;
+           justify-self:start; white-space:nowrap; }
 .ov-foot { font-size:12.5px; color:var(--text-muted); margin:18px 0 0;
            padding:14px 18px; border-radius:12px; background:var(--fill-subtle); }
 .ai-find { display:flex; flex-direction:column; gap:3px; padding:10px 13px; margin-bottom:6px;
@@ -2066,115 +2076,117 @@ def dense_rows(rows) -> str:
     return f"<div class='dense-panel'>{''.join(out)}</div>"
 
 
-def overview_body(pending, auto, outbox, history):
-    """The whole screen on one page, in the order a person asks about it.
+def overview_body(pending, auto, outbox, history, frame):
+    """The page in the order a person asks about it: how big, what needs me, what came in lately.
 
-    Built as a page rather than a grid of counters. A count alone answers nothing: the questions
-    are what is waiting, what the system decided without asking, what is stuck on its way out,
-    and what has been decided. Each section carries its own rows.
-
-    The summary strip belongs here rather than on the queue tab, where it was cut on 2026-09-19
-    for repeating the tab labels directly above it. On this page it repeats nothing.
+    Rebuilt on 2026-10-12 from fe-overview-v2-spec.md. Before it, Overview was a section per tab:
+    awaiting, approved by the system, outbox, history. Each still has its tab. This page now
+    answers three questions and points at the tabs for the rest, so it is a summary rather than
+    a second copy of them. History and Approved by the system became one table, Recent invoices.
     """
+    # --- Summary cards -------------------------------------------------------------------
+    currencies = overview_data.totals_by_currency(frame)
     waiting_total = single_currency_total(pending)
-    oldest_days, oldest_since = None, ""
-    if not pending.empty:
-        oldest = pending.sort_values("email_received_at", na_position="last").iloc[0]
-        oldest_days = waiting_days(oldest)
-        arrived = oldest.get("email_received_at")
-        if arrived and not pd.isna(arrived):
-            oldest_since = f"since {pd.Timestamp(arrived).strftime('%d %b').lstrip('0')}"
+    attention = overview_data.attention_rows(pending, waiting_days)
+    by_a_person = int(((frame["approval_status"] == "Approved")
+                       & frame["reviewed_at"].notna()).sum()) if not frame.empty else 0
+
+    if currencies:
+        biggest = f"{currencies[0][0]} {currencies[0][1]:,.0f}"
+        others = ", ".join(f"{c} {amount:,.0f}" for c, amount in currencies[1:])
+        amount_note = f"and {others}" if others else "one currency"
+    else:
+        biggest, amount_note = "-", "no amounts read yet"
 
     st.markdown(
         "<div class='ov-strip'>"
+        + tile("Invoices", len(frame), "stored by the pipeline")
+        + tile("Total amount", biggest, amount_note)
         + tile("Waiting for you", len(pending), waiting_total or
                ("more than one currency" if len(pending) > 1 else "nothing waiting"))
+        + tile("Approved by a person", by_a_person, "a name is on each")
+        + tile("Needs attention", len(attention), "listed below" if attention else "nothing flagged")
         + tile("Approved by the system", len(auto), "no person involved")
-        + tile("Oldest wait", f"{oldest_days}d" if oldest_days is not None else "none",
-               oldest_since or "the queue is empty")
         + "</div>", unsafe_allow_html=True)
 
-    section_head("Awaiting approval", "a person has to decide on each of these",
+    # --- Needs attention -----------------------------------------------------------------
+    section_head("Needs attention", "waiting documents with a reason to look closely",
                  opens="awaiting", key="awaiting")
-    document_rows(pending, actionable=True, context="ov", controls=False, limit=3)
+    if not attention:
+        quiet = (f"{len(pending)} waiting, none with a concern." if len(pending)
+                 else "Nothing is waiting.")
+        st.markdown(f"<p class='ov-more'>{quiet}</p>", unsafe_allow_html=True)
+    else:
+        with st.container(key="ovpanel-attention", gap=None):
+            for item in attention[:5]:
+                r = item["row"]
+                more = f" (+{len(item['reasons']) - 1})" if len(item["reasons"]) > 1 else ""
+                waited = "" if item["days"] is None else f" · waiting {item['days']}d"
+                record_row(key=f"ovattn-{r['id']}", dot="var(--caution)",
+                           left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
+                           value=money(r["total_amount"], r["currency"]),
+                           right=f"{item['reasons'][0]}{more}{waited}",
+                           action="Review", on_action=lambda row=r: review_dialog(row))
+        if len(attention) > 5:
+            st.markdown(f"<p class='ov-more'>{len(attention) - 5} more in Awaiting approval.</p>",
+                        unsafe_allow_html=True)
 
-    if not pending.empty or not auto.empty:
-        cleared = "" if auto.empty else f" {len(auto)} were cleared by the system on its own."
-        st.markdown(
-            f"<div class='ov-line'><span class='dot' style='background:var(--positive)'></span>"
-            f"That is everything waiting.{cleared}</div>", unsafe_allow_html=True)
-
-    if not auto.empty:
-        section_head("Approved by the system",
-                     SYSTEM_APPROVAL_SECTION,
-                     opens="auto", key="auto")
-        with st.container(key="ovpanel-auto", gap=None):
-          for _, r in auto.iterrows():
-            # The score belongs on the row. This section exists to show what was approved
-            # without a person, and the number behind that decision was only in the caption.
-            #
-            # SC-5, 2026-09-24: it read "score 1.00", which does not say which score. Every
-            # other surface now names it, and a number the reader has to guess the meaning of
-            # is the misreading fe-score-spec.md §3 exists to prevent.
-            score = "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}"
-            record_row(key=f"ovauto-{r['id']}", dot="var(--positive)",
-                       left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
-                       value=money(r["total_amount"], r["currency"]),
-                       right=f"validation score {score} · {local_time(r['system_processed_at'])[11:16]}",
-                       action="Open", on_action=lambda row=r: review_dialog(row))
-
+    # --- Outbox, only when something is waiting to go out ----------------------------------
     if outbox.empty:
-        pushable, frozen, sent = outbox, 0, 0
+        pushable = outbox
     else:
         jira_rows = outbox[outbox["channel"] == "Jira"]
         pushable = jira_rows[jira_rows["state"].isin(["Pending", "Failed"])
                              & ~jira_rows["withdrawn"]]
+    if not pushable.empty:
+        # The section turns amber only when a row has actually failed. See fe-theme-v2-spec.md s4.
+        any_failed = bool((pushable["state"] == "Failed").any())
         frozen = len(outbox[outbox["channel"] != "Jira"])
         sent = int((outbox["state"] == "Sent").sum())
-    # The section turns amber only when a row has actually failed, not merely because the
-    # Outbox has rows in it. See fe-theme-v2-spec.md §4.
-    any_failed = not pushable.empty and bool((pushable["state"] == "Failed").any())
-    section_head("Outbox", f"{len(pushable)} ready to push, {frozen} with no transport, "
-                           f"{sent} sent", opens="outbox",
-                 key="outbox-failed" if any_failed else "outbox")
-    if pushable.empty:
-        st.markdown("<p class='ov-more'>Nothing is waiting to go out.</p>", unsafe_allow_html=True)
-    else:
+        section_head("Outbox", f"{len(pushable)} ready to push, {frozen} with no transport, "
+                               f"{sent} sent", opens="outbox",
+                     key="outbox-failed" if any_failed else "outbox")
         ready = jira_ready()
         with st.container(key="ovpanel-out-failed" if any_failed else "ovpanel-out", gap=None):
-         for _, r in pushable.head(5).iterrows():
-            # The channel is Jira on every row in this list, so the slot that holds an amount
-            # elsewhere holds the state instead: Pending or Failed is the thing worth reading.
-            record_row(key=f"ovout-{r['outbox_id']}",
-                       dot="var(--caution)" if r["state"] == "Failed" else "var(--text-muted)",
-                       left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
-                       value=r["state"], right=local_time(r["created_at"]),
-                       action="Push to Jira", disabled=not ready,
-                       help=None if ready else "Jira is not configured. Set JIRA_ENABLED in .env",
-                       on_action=lambda row=r: (push_to_jira(row), st.rerun()))
+            for _, r in pushable.head(5).iterrows():
+                # The channel is Jira on every row here, so the slot that holds an amount
+                # elsewhere holds the state: Pending or Failed is the thing worth reading.
+                record_row(key=f"ovout-{r['outbox_id']}",
+                           dot="var(--caution)" if r["state"] == "Failed" else "var(--text-muted)",
+                           left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
+                           value=r["state"], right=local_time(r["created_at"]),
+                           action="Push to Jira", disabled=not ready,
+                           help=None if ready else "Jira is not configured. Set JIRA_ENABLED in .env",
+                           on_action=lambda row=r: (push_to_jira(row), st.rerun()))
 
-    section_head("History", "decisions a person made, including rejections",
-                 opens="history", key="history")
-    if history.empty:
-        st.markdown("<p class='ov-more'>Nobody has decided anything yet.</p>",
-                    unsafe_allow_html=True)
+    # --- Recent invoices -----------------------------------------------------------------
+    section_head("Recent invoices", "the latest ten, newest first", opens="documents",
+                 key="recent")
+    if frame.empty:
+        st.markdown("<p class='ov-more'>Nothing has been stored yet.</p>", unsafe_allow_html=True)
     else:
-        decided = load_data()
-        with st.container(key="ovpanel-hist", gap=None):
-         for _, r in history.head(5).iterrows():
-            # Not set_index("id"): review_dialog reads row["id"], and an index is not a column.
-            match = decided[decided["id"] == r["invoice_id"]]
-            full = match.iloc[0] if not match.empty else None
-            # Keyed on the decision, not the invoice: a reopened document has several rows.
-            record_row(key=f"ovhist-{int(r['decision_id'])}",
-                       dot={"Rejected": "var(--caution)", "Reopened": "var(--text-muted)"}.get(
-                           r["approval_status"], "var(--positive)"),
-                       left=f"{r['approval_status']} · {r['vendor_name'] or '-'}",
-                       doc=r["invoice_number"] or "-",
-                       value=money(r["total_amount"], r["currency"]),
-                       right=local_time(r["reviewed_at"]),
-                       action="Open", disabled=full is None,
-                       on_action=lambda row=full: review_dialog(row))
+        jira_state = overview_data.jira_state_by_invoice(outbox)
+        st.markdown(
+            "<div class='rc-head'><span>Vendor</span><span>Invoice</span><span>Amount</span>"
+            "<span>Received</span><span>Validation</span><span>Workflow</span></div>",
+            unsafe_allow_html=True)
+        with st.container(key="ovpanel-recent", gap=None):
+            for _, r in frame.head(10).iterrows():
+                workflow = overview_data.workflow_status(r, jira_state.get(int(r["id"])))
+                received = r["email_received_at"] if pd.notna(r["email_received_at"]) \
+                    else r["system_processed_at"]
+                with st.container(key=f"ovrec-{r['id']}", gap=None):
+                    body, act = st.columns([6, 1.1], vertical_alignment="center")
+                    body.markdown(
+                        f"<div class='rc-row'><span class='dense-left'>{r['vendor_name'] or '-'}</span>"
+                        f"<span class='dense-doc'>{r['invoice_number'] or '-'}</span>"
+                        f"<span class='dense-amount'>{money(r['total_amount'], r['currency'])}</span>"
+                        f"<span class='dense-right'>{local_time(received)[:10]}</span>"
+                        f"<span class='rc-chip'>{r['validation_status']}</span>"
+                        f"<span class='rc-chip'>{workflow}</span></div>",
+                        unsafe_allow_html=True)
+                    if act.button("Open", key=f"ovrec-{r['id']}-act"):
+                        review_dialog(r)
 
     st.markdown(
         "<p class='ov-foot'>Approving opens a Jira task for someone else, so the decision is "
@@ -2294,4 +2306,4 @@ elif view == "outbox":
 elif view == "history":
     history_body(history)
 else:
-    overview_body(pending, auto, outbox, history)
+    overview_body(pending, auto, outbox, history, df)
