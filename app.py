@@ -1190,6 +1190,16 @@ h1.title-art { margin:0; font-size:48px !important; font-weight:800 !important;
   margin-top:8px; padding-top:20px !important; }
 @media (max-width:900px) { [data-testid="stDialog"] .clash-tiles { grid-template-columns:1fr; } }
 
+/* Documents rows carry an Open button, laid out like the Recent invoices rows. */
+.st-key-ovroot [class*="st-key-docrow-"] { border-top:1px solid var(--rule); padding:6px 0 !important; }
+.st-key-ovroot [class*="st-key-docrow-"] [data-testid="stColumn"]:last-child { display:flex; align-items:center; }
+.st-key-ovroot [class*="st-key-docrow-"] [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"] {
+  align-items:flex-end; justify-content:center; width:100%; }
+.st-key-ovroot [class*="st-key-docrow-"] [data-testid="stMarkdownContainer"] { margin:0 !important; }
+.st-key-ovroot [class*="st-key-docrow-"] .dense-panel { background:transparent; }
+.st-key-ovroot [class*="st-key-docrow-"] .dense { grid-template-columns:auto minmax(200px,1.2fr) minmax(0,2.2fr) auto auto auto; gap:12px; }
+.st-key-ovroot [class*="st-key-docrow-"] .dense-doc { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
 /* Empty state: grey placeholder bars and one blue button, as in the reference. */
 .ov-ph-bars { display:flex; align-items:flex-end; gap:8px; height:140px; margin:24px 0 8px; }
 .ov-ph-bars span { flex:1; background:var(--ov-fill, #F0F0F0); border-radius:2px 2px 0 0; }
@@ -2730,7 +2740,15 @@ def documents_panel(frame):
              f"run {int(r['run_id'])} &middot; {local_time(r['system_processed_at'])}",
              "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}")
             for _, r in frame.sort_values("id").iterrows()]
-    st.markdown(dense_rows(rows), unsafe_allow_html=True)
+    # One container per row so each can carry a real button: a widget cannot live inside the
+    # markdown. Open shows the same review dialog as Recent invoices, which holds the document
+    # text and the original to download.
+    for (_, r), row_items in zip(frame.sort_values("id").iterrows(), rows):
+        with st.container(key=f"docrow-{r['id']}", gap=None):
+            body, act = st.columns([6, 1.1], vertical_alignment="center")
+            body.markdown(dense_rows([row_items]), unsafe_allow_html=True)
+            if act.button("Open", key=f"docopen-{r['id']}"):
+                review_dialog(r)
 
 
 # The Square-feel theme (the block marked "Overview, Square feel" in the stylesheet) covers every

@@ -86,3 +86,17 @@ def test_the_contradiction_tiles_show_stated_sum_and_difference():
     ok = app.clash_tiles(1500.0, "USD", 1500.0, 3)
     assert "Difference</span><span class='ct-num'>0.00" in ok and "ct-risk" not in ok
     assert app.clash_tiles(None, "USD", 0.0, 0) == ""
+
+
+def test_every_document_row_has_an_open_button():
+    """The Documents page lists every stored document, and each one can be opened."""
+    import app
+    from streamlit.testing.v1 import AppTest
+    df = app.load_data()
+    at = sign_in(AppTest.from_file(os.path.join(REPO_ROOT, "app.py"), default_timeout=120)).run()
+    radio = at.sidebar.radio[0]
+    radio.set_value(next(o for o in radio.options if o.startswith("Documents"))).run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    keys = [b.key for b in at.button if b.key and b.key.startswith("docopen-")]
+    assert len(keys) == len(df) and len(set(keys)) == len(keys)
+    assert all(b.label == "Open" for b in at.button if b.key and b.key.startswith("docopen-"))
