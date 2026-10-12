@@ -8,6 +8,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 import auth
+import overview_data
 import task_dispatch
 from review_signals import (GATE_THRESHOLD, SCORE_NOTE, SCORE_NOTE_SHORT, risk_detail,
                             risk_signal, verdict_word)
@@ -602,6 +603,9 @@ st.markdown("""
                box-shadow:var(--lift); overflow:hidden; }
 .dense { display:grid; grid-template-columns:auto 1fr auto auto auto; align-items:center;
          gap:16px; padding:11px 18px; border-radius:10px; }
+/* A row that carries a validation score has six items, not five. Without this the last one wrapped
+   onto a second line. */
+.dense.scored { grid-template-columns:auto 1fr auto auto auto auto; }
 [class*="st-key-ovauto-"]:hover .dense, [class*="st-key-ovout-"]:hover .dense,
 [class*="st-key-ovhist-"]:hover .dense { background:var(--row-hover); }
 .dense:last-child { border-bottom:none; }
@@ -620,6 +624,15 @@ st.markdown("""
 .ov-line { display:flex; align-items:center; gap:10px; margin:14px 0 0;
            font-size:13px; color:var(--text-strong); }
 .ov-more { font-size:13px; color:var(--text-muted); margin:10px 0 0; }
+/* Recent invoices: one grid for the header and every row, so the columns line up. */
+.rc-head, .rc-row { display:grid; grid-template-columns:1.6fr 1.1fr 1fr 0.9fr 1fr 1.5fr;
+                    gap:12px; align-items:center; }
+.rc-head { font-size:11.5px; letter-spacing:0.04em; text-transform:uppercase;
+           color:var(--text-faint); padding:2px 14px 6px; }
+.rc-row { padding:8px 14px; }
+.rc-chip { font-size:12px; color:var(--text-strong); background:var(--surface-sunk);
+           border-radius:999px; padding:2px 10px;
+           justify-self:start; white-space:nowrap; }
 .ov-foot { font-size:12.5px; color:var(--text-muted); margin:18px 0 0;
            padding:14px 18px; border-radius:12px; background:var(--fill-subtle); }
 .ai-find { display:flex; flex-direction:column; gap:3px; padding:10px 13px; margin-bottom:6px;
@@ -860,7 +873,7 @@ st.markdown("""
    :focus-visible rather than :focus so a mouse click does not leave a ring behind. */
 :is(button, input, select, textarea, a, [role="tab"], [tabindex]):focus-visible {
   outline: none !important;
-  box-shadow: 0 0 0 3px rgba(91,91,214,0.16) !important;
+  box-shadow: 0 0 0 3px rgba(10,102,255,0.18) !important;
   border-radius: 8px;
 }
 
@@ -876,6 +889,322 @@ st.markdown("""
 .st-key-login-card { gap: 0.5rem; }
 .st-key-login-card [data-testid="stCaptionContainer"] { text-align: center; margin: 0; }
 .st-key-login-card [data-testid="stForm"] { border: none; padding: 0; margin-top: -0.25rem; }
+/* Overview, Square feel. Everything is scoped under .st-key-ovroot, which overview_body's caller
+   sets with key="ovroot", so no other page changes. The palette is local to that container on
+   purpose: switching it for the whole app would sink the white cards on the tinted ground that
+   the document card and the review dialog depend on. square-handoff/ carries the design this
+   was built from, and the colours there were estimated by eye from a screenshot. */
+.stApp:has(.st-key-ovroot) { background:#FFFFFF; }
+/* The design's own variables, from square-handoff/result2/tokens.css, defined once for the four
+   places the theme reaches. Not on :root: --text and --caution-text exist there with other values
+   and a global change would move every page at once. */
+.st-key-ovroot, [data-testid="stDialog"] [role="dialog"], .st-key-login-card,
+[data-testid="stSidebar"], .title-art, .eyebrow {
+  --page:#FFFFFF; --rule:#E6E6E6; --text:#111111; --text-muted:#6B6B6B; --control-fill:#F0F0F0;
+  --blue:#0A66FF; --blue-wash:#CFE0FF; --blue-text:#0A57D6;
+  --caution:#A65A1E; --caution-wash:#FAF0E2; --caution-text:#8A4612; --caution-chip:#F2DFC6;
+  --caution-rule:#E8D3B6; --positive:#3D9A50; --positive-text:#2B7038;
+  --radius:8px; --radius-lg:12px;
+  --shadow-soft:0 1px 2px rgba(17,17,17,0.04),0 6px 20px rgba(17,17,17,0.06);
+  --shadow-dialog:0 24px 64px rgba(17,17,17,0.18); --backdrop:rgba(17,17,17,0.45);
+  --code-fill:#FAFAFA; --field-border:#8F8F8F;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.st-key-ovroot { font-family:var(--font); font-variant-numeric:tabular-nums; }
+.st-key-ovroot .ov-number, .st-key-ovroot .ov-note, .st-key-ovroot .dense-doc,
+.st-key-ovroot .dense-amount, .st-key-ovroot .dense-right { font-family:var(--font); }
+
+/* Quick actions under the greeting. */
+.st-key-ovactions button { height:44px; padding:0 18px; border:0 !important; border-radius:8px;
+  background:var(--control-fill) !important; color:var(--blue-text) !important; font-weight:600; }
+.st-key-ovact-review button { background:var(--blue) !important; color:#fff !important; }
+
+/* Six stats: no box, no shadow, a big plain number with a grey pill beneath it. */
+.st-key-ovroot .ov-strip { grid-template-columns:repeat(3,1fr); gap:40px 48px;
+  margin:32px 0 8px; padding-top:40px; border-top:1px solid var(--rule); }
+.st-key-ovroot .ov-tile, .st-key-ovroot .ov-strip > .ov-tile:nth-child(n) {
+  background:transparent; border:0; box-shadow:none; padding:0; border-radius:0; gap:6px; }
+.st-key-ovroot .ov-label { font-size:13px; color:var(--text-muted); }
+.st-key-ovroot .ov-value { flex-direction:column; align-items:flex-start; gap:10px; }
+.st-key-ovroot .ov-number { font-size:30px; font-weight:600; line-height:1.15; color:var(--text); }
+.st-key-ovroot .ov-note { font-size:13px; font-weight:500; color:var(--text-muted);
+  background:var(--control-fill); border-radius:6px; padding:2px 8px; }
+.st-key-ovroot .ov-strip > .ov-tile:nth-child(5) .ov-number { color:var(--caution-text); }
+.st-key-ovroot .ov-strip > .ov-tile:nth-child(5) .ov-note { background:var(--caution-wash);
+  color:var(--caution-text); }
+
+/* Section headings: a rule and space, not a tinted band with a coloured edge. */
+.st-key-ovroot [class*="st-key-sechead-"] { background:transparent !important; border:0 !important;
+  border-top:1px solid var(--rule) !important; border-radius:0 !important;
+  margin:56px 0 12px !important; padding:40px 0 0 !important; }
+.st-key-ovroot .sec-icon { display:none; }
+.st-key-ovroot .sec-title { font-size:20px; font-weight:700; color:var(--text); }
+.st-key-ovroot .sec-note { font-size:14px; color:var(--text-muted); }
+.st-key-ovroot [class*="st-key-open-"] button { border:0 !important; background:var(--control-fill) !important;
+  color:var(--blue-text) !important; border-radius:8px; font-weight:600; }
+.st-key-ovroot [class*="st-key-sechead-outbox-failed"] .sec-title,
+.st-key-ovroot [class*="st-key-sechead-awaiting"] .sec-title { color:var(--text); }
+
+/* Row panels. Needs attention keeps the one warm fill on the page. */
+.st-key-ovroot .dense-panel, .st-key-ovroot [class*="st-key-ovpanel-"] {
+  box-shadow:none; border-radius:8px; background:transparent; }
+.st-key-ovroot .st-key-ovpanel-attention { background:var(--caution-wash); padding:0 20px; }
+.st-key-ovroot .st-key-ovpanel-attention > [data-testid="stLayoutWrapper"]:not(:last-child)
+  > [class*="st-key-ovattn-"] { border-bottom:1px solid #EBDCC6; }
+.st-key-ovroot [class*="st-key-ovattn-"] button { border:0 !important; border-radius:8px;
+  background:var(--blue) !important; color:#fff !important; font-weight:600; }
+.st-key-ovroot .st-key-ovpanel-attention .dense-right { color:var(--caution-text); font-size:14px; }
+.st-key-ovroot [class*="st-key-ovout-"] button { border:0 !important; border-radius:8px;
+  background:var(--control-fill) !important; color:var(--blue-text) !important; font-weight:600; }
+
+/* Recent invoices: hairlines between rows, plain text, a dot for the validation state. */
+.st-key-ovroot .rc-head { font-size:13px; font-weight:500; letter-spacing:0; text-transform:none;
+  color:var(--text-muted); padding:0 20px 12px; }
+.st-key-ovroot [class*="st-key-ovrec-"] { border-top:1px solid var(--rule); }
+.st-key-ovroot .rc-row { padding:14px 14px; font-size:15px; }
+.st-key-ovroot .rc-chip { background:transparent; padding:0; border-radius:0; font-size:15px;
+  color:var(--text); display:inline-flex; align-items:center; gap:8px; }
+.st-key-ovroot .rc-ok { color:var(--positive-text); font-weight:500; }
+.st-key-ovroot .rc-ok::before { content:""; width:8px; height:8px; border-radius:50%;
+  background:var(--positive); display:inline-block; }
+.st-key-ovroot .rc-risk { background:var(--caution-wash); color:var(--caution-text);
+  padding:2px 8px; border-radius:6px; font-size:13px; }
+.st-key-ovroot [class*="st-key-ovrec-"] button { border:0 !important; border-radius:8px;
+  background:var(--control-fill) !important; color:var(--blue-text) !important; font-weight:600; }
+.st-key-ovroot .ov-foot { background:transparent; border-top:1px solid var(--rule);
+  border-radius:0; padding:20px 0 0; margin-top:40px; font-size:13px; }
+.st-key-ovroot .ov-more { color:var(--text-muted); }
+
+.stApp:has(.st-key-ovroot) [data-testid="stHeader"] { background:#FFFFFF; }
+/* One set of column widths for every row, so the figures line up from row to row. */
+.st-key-ovroot [class*="st-key-ovattn-"] .dense, .st-key-ovroot [class*="st-key-ovout-"] .dense {
+  grid-template-columns:8px minmax(190px,1.6fr) 120px 128px minmax(0,2fr); padding:14px 0; }
+.st-key-ovroot [class*="st-key-ovpanel-out"] { border-left:0 !important; box-shadow:none; }
+.st-key-ovroot .dense-left { font-size:15px; }
+/* The header spans the page but the rows leave the last column to the Open button, so the
+   header is cut to the width the row text actually gets. */
+.st-key-ovroot .rc-head, .st-key-ovroot .rc-row {
+  grid-template-columns:minmax(200px,2.2fr) 1.2fr 1.1fr 1fr 1.1fr 1.5fr; }
+.st-key-ovroot .rc-head { width:calc(100% * 6 / 7.1 - 8px); }
+
+/* Row buttons: centred on the row and flush with its right edge, like the other panels. */
+.st-key-ovroot [class*="st-key-ovrec-"] [data-testid="stColumn"]:last-child,
+.st-key-ovroot [class*="st-key-ovattn-"] [data-testid="stColumn"]:last-child { display:flex; align-items:center; }
+.st-key-ovroot [class*="st-key-ovrec-"] [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"],
+.st-key-ovroot [class*="st-key-ovattn-"] [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"] {
+  align-items:flex-end; justify-content:center; width:100%; }
+.st-key-ovroot [class*="st-key-ovrec-"] [data-testid="stMarkdownContainer"],
+.st-key-ovroot [class*="st-key-ovattn-"] [data-testid="stMarkdownContainer"] { margin:0 !important; }
+.st-key-ovroot [class*="st-key-ovrec-"] { padding:6px 0 !important; }
+.st-key-ovroot .rc-row { padding:8px 14px; }
+
+/* Group A pages: Documents, Vendors, Pipeline runs, Outbox, History. */
+.st-key-ovroot [data-testid="stBaseButton-secondary"] { border:0; border-radius:8px;
+  background:var(--control-fill); color:var(--blue-text); font-weight:600; }
+.st-key-ovroot [data-testid="stBaseButton-secondary"]:hover { background:var(--rule); color:var(--blue-text); }
+.st-key-ovroot [data-testid="stBaseButton-secondary"]:disabled { background:var(--control-fill);
+  color:var(--text-muted); opacity:0.7; }
+.st-key-ovroot [data-testid="stBaseButton-primary"] { border:0; border-radius:8px;
+  background:var(--blue); color:#fff; font-weight:600; }
+.st-key-ovroot [class*="st-key-out-"] { box-shadow:none !important; border:0 !important;
+  border-bottom:1px solid var(--rule) !important; border-radius:0 !important;
+  background:transparent !important; }
+.st-key-ovroot .tab-note { background:var(--control-fill); border-radius:8px; }
+.st-key-ovroot .tab-warn { border-radius:8px; }
+.st-key-ovroot .empty { box-shadow:none; background:var(--control-fill); border-radius:8px; }
+.st-key-ovroot .dense-panel { border-radius:0; }
+.st-key-ovroot [class*="st-key-ovauto-"], .st-key-ovroot [class*="st-key-ovhist-"] {
+  border-bottom:1px solid var(--rule); }
+.st-key-ovroot .page-eyebrow { display:none; }
+
+/* The sidebar is on every page, so it takes the theme everywhere, not only under ovroot. */
+[data-testid="stSidebar"] { background:#FFFFFF; border-right:1px solid var(--rule); }
+[data-testid="stSidebar"] .side-mark { background:#111111; }
+[data-testid="stSidebar"] label[data-testid="stRadioOption"]:hover { background:#F5F5F5; }
+[data-testid="stSidebar"] label[data-selected="true"] { background:var(--control-fill); color:var(--blue-text); }
+[data-testid="stSidebar"] label[data-selected="true"]::after { background:var(--blue); }
+[data-testid="stSidebar"] [data-testid="stTextInputRootElement"] { background:var(--control-fill); border:0; }
+[data-testid="stSidebar"] [data-testid="stBaseButton-secondary"] { border:0; border-radius:8px;
+  background:var(--control-fill); color:var(--blue-text); font-weight:600; }
+
+/* Document cards (Awaiting approval, Approved by the system), from square-handoff/result2. */
+.st-key-ovroot [class*="st-key-doc-"] { border:1px solid var(--rule) !important; border-radius:12px;
+  box-shadow:var(--shadow-soft); margin-bottom:8px; }
+.st-key-ovroot [class*="st-key-doc-"]:hover { box-shadow:0 1px 2px rgba(17,17,17,0.05), 0 6px 16px rgba(17,17,17,0.06); }
+.st-key-ovroot .card-head { grid-template-columns:minmax(0,1fr) 240px; padding:28px 32px 24px; gap:24px; align-items:start; }
+.st-key-ovroot .doc-icon { display:none; }
+.st-key-ovroot .vendor { font-size:22px; font-weight:700; letter-spacing:-0.01em; }
+.st-key-ovroot .card-meta { font-family:var(--font); font-size:15px; color:var(--text-muted); }
+.st-key-ovroot .card-head .amount { font-family:var(--font); font-size:34px; font-weight:700;
+  letter-spacing:-0.01em; }
+.st-key-ovroot .amount-stack { width:240px; align-items:flex-end; gap:16px; }
+.st-key-ovroot .amount-stack .score { width:100%; align-items:flex-start; }
+.st-key-ovroot .score-label, .st-key-ovroot .score-gate { font-family:var(--font); font-size:13px; }
+.st-key-ovroot .score-value { font-family:var(--font); font-size:20px; font-weight:600; color:var(--text); }
+.st-key-ovroot .score-verdict { font-size:14px; font-weight:600; }
+.st-key-ovroot .score-track { height:6px; border-radius:3px; background:var(--control-fill); width:100%; }
+.st-key-ovroot .score-fill { border-radius:3px; }
+.st-key-ovroot .chip { background:var(--control-fill); border-radius:6px; font-size:14px; color:var(--text);
+  padding:5px 10px; margin:0 8px 8px 0; }
+.st-key-ovroot .signal-strip { border-top:0; padding:20px 32px; gap:6px 12px; background:var(--caution-wash); }
+.st-key-ovroot .signal-strip.clear { background:var(--control-fill); }
+.st-key-ovroot .verdict { border-radius:6px; background:var(--caution-chip); padding:3px 10px; font-size:13px; }
+.st-key-ovroot .verdict-clear { background:var(--positive-wash); }
+.st-key-ovroot .signal { font-size:18px; font-weight:700; }
+.st-key-ovroot .signal-detail { flex-basis:100%; font-size:15px; color:var(--text); }
+.st-key-ovroot [class*="st-key-foot-"] { border-top:0; padding:20px 32px 24px !important; }
+.st-key-ovroot .queue-count { font-size:15px; color:var(--text-muted); }
+.st-key-ovroot [class*="st-key-foot-"] button { min-height:44px; padding:0 18px; font-size:15px; }
+.st-key-ovroot [class*="st-key-doc-"] { margin-top:8px; }
+
+/* The review dialog. It is drawn in a portal outside .st-key-ovroot, so it is scoped by its own
+   test id instead, and takes the same palette. Design: square-handoff/result2/review-dialog. */
+[data-testid="stDialog"] [role="dialog"] { background:#FFFFFF; border-radius:16px;
+  font-variant-numeric:tabular-nums; --text:#111111; --text-muted:#6B6B6B; }
+[data-testid="stDialog"] [data-testid="stBaseButton-secondary"] { border:0; border-radius:8px;
+  background:var(--control-fill); color:var(--blue-text); font-weight:600; }
+[data-testid="stDialog"] [data-testid="stBaseButton-secondary"]:hover { background:var(--rule); }
+[data-testid="stDialog"] [data-testid="stBaseButton-primary"] { border:0; border-radius:8px;
+  background:var(--blue); color:#FFFFFF; font-weight:600; }
+[data-testid="stDialog"] [data-testid="stBaseButton-primary"]:hover { background:var(--blue-text); }
+[data-testid="stDialog"] [class*="st-key-approve-"] button { min-height:52px; font-size:16px; }
+[data-testid="stDialog"] [class*="st-key-reject-"] button { min-height:44px; }
+[data-testid="stDialog"] .dlg-vendor { font-size:22px; font-weight:700; }
+[data-testid="stDialog"] .dlg-amount, [data-testid="stDialog"] .dlg-meta,
+[data-testid="stDialog"] .field-value, [data-testid="stDialog"] .field-note,
+[data-testid="stDialog"] .score-value, [data-testid="stDialog"] .score-gate {
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif; }
+[data-testid="stDialog"] .dlg-amount { font-size:34px; font-weight:700; letter-spacing:-0.01em; }
+[data-testid="stDialog"] .dlg-meta { font-size:14px; }
+[data-testid="stDialog"] .score-value { font-size:18px; font-weight:600; color:#111111; }
+[data-testid="stDialog"] .score-track { background:var(--control-fill); height:6px; }
+[data-testid="stDialog"] .chip { background:var(--control-fill); border-radius:6px; }
+[data-testid="stDialog"] .dlg-risk { border-radius:12px; padding:16px 20px; margin-top:28px; }
+[data-testid="stDialog"] .doc-text { max-height:380px; }
+[data-testid="stDialog"] [class*="st-key-dlgdl-"] { margin-top:14px; }
+[data-testid="stDialog"] .panel { background:transparent; box-shadow:none; padding:0 4px; }
+[data-testid="stDialog"] .doc-text { background:var(--code-fill); border:1px solid var(--rule); border-radius:8px;
+  padding:14px 16px; }
+[data-testid="stDialog"] .doc-missed { box-shadow:none; }
+[data-testid="stDialog"] .clash { box-shadow:none; border-radius:12px; padding:20px; }
+[data-testid="stDialog"] .clash-title { font-size:17px; }
+[data-testid="stDialog"] .clash-note { color:#111111; font-size:14px; }
+[data-testid="stDialog"] .field { padding:12px 0; border-bottom:1px solid var(--rule); }
+[data-testid="stDialog"] .field-label { font-size:14px; }
+[data-testid="stDialog"] .field-value { font-size:15px; font-weight:600; }
+[data-testid="stDialog"] [data-testid="stExpander"] details { border:0; border-top:1px solid var(--rule);
+  border-radius:0; background:transparent; }
+[data-testid="stDialog"] [data-testid="stExpander"] summary { font-weight:700; padding:20px 0; }
+[data-testid="stDialog"] textarea { background:#FFFFFF; border:1px solid var(--field-border); border-radius:8px; }
+[data-testid="stDialog"] a { color:var(--blue-text); }
+
+/* Streamlit puts an anchor-link icon beside every st.title; the design has none. */
+[data-testid="stHeaderActionElements"] { display:none; }
+
+/* Title art: used by Overview and the sign-in card. */
+h1.title-art { margin:0; font-size:48px !important; font-weight:800 !important;
+  letter-spacing:-0.005em; line-height:1.1 !important; color:var(--text); padding:0; }
+.title-art .line { display:block; }
+.swash { position:relative; display:inline-block; color:var(--blue-text); isolation:isolate; }
+.swash svg { position:absolute; left:-2px; right:-2px; bottom:-12px; width:calc(100% + 4px); height:16px; }
+.swash svg.tick { left:auto; right:-36px; bottom:auto; top:50%; width:120px; height:120px;
+  transform:translateY(-50%); z-index:-1; opacity:0.2; }
+.eyebrow { margin:0 0 12px; font-size:12px; font-weight:700; letter-spacing:0.14em;
+  text-transform:uppercase; color:var(--text-muted); }
+
+/* Sign-in and first-login password cards, from square-handoff/result-login. */
+.stApp:has(.st-key-login-card) { background:#FFFFFF; }
+.st-key-login-card { width:min(440px,100%); margin:7vh auto 0; padding:40px;
+  background:var(--page); border:1px solid var(--rule); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-soft); gap:0; font-family:var(--font); }
+.login-brand { display:flex; align-items:center; gap:10px; }
+.login-mark { width:28px; height:28px; border-radius:var(--radius); background:var(--text); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; }
+.login-name { font-size:12px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase;
+  color:var(--text-muted); }
+.st-key-login-card h1.title-art { font-size:44px !important; line-height:1.05 !important;
+  margin:28px 0 0; text-align:left; }
+.st-key-login-card h1 { text-align:left; font-size:44px; font-weight:800; padding:0; margin-top:28px;
+  letter-spacing:-0.005em; line-height:1.05; }
+.st-key-login-card [data-testid="stCaptionContainer"] { text-align:left; margin:36px 0 0;
+  font-size:15px; opacity:1; }
+.st-key-login-card [data-testid="stCaptionContainer"] p { color:var(--text-muted); font-size:15px; }
+.st-key-login-card .title-art, .st-key-login-card h1 { color:var(--text) !important; }
+.st-key-login-card [data-testid^="stBaseButton-primary"] p { font-size:16px; font-weight:600; }
+.st-key-login-card [data-testid="stForm"] { border:0; border-top:1px solid var(--rule); border-radius:0;
+  padding:28px 0 0; margin-top:28px; }
+.st-key-login-card [data-testid="stWidgetLabel"] p { font-size:14px; font-weight:600; color:var(--text); }
+.st-key-login-card [data-testid="stTextInputRootElement"] { border:1px solid var(--field-border);
+  border-radius:var(--radius); background:var(--page); min-height:46px; }
+.st-key-login-card [data-testid="stTextInputRootElement"] input { font-size:15px; color:var(--text); }
+.st-key-login-card [data-testid="stTextInputRootElement"] button { color:var(--text-muted); }
+.st-key-login-card [data-testid="stTextInputRootElement"] button svg { transform:scale(1.3); }
+.st-key-login-card [data-testid="stBaseButton-secondary"] { margin-top:12px; }
+.st-key-login-card [data-testid^="stBaseButton-primary"] { min-height:48px; border:0;
+  border-radius:var(--radius); background:var(--blue); color:#fff; font-size:16px; font-weight:600; }
+.st-key-login-card [data-testid="stBaseButton-secondary"] { min-height:44px; border:0;
+  border-radius:var(--radius); background:var(--control-fill); color:var(--blue-text); font-weight:600; }
+
+/* Overview details from the design. */
+.st-key-ovroot [class*="st-key-sechead-awaiting"] .sec-title::before { content:""; display:inline-block;
+  width:8px; height:8px; border-radius:50%; background:var(--caution); margin-right:10px; vertical-align:middle; }
+.rc-flag { display:none; }
+.st-key-ovroot [class*="st-key-ovrec-"]:has(.rc-flag) { background:var(--caution-wash); }
+.eyebrow + .title-art { margin-top:0; }
+.title-art { margin-bottom:8px; }
+.st-key-ovroot .ph { display:block; background:var(--control-fill); border-radius:4px; }
+.st-key-ovroot .ph-value { width:96px; height:30px; margin-top:8px; }
+.st-key-ovroot .ph-pill { width:140px; height:24px; margin-top:10px; }
+.st-key-ovroot .ov-empty-cols { display:grid; grid-template-columns:1fr 1px 1fr; column-gap:48px;
+  border-top:1px solid var(--rule); margin-top:48px; padding-top:48px; }
+.st-key-ovroot .ov-vrule { background:var(--rule); }
+.st-key-ovroot .ov-empty-cols .sec-sub { margin:6px 0 0; font-size:14px; color:var(--text-muted); }
+
+/* Empty Awaiting approval: ghost cards, one sentence, one button. */
+.st-key-ovroot .ghost-card { border:1px solid var(--rule); border-radius:var(--radius-lg); margin-bottom:24px;
+  overflow:hidden; }
+.st-key-ovroot .ghost-card.ghost-small { opacity:0.6; }
+.st-key-ovroot .ghost-head { display:flex; justify-content:space-between; padding:28px 32px 24px; }
+.st-key-ovroot .ghost-right { display:flex; flex-direction:column; align-items:flex-end; }
+.st-key-ovroot .ghost-strip { height:56px; background:#F5F5F5; }
+.st-key-ovroot .ghost-foot { display:flex; align-items:center; gap:8px; padding:20px 32px; }
+.st-key-ovroot .empty-q { text-align:center; margin:40px 0 20px; }
+.st-key-ovroot .empty-q .empty-title { font-size:20px; font-weight:700; color:var(--text); }
+.st-key-ovroot .empty-q .empty-note { font-size:14px; color:var(--text-muted); margin-top:6px; }
+.st-key-empty-open-documents, .st-key-empty-open-documents [data-testid="stButton"] {
+  display:flex; justify-content:center; width:100%; }
+.st-key-empty-open-documents button { min-height:44px; padding:0 20px; }
+.stApp:has(.title-art) .page-sub { margin-top:18px; }
+
+/* Contradiction tiles and the decision row in the review dialog. */
+[data-testid="stDialog"] .clash-tiles { display:grid; grid-template-columns:repeat(3,1fr); gap:10px;
+  margin:12px 0 16px; }
+[data-testid="stDialog"] .clash-tile { background:#FFFFFF; border-radius:var(--radius); padding:12px 14px;
+  display:flex; flex-direction:column; gap:3px; min-width:0; }
+[data-testid="stDialog"] .ct-label { font-size:13px; color:var(--text-muted); }
+[data-testid="stDialog"] .ct-num { font-size:20px; font-weight:700; line-height:1.2; white-space:nowrap;
+  font-family:var(--font); color:var(--text); }
+[data-testid="stDialog"] .ct-risk .ct-num { color:var(--caution-text); }
+[data-testid="stDialog"] .ct-note { font-size:12px; color:var(--text-muted); }
+[data-testid="stDialog"] [class*="st-key-dlg-foot-"] [data-testid="stColumn"]:nth-child(2) p {
+  text-align:right; font-size:14px; margin:0; }
+[data-testid="stDialog"] [class*="st-key-dlg-foot-"] { border-top:1px solid var(--rule);
+  margin-top:8px; padding-top:20px !important; }
+@media (max-width:900px) { [data-testid="stDialog"] .clash-tiles { grid-template-columns:1fr; } }
+
+/* Documents rows carry an Open button, laid out like the Recent invoices rows. */
+.st-key-ovroot [class*="st-key-docrow-"] { border-top:1px solid var(--rule); padding:6px 0 !important; }
+.st-key-ovroot [class*="st-key-docrow-"] [data-testid="stColumn"]:last-child { display:flex; align-items:center; }
+.st-key-ovroot [class*="st-key-docrow-"] [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"] {
+  align-items:flex-end; justify-content:center; width:100%; }
+.st-key-ovroot [class*="st-key-docrow-"] [data-testid="stMarkdownContainer"] { margin:0 !important; }
+.st-key-ovroot [class*="st-key-docrow-"] .dense-panel { background:transparent; }
+.st-key-ovroot [class*="st-key-docrow-"] .dense { grid-template-columns:auto minmax(200px,1.2fr) minmax(0,2.2fr) auto auto auto; gap:12px; }
+.st-key-ovroot [class*="st-key-docrow-"] .dense-doc { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Empty state: grey placeholder bars and one blue button, as in the reference. */
+.ov-ph-bars { display:flex; align-items:flex-end; gap:8px; height:140px; margin:24px 0 8px; }
+.ov-ph-bars span { flex:1; background:var(--ov-fill, #F0F0F0); border-radius:2px 2px 0 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -932,7 +1261,31 @@ def document_panel(text: str, missed) -> str:
     return f"<div class='doc-text'>{''.join(out)}</div>"
 
 
-def contradiction_panel(clash) -> str:
+def clash_tiles(total, currency, stored_sum: float, stored_count: int) -> str:
+    """Stated total, sum of the stored line items and the difference, side by side.
+
+    Numbers rather than a sentence, so the gap cannot be read past. The difference is the stated
+    total minus what the model stored, which is the whole amount when it stored no rows.
+    """
+    if total is None or pd.isna(total):
+        return ""
+    diff = float(total) - float(stored_sum)
+    risk = " ct-risk" if abs(diff) >= 0.005 else ""
+    cur = currency or ""
+    stored_note = "none stored" if stored_count == 0 else f"{stored_count} stored"
+    return (
+        "<div class='clash-tiles'>"
+        f"<div class='clash-tile'><span class='ct-label'>Stated total</span>"
+        f"<span class='ct-num'>{float(total):,.2f}</span><span class='ct-note'>{cur}</span></div>"
+        f"<div class='clash-tile'><span class='ct-label'>Sum of line items</span>"
+        f"<span class='ct-num'>{float(stored_sum):,.2f}</span>"
+        f"<span class='ct-note'>{stored_note}</span></div>"
+        f"<div class='clash-tile{risk}'><span class='ct-label'>Difference</span>"
+        f"<span class='ct-num'>{diff:,.2f}</span><span class='ct-note'>{cur}</span></div>"
+        "</div>")
+
+
+def contradiction_panel(clash, tiles: str = "") -> str:
     """The most useful thing on the screen, said out loud.
 
     `fe-screen-spec.md` §5 called the contradiction the most useful thing here and it was only
@@ -948,6 +1301,7 @@ def contradiction_panel(clash) -> str:
                  if clash["matches_stored_total"] else "which the model's total does not match")
     return (f"<div class='clash'>"
             f"<div class='clash-title'>The document shows {clash['count']}</div>"
+            f"{tiles}"
             f"<div class='clash-note'>They are marked in the panel on the left. They sum to "
             f"<strong>{clash['sum']:,.2f}</strong>, {agreement}. The model stored none of "
             f"them.</div>{rows}"
@@ -1064,6 +1418,8 @@ def review_dialog(row):
 
     with right:
         stored = "none" if items.empty else str(len(items))
+        stored_sum = 0.0 if items.empty else float(
+            items.loc[items["Summary Row"] != "yes", "Line Total"].sum())
         st.markdown(
             "<div class='panel'><div class='panel-label'>What the model stored</div>"
             + field_row("Date", row.get("invoice_date") or "-")
@@ -1083,7 +1439,8 @@ def review_dialog(row):
             + "<div class='field-rule'></div>"
             + field_row("Line items",
                         f"<span class='field-miss'>{stored}</span>" if clash else stored)
-            + (contradiction_panel(clash) if clash else "")
+            + (contradiction_panel(clash, clash_tiles(row["total_amount"], row["currency"],
+                                                      stored_sum, len(items))) if clash else "")
             + "</div>", unsafe_allow_html=True)
 
     email = load_email_for(row)
@@ -1148,20 +1505,21 @@ def review_dialog(row):
         # Luke's file; it is called read-only and pinned by tests/test_app_jira_preview.py.
         task_title = task_dispatch._build_summary(
             follow_up_for(row["document_type"]), row["file_name"], row["vendor_name"])
-        if jira_ready():
-            st.markdown(f"Approving creates a Jira issue immediately, titled `{task_title}`.")
-        else:
-            st.markdown(
-                f"Approving opens a task titled `{task_title}` and queues it for Jira. "
-                f"**Jira is not configured, so nothing is sent**: the row waits in the Outbox "
-                f"until `JIRA_ENABLED` is set.")
-        # Two identical full-width buttons made Reject look as inviting as Approve. Approve is
-        # filled and Reject is quiet, both at the right edge under the line that says what
-        # approving will do.
-        _spacer, reject, approve = st.columns([4, 1.1, 1.2], vertical_alignment="center")
+        # Two identical full-width buttons made Reject look as inviting as Approve. Reject is
+        # grey on the far left, Approve is the only solid button on the far right, and the line
+        # that says what approving will do sits between them, so it is read on the way to the
+        # click. The text wraps in the middle column when Jira is not configured.
+        reject, middle, approve = st.columns([1.1, 4.2, 1.5], vertical_alignment="center")
         if reject.button("Reject", key=f"reject-{row['id']}", width="stretch"):
             record_decision(int(row["id"]), "Rejected")
             st.rerun()
+        if jira_ready():
+            middle.markdown(f"Approving creates a Jira issue immediately, titled `{task_title}`.")
+        else:
+            middle.markdown(
+                f"Approving opens a task titled `{task_title}` and queues it for Jira. "
+                f"**Jira is not configured, so nothing is sent**: the row waits in the Outbox "
+                f"until `JIRA_ENABLED` is set.")
         if approve.button("Approve", type="primary", key=f"approve-{row['id']}",
                           width="stretch"):
             record_decision(int(row["id"]), "Approved")
@@ -1419,14 +1777,32 @@ def empty_queue():
     decided = decided[(decided["approval_status"] == "Approved") & (decided["reviewed_at"].isna())]
     latest = decided["system_processed_at"].max() if not decided.empty else None
     when = f" The last {len(decided)} it cleared on its own at {local_time(latest)[11:16]}." if latest else ""
+    # Two ghost cards in the shape of a document card, so an empty queue reads as a queue with
+    # nothing in it rather than a page that failed to load. Then the sentence, which is a query
+    # result and not a constant, and one way out.
+    ghost = (
+        "<div class='ghost-card'><div class='ghost-head'>"
+        "<div><span class='ph' style='width:280px;height:22px'></span>"
+        "<span class='ph' style='width:200px;height:14px;margin-top:12px'></span></div>"
+        "<div class='ghost-right'><span class='ph' style='width:160px;height:30px'></span>"
+        "<span class='ph' style='width:240px;height:6px;margin-top:22px'></span></div></div>"
+        "<div class='ghost-strip'></div>"
+        "<div class='ghost-foot'><span class='ph' style='width:180px;height:26px'></span>"
+        "<span class='ph' style='width:160px;height:26px'></span>"
+        "<span class='ph' style='width:170px;height:44px;margin-left:auto'></span>"
+        "<span class='ph' style='width:150px;height:44px'></span></div></div>"
+        "<div class='ghost-card ghost-small'><div class='ghost-head'>"
+        "<div><span class='ph' style='width:220px;height:22px'></span>"
+        "<span class='ph' style='width:160px;height:14px;margin-top:12px'></span></div>"
+        "<div class='ghost-right'><span class='ph' style='width:130px;height:30px'></span>"
+        "</div></div></div>")
     st.markdown(
-        f"<div class='empty'>"
-        f"<div class='empty-mark'><svg width='20' height='20' viewBox='0 0 16 16' fill='none'>"
-        f"<path d='m3.6 8.3 2.9 2.9 5.9-6.1' stroke='var(--positive)' stroke-width='1.6' "
-        f"stroke-linecap='round' stroke-linejoin='round'/></svg></div>"
-        f"<div class='empty-title'>Nothing is waiting for you</div>"
+        f"{ghost}<div class='empty-q'><div class='empty-title'>Nothing is waiting.</div>"
         f"<div class='empty-note'>Everything the pipeline read today has been decided.{when}</div>"
         f"</div>", unsafe_allow_html=True)
+    if st.button("Open documents", type="primary", key="empty-open-documents"):
+        st.session_state["goto"] = "documents"   # same hand-off as section_head
+        st.rerun()
 
 
 def document_rows(frame, *, actionable: bool, context: str = "queue",
@@ -1570,7 +1946,7 @@ def sidebar_css(dest: dict) -> str:
             f'::before{{background-image:url("{icon_uri(item["icon"], "#5F667A")}");}}')
         rules.append(
             f'[data-testid="stSidebar"] label[data-selected="true"]:nth-of-type({i})'
-            f'::before{{background-image:url("{icon_uri(item["icon"], "#5B5BD6")}");}}')
+            f'::before{{background-image:url("{icon_uri(item["icon"], "#0A57D6")}");}}')
         if item["count"] is not None:
             rules.append(
                 f'[data-testid="stSidebar"] label[data-testid="stRadioOption"]:nth-of-type({i})'
@@ -1647,9 +2023,78 @@ def sidebar(frame, pending, auto, outbox, history):
 # That is also why every test rendering this file seeds st.session_state before running it:
 # without a session there is nothing to assert against but a login form.
 
+# The title art: "APPROVAL" in blue with a hand-drawn underline and a large tick behind it. Both
+# marks are inline SVG, copied from square-handoff/result/overview.html. Overview and the sign-in
+# card use it; every other page keeps a plain heading.
+SWASH_SVG = (
+    '<svg viewBox="0 0 120 16" preserveAspectRatio="none" aria-hidden="true">'
+    '<path d="M3 11 C 28 4, 70 2, 117 8" fill="none" stroke="#0A66FF" stroke-width="4" '
+    'stroke-linecap="round" vector-effect="non-scaling-stroke"></path>'
+    '<path d="M30 14 C 55 10, 85 9, 108 12" fill="none" stroke="#CFE0FF" stroke-width="3" '
+    'stroke-linecap="round" vector-effect="non-scaling-stroke"></path></svg>'
+    '<svg class="tick" viewBox="0 0 48 48" aria-hidden="true">'
+    '<path d="M8 26 L19 37 L41 10" fill="none" stroke="#0A66FF" stroke-width="6" '
+    'stroke-linecap="round" stroke-linejoin="round"></path></svg>')
+
+
+def title_art(*, stacked: bool = False) -> str:
+    """INVOICE APPROVAL, drawn with markup rather than st.title so no anchor icon rides along.
+
+    `stacked` puts the two words on separate lines, as the sign-in card does.
+    """
+    word = f"<span class='swash'>APPROVAL{SWASH_SVG}</span>"
+    if stacked:
+        return (f"<h1 class='title-art stacked'><span class='line'>INVOICE</span>"
+                f"<span class='line'>{word}</span></h1>")
+    return f"<h1 class='title-art'>INVOICE {word}</h1>"
+
+
+def auth_brand() -> None:
+    """The small black mark and the product word above the sign-in and password cards."""
+    st.markdown("<div class='login-brand'><span class='login-mark' aria-hidden='true'>P</span>"
+                "<span class='login-name'>Payables</span></div>", unsafe_allow_html=True)
+
+
+OVERVIEW_SUBTITLE = ("What is waiting for a person, what the system cleared on its own, and what "
+                     "needs a closer look.")
+
+
+def empty_overview_html() -> str:
+    """The Overview with nothing stored yet: grey placeholders, never a number that is not real.
+
+    Drawn inside the early stop for an empty database, so it has no sidebar and no buttons that
+    would lead anywhere. The design's blue Open documents button is replaced by the one
+    instruction that applies, because a documents page with nothing on it is a dead end.
+    """
+    labels = ["Invoices", "Total amount", "Waiting for you", "Approved by a person",
+              "Needs attention", "Approved by the system"]
+    stats = "".join(
+        f"<div class='ov-tile'><span class='ov-label'>{label}</span>"
+        f"<span class='ph ph-value'></span><span class='ph ph-pill'></span></div>"
+        for label in labels)
+    bars = "".join(f"<span style='height:{h}%'></span>" for h in (12, 16, 14, 22, 28, 34, 40, 52, 70, 100))
+    return (
+        f"<p class='eyebrow'>Overview</p>{title_art()}"
+        f"<p class='page-sub'>{OVERVIEW_SUBTITLE}</p>"
+        f"<div class='ov-strip'>{stats}</div>"
+        f"<div class='ov-empty-cols'>"
+        f"<div><div class='sec-head'><span class='sec-title'>Needs attention</span></div>"
+        f"<p class='sec-sub'>waiting documents with a reason to look closely</p>"
+        f"<div class='ov-ph-bars' aria-hidden='true'>{bars}</div></div>"
+        f"<div class='ov-vrule'></div>"
+        f"<div><div class='sec-head'><span class='sec-title'>Recent invoices</span></div>"
+        f"<p class='sec-sub'>Nothing has been stored yet.</p>"
+        f"<div class='ov-ph-bars' aria-hidden='true'>{bars}</div>"
+        f"<p class='tab-note'>No documents have been processed yet. Run <code>main.py</code> over "
+        f"a document in <code>inbox/</code>.</p></div></div>"
+        f"<p class='ov-foot'>Approving opens a Jira task for someone else, so the decision is "
+        f"made inside the document, not from this page.</p>")
+
+
 def require_password_change(store: StorageManager) -> None:
     """Stops the page until a first-time user replaces the temporary password."""
     with st.container(key="login-card"):
+        auth_brand()
         st.title("Invoice approvals")
         st.caption(
             f"Signed in as **{st.session_state['display_name']}**. "
@@ -1736,7 +2181,8 @@ def require_login() -> None:
         return
 
     with st.container(key="login-card"):
-        st.title("Invoice approvals")
+        auth_brand()
+        st.markdown(title_art(stacked=True), unsafe_allow_html=True)
         st.caption("Sign in to review documents. Your name is recorded on each decision.")
         with st.form("login", border=False):
             username = st.text_input("Username")
@@ -1789,8 +2235,8 @@ watch_for_new_rows()
 
 df = load_data()
 if df.empty:
-    st.title("Invoice approvals")
-    st.write("No documents have been processed yet. Run `main.py` over a document in `inbox/`.")
+    with st.container(key="ovroot", gap=None):
+        st.markdown(empty_overview_html(), unsafe_allow_html=True)
     st.stop()
 
 # The search runs before the counts, so what the sidebar says and what the body shows are the
@@ -2100,7 +2546,8 @@ def dense_rows(rows) -> str:
     for row in rows:
         dot, left, doc, amount, right = row[:5]
         score = f"<span class='dense-score'>{row[5]}</span>" if len(row) > 5 else ""
-        out.append(f"<div class='dense'><span class='dot' style='background:{dot}'></span>"
+        out.append(f"<div class='dense{' scored' if len(row) > 5 else ''}'>"
+                   f"<span class='dot' style='background:{dot}'></span>"
                    f"<span class='dense-left'>{left}</span>"
                    f"<span class='dense-doc'>{doc}</span>"
                    f"<span class='dense-amount'>{amount}</span>{score}"
@@ -2108,115 +2555,132 @@ def dense_rows(rows) -> str:
     return f"<div class='dense-panel'>{''.join(out)}</div>"
 
 
-def overview_body(pending, auto, outbox, history):
-    """The whole screen on one page, in the order a person asks about it.
+def overview_body(pending, auto, outbox, history, frame):
+    """The page in the order a person asks about it: how big, what needs me, what came in lately.
 
-    Built as a page rather than a grid of counters. A count alone answers nothing: the questions
-    are what is waiting, what the system decided without asking, what is stuck on its way out,
-    and what has been decided. Each section carries its own rows.
-
-    The summary strip belongs here rather than on the queue tab, where it was cut on 2026-09-19
-    for repeating the tab labels directly above it. On this page it repeats nothing.
+    Rebuilt on 2026-10-12 from fe-overview-v2-spec.md. Before it, Overview was a section per tab:
+    awaiting, approved by the system, outbox, history. Each still has its tab. This page now
+    answers three questions and points at the tabs for the rest, so it is a summary rather than
+    a second copy of them. History and Approved by the system became one table, Recent invoices.
     """
+    # --- Quick actions, under the greeting -------------------------------------------------
+    with st.container(key="ovactions", horizontal=True, gap="small"):
+        for slug, label, target in (("review", "Review waiting", "awaiting"),
+                                    ("outbox", "Open outbox", "outbox"),
+                                    ("documents", "Open documents", "documents")):
+            if st.button(label, key=f"ovact-{slug}"):
+                st.session_state["goto"] = target   # same hand-off as section_head
+                st.rerun()
+
+    # --- Summary cards -------------------------------------------------------------------
+    currencies = overview_data.totals_by_currency(frame)
     waiting_total = single_currency_total(pending)
-    oldest_days, oldest_since = None, ""
-    if not pending.empty:
-        oldest = pending.sort_values("email_received_at", na_position="last").iloc[0]
-        oldest_days = waiting_days(oldest)
-        arrived = oldest.get("email_received_at")
-        if arrived and not pd.isna(arrived):
-            oldest_since = f"since {pd.Timestamp(arrived).strftime('%d %b').lstrip('0')}"
+    attention = overview_data.attention_rows(pending, waiting_days)
+    by_a_person = int(((frame["approval_status"] == "Approved")
+                       & frame["reviewed_at"].notna()).sum()) if not frame.empty else 0
+
+    if currencies:
+        biggest = f"{currencies[0][0]} {currencies[0][1]:,.0f}"
+        others = ", ".join(f"{c} {amount:,.0f}" for c, amount in currencies[1:])
+        amount_note = f"and {others}" if others else "one currency"
+    else:
+        biggest, amount_note = "-", "no amounts read yet"
 
     st.markdown(
         "<div class='ov-strip'>"
+        + tile("Invoices", len(frame), "stored by the pipeline")
+        + tile("Total amount", biggest, amount_note)
         + tile("Waiting for you", len(pending), waiting_total or
                ("more than one currency" if len(pending) > 1 else "nothing waiting"))
+        + tile("Approved by a person", by_a_person, "a name is on each")
+        + tile("Needs attention", len(attention), "listed below" if attention else "nothing flagged")
         + tile("Approved by the system", len(auto), "no person involved")
-        + tile("Oldest wait", f"{oldest_days}d" if oldest_days is not None else "none",
-               oldest_since or "the queue is empty")
         + "</div>", unsafe_allow_html=True)
 
-    section_head("Awaiting approval", "a person has to decide on each of these",
+    # --- Needs attention -----------------------------------------------------------------
+    section_head("Needs attention", "waiting documents with a reason to look closely",
                  opens="awaiting", key="awaiting")
-    document_rows(pending, actionable=True, context="ov", controls=False, limit=3)
+    if not attention:
+        quiet = (f"{len(pending)} waiting, none with a concern." if len(pending)
+                 else "Nothing is waiting.")
+        st.markdown(f"<p class='ov-more'>{quiet}</p>", unsafe_allow_html=True)
+    else:
+        with st.container(key="ovpanel-attention", gap=None):
+            for item in attention[:5]:
+                r = item["row"]
+                more = f" (+{len(item['reasons']) - 1})" if len(item["reasons"]) > 1 else ""
+                waited = "" if item["days"] is None else f" · waiting {item['days']}d"
+                record_row(key=f"ovattn-{r['id']}", dot="var(--caution)",
+                           left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
+                           value=money(r["total_amount"], r["currency"]),
+                           right=f"{item['reasons'][0]}{more}{waited}",
+                           action="Review", on_action=lambda row=r: review_dialog(row))
+        if len(attention) > 5:
+            st.markdown(f"<p class='ov-more'>{len(attention) - 5} more in Awaiting approval.</p>",
+                        unsafe_allow_html=True)
 
-    if not pending.empty or not auto.empty:
-        cleared = "" if auto.empty else f" {len(auto)} were cleared by the system on its own."
-        st.markdown(
-            f"<div class='ov-line'><span class='dot' style='background:var(--positive)'></span>"
-            f"That is everything waiting.{cleared}</div>", unsafe_allow_html=True)
-
-    if not auto.empty:
-        section_head("Approved by the system",
-                     SYSTEM_APPROVAL_SECTION,
-                     opens="auto", key="auto")
-        with st.container(key="ovpanel-auto", gap=None):
-          for _, r in auto.iterrows():
-            # The score belongs on the row. This section exists to show what was approved
-            # without a person, and the number behind that decision was only in the caption.
-            #
-            # SC-5, 2026-09-24: it read "score 1.00", which does not say which score. Every
-            # other surface now names it, and a number the reader has to guess the meaning of
-            # is the misreading fe-score-spec.md §3 exists to prevent.
-            score = "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}"
-            record_row(key=f"ovauto-{r['id']}", dot="var(--positive)",
-                       left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
-                       value=money(r["total_amount"], r["currency"]),
-                       right=f"validation score {score} · {local_time(r['system_processed_at'])[11:16]}",
-                       action="Open", on_action=lambda row=r: review_dialog(row))
-
+    # --- Outbox, only when something is waiting to go out ----------------------------------
     if outbox.empty:
-        pushable, frozen, sent = outbox, 0, 0
+        pushable = outbox
     else:
         jira_rows = outbox[outbox["channel"] == "Jira"]
         pushable = jira_rows[jira_rows["state"].isin(["Pending", "Failed"])
                              & ~jira_rows["withdrawn"]]
+    if not pushable.empty:
+        # The section turns amber only when a row has actually failed. See fe-theme-v2-spec.md s4.
+        any_failed = bool((pushable["state"] == "Failed").any())
         frozen = len(outbox[outbox["channel"] != "Jira"])
         sent = int((outbox["state"] == "Sent").sum())
-    # The section turns amber only when a row has actually failed, not merely because the
-    # Outbox has rows in it. See fe-theme-v2-spec.md §4.
-    any_failed = not pushable.empty and bool((pushable["state"] == "Failed").any())
-    section_head("Outbox", f"{len(pushable)} ready to push, {frozen} with no transport, "
-                           f"{sent} sent", opens="outbox",
-                 key="outbox-failed" if any_failed else "outbox")
-    if pushable.empty:
-        st.markdown("<p class='ov-more'>Nothing is waiting to go out.</p>", unsafe_allow_html=True)
-    else:
+        section_head("Outbox", f"{len(pushable)} ready to push, {frozen} with no transport, "
+                               f"{sent} sent", opens="outbox",
+                     key="outbox-failed" if any_failed else "outbox")
         ready = jira_ready()
         with st.container(key="ovpanel-out-failed" if any_failed else "ovpanel-out", gap=None):
-         for _, r in pushable.head(5).iterrows():
-            # The channel is Jira on every row in this list, so the slot that holds an amount
-            # elsewhere holds the state instead: Pending or Failed is the thing worth reading.
-            record_row(key=f"ovout-{r['outbox_id']}",
-                       dot="var(--caution)" if r["state"] == "Failed" else "var(--text-muted)",
-                       left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
-                       value=r["state"], right=local_time(r["created_at"]),
-                       action="Push to Jira", disabled=not ready,
-                       help=None if ready else "Jira is not configured. Set JIRA_ENABLED in .env",
-                       on_action=lambda row=r: (push_to_jira(row), st.rerun()))
+            for _, r in pushable.head(5).iterrows():
+                # The channel is Jira on every row here, so the slot that holds an amount
+                # elsewhere holds the state: Pending or Failed is the thing worth reading.
+                record_row(key=f"ovout-{r['outbox_id']}",
+                           dot="var(--caution)" if r["state"] == "Failed" else "var(--text-muted)",
+                           left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
+                           value=r["state"], right=local_time(r["created_at"]),
+                           action="Push to Jira", disabled=not ready,
+                           help=None if ready else "Jira is not configured. Set JIRA_ENABLED in .env",
+                           on_action=lambda row=r: (push_to_jira(row), st.rerun()))
 
-    section_head("History", "decisions a person made, including rejections",
-                 opens="history", key="history")
-    if history.empty:
-        st.markdown("<p class='ov-more'>Nobody has decided anything yet.</p>",
+    # --- Recent invoices -----------------------------------------------------------------
+    section_head("Recent invoices", "the latest ten, newest first", opens="documents",
+                 key="recent")
+    if frame.empty:
+        bars = "".join(f"<span style='height:{h}%'></span>" for h in (12, 16, 14, 22, 28, 34, 40, 52, 70, 100))
+        st.markdown(f"<p class='ov-more'>Nothing has been stored yet.</p>"
+                    f"<div class='ov-ph-bars' aria-hidden='true'>{bars}</div>",
                     unsafe_allow_html=True)
     else:
-        decided = load_data()
-        with st.container(key="ovpanel-hist", gap=None):
-         for _, r in history.head(5).iterrows():
-            # Not set_index("id"): review_dialog reads row["id"], and an index is not a column.
-            match = decided[decided["id"] == r["invoice_id"]]
-            full = match.iloc[0] if not match.empty else None
-            # Keyed on the decision, not the invoice: a reopened document has several rows.
-            record_row(key=f"ovhist-{int(r['decision_id'])}",
-                       dot={"Rejected": "var(--caution)", "Reopened": "var(--text-muted)"}.get(
-                           r["approval_status"], "var(--positive)"),
-                       left=f"{r['approval_status']} · {r['vendor_name'] or '-'}",
-                       doc=r["invoice_number"] or "-",
-                       value=money(r["total_amount"], r["currency"]),
-                       right=local_time(r["reviewed_at"]),
-                       action="Open", disabled=full is None,
-                       on_action=lambda row=full: review_dialog(row))
+        jira_state = overview_data.jira_state_by_invoice(outbox)
+        st.markdown(
+            "<div class='rc-head'><span>Vendor</span><span>Invoice</span><span>Amount</span>"
+            "<span>Received</span><span>Validation</span><span>Workflow</span></div>",
+            unsafe_allow_html=True)
+        with st.container(key="ovpanel-recent", gap=None):
+            for _, r in frame.head(10).iterrows():
+                workflow = overview_data.workflow_status(r, jira_state.get(int(r["id"])))
+                received = r["email_received_at"] if pd.notna(r["email_received_at"]) \
+                    else r["system_processed_at"]
+                with st.container(key=f"ovrec-{r['id']}", gap=None):
+                    body, act = st.columns([6, 1.1], vertical_alignment="center")
+                    body.markdown(
+                        f"<div class='rc-row'><span class='dense-left'>{r['vendor_name'] or '-'}</span>"
+                        f"<span class='dense-doc'>{r['invoice_number'] or '-'}</span>"
+                        f"<span class='dense-amount'>{money(r['total_amount'], r['currency'])}</span>"
+                        f"<span class='dense-right'>{local_time(received)[:10]}</span>"
+                        f"{'' if r['validation_status'] == 'Validated' else '<span class=rc-flag></span>'}"
+                        f"<span class='rc-chip "
+                        f"{'rc-ok' if r['validation_status'] == 'Validated' else 'rc-risk'}'>"
+                        f"{r['validation_status']}</span>"
+                        f"<span class='rc-chip'>{workflow}</span></div>",
+                        unsafe_allow_html=True)
+                    if act.button("Open", key=f"ovrec-{r['id']}-act"):
+                        review_dialog(r)
 
     st.markdown(
         "<p class='ov-foot'>Approving opens a Jira task for someone else, so the decision is "
@@ -2227,8 +2691,7 @@ def overview_body(pending, auto, outbox, history):
 # person was on was only told by the sidebar. The product name stays, small, above the page's own
 # name. It is Luke's choice of 2026-09-28 and the sign-in screens still carry it as their title.
 PAGE_HEADINGS = {
-    "overview": ("Overview", "What is waiting for a person, what the system cleared on its own, "
-                             "and what has happened since."),
+    "overview": ("Invoice approval", OVERVIEW_SUBTITLE),
     "awaiting": ("Awaiting approval", "Documents a person has to decide on. Open one to approve "
                                       "or reject it."),
     "auto": ("Approved by the system", "Documents the system approved without asking anyone. A "
@@ -2242,8 +2705,12 @@ PAGE_HEADINGS = {
     "runs": ("Pipeline runs", "Each time the pipeline ran, and the model that read the documents."),
 }
 _heading, _subtitle = PAGE_HEADINGS.get(view, ("Invoice approvals", ""))
-st.markdown("<div class='page-eyebrow'>Invoice approvals</div>", unsafe_allow_html=True)
-st.title(_heading)
+if view == "overview":
+    # Title art, drawn with markup so Streamlit adds no anchor icon. Other pages keep st.title.
+    st.markdown(f"<p class='eyebrow'>Overview</p>{title_art()}", unsafe_allow_html=True)
+else:
+    st.markdown("<div class='page-eyebrow'>Invoice approvals</div>", unsafe_allow_html=True)
+    st.title(_heading)
 if _subtitle:
     st.markdown(f"<p class='page-sub'>{_subtitle}</p>", unsafe_allow_html=True)
 
@@ -2315,25 +2782,36 @@ def documents_panel(frame):
              f"run {int(r['run_id'])} &middot; {local_time(r['system_processed_at'])}",
              "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}")
             for _, r in frame.sort_values("id").iterrows()]
-    st.markdown(dense_rows(rows), unsafe_allow_html=True)
+    # One container per row so each can carry a real button: a widget cannot live inside the
+    # markdown. Open shows the same review dialog as Recent invoices, which holds the document
+    # text and the original to download.
+    for (_, r), row_items in zip(frame.sort_values("id").iterrows(), rows):
+        with st.container(key=f"docrow-{r['id']}", gap=None):
+            body, act = st.columns([6, 1.1], vertical_alignment="center")
+            body.markdown(dense_rows([row_items]), unsafe_allow_html=True)
+            if act.button("Open", key=f"docopen-{r['id']}"):
+                review_dialog(r)
 
 
-if view == "documents":
-    documents_panel(df)
-elif view == "vendors":
-    vendors_panel(df)
-elif view == "runs":
-    runs_panel()
-elif view == "awaiting":
-    document_rows(pending, actionable=True)
-elif view == "auto":
-    st.markdown(
-        f"<p class='tab-note'>{SYSTEM_APPROVAL_NOTE}</p>",
-        unsafe_allow_html=True)
-    document_rows(auto, actionable=False)
-elif view == "outbox":
-    outbox_body(outbox)
-elif view == "history":
-    history_body(history)
-else:
-    overview_body(pending, auto, outbox, history)
+# The Square-feel theme (the block marked "Overview, Square feel" in the stylesheet) covers every
+# page. The review dialog is drawn outside this container, so it has its own rules in that block.
+with st.container(key="ovroot", gap=None):
+    if view == "documents":
+        documents_panel(df)
+    elif view == "vendors":
+        vendors_panel(df)
+    elif view == "runs":
+        runs_panel()
+    elif view == "awaiting":
+        document_rows(pending, actionable=True)
+    elif view == "auto":
+        st.markdown(
+            f"<p class='tab-note'>{SYSTEM_APPROVAL_NOTE}</p>",
+            unsafe_allow_html=True)
+        document_rows(auto, actionable=False)
+    elif view == "outbox":
+        outbox_body(outbox)
+    elif view == "history":
+        history_body(history)
+    else:
+        overview_body(pending, auto, outbox, history, df)

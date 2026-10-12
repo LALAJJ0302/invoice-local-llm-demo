@@ -38,3 +38,8 @@ headingFontSizes = ["1.5rem", "1.25rem", "1.0625rem", "1rem", "0.9375rem", "0.87
 
 [theme.sidebar]
 backgroundColor = "#F7F8FC"         # surface sunk
+
+[client]
+# The design has no Deploy button or menu in its top bar. "minimal" removes both and keeps
+# the Streamlit status indicator.
+toolbarMode = "minimal"

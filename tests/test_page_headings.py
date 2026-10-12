@@ -26,9 +26,15 @@ def test_the_heading_names_the_page(view, label):
                                   next(o for o in at.sidebar.radio[0].options
                                        if o.startswith(label))).run()
     assert not at.exception, [str(e.value) for e in at.exception]
-    assert at.title[0].value == label
     rendered = " ".join(m.value for m in at.markdown)
-    assert "Invoice approvals" in rendered, "the product name should still appear above the page"
+    if view == "overview":
+        # Overview draws its heading as title art, so there is no st.title to read.
+        assert "title-art" in rendered and "INVOICE" in rendered and "APPROVAL" in rendered
+        assert "<p class='eyebrow'>Overview</p>" in rendered
+    else:
+        assert at.title[0].value == label
+    if view != "overview":
+        assert "Invoice approvals" in rendered, "the product name should still appear above the page"
 
 
 def test_row_actions_cannot_wrap_their_labels():
