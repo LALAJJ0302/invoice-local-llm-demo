@@ -2,6 +2,8 @@ import argparse
 import os
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
 from dateutil import parser as date_parser
@@ -72,6 +74,79 @@ class ProcessedRecord(BaseModel):
 # =====================================================================
 # 2. Document Extraction Engine with Heuristic Fallbacks
 # =====================================================================
+class DocumentRead:
+    """Text taken from a file, or why that file cannot be sent to the model.
+
+    status is None when text is usable. Otherwise it is needs_ocr, unsupported,
+    or retryable_failure, which is the same vocabulary WorkflowOrchestrator returns.
+    """
+
+    def __init__(self, text: str = "", status: Optional[str] = None, reason: str = ""):
+        self.text = text
+        self.status = status
+        self.reason = reason
+
+
+@dataclass
+class FileOutcome:
+    """What one file did in a pipeline run.
+
+    status is stored, retryable_failure, needs_ocr, or unsupported.
+    attempt_count is 0 when the file was stored. A failure count comes from
+    ingestion_failures and is how the listener decides whether to try again.
+    """
+
+    file_name: str
+    status: str
+    reason: str
+    source_sha256: Optional[str]
+    attempt_count: int
+
+
+def _clipped_area(bounds, width, height):
+    left, bottom, right, top = bounds
+    return max(0.0, min(right, width) - max(left, 0.0)) * max(
+        0.0, min(top, height) - max(bottom, 0.0)
+    )
+
+
+def strip_scan_background(page) -> bool:
+    """Drop the coloured background picture from a layered scan. True if anything went.
+
+    Some scanners, and the print houses behind utility bills, write each page as a
+    low-resolution colour photo with the text laid on top as sharp 1-bit masks. The
+    masks are what OCR should read; the photo behind them only adds tint and speckle.
+
+    A photo is dropped only when it covers nearly the whole page and 1-bit images cover
+    at least half of it. One photo per page, a black-and-white scan, or a photo with a
+    small 1-bit stamp on it is left exactly as it is, because there the photo is the
+    text. `page` is a pypdfium2 page; the change is in memory only, never saved.
+    """
+    import pypdfium2.raw as pdfium_raw
+
+    width, height = page.get_size()
+    page_area = width * height
+    if page_area <= 0:
+        return False
+
+    masks, photos = [], []
+    for obj in page.get_objects(max_depth=1):
+        if obj.type != pdfium_raw.FPDF_PAGEOBJ_IMAGE:
+            continue
+        area = _clipped_area(obj.get_bounds(), width, height)
+        if obj.get_metadata().bits_per_pixel == 1:
+            masks.append(area)
+        elif area >= 0.9 * page_area:
+            photos.append(obj)
+
+    if not photos or sum(masks) < 0.5 * page_area:
+        return False
+    for obj in photos:
+        page.remove_obj(obj)
+    page.gen_content()
+    return True
+
+
 class DocumentExtractor:
     """Extracts text from PDF and performs structured inference using Ollama."""
 
@@ -87,6 +162,11 @@ class DocumentExtractor:
         self.rag_limit = rag_limit
         self.rag_examples_path = rag_examples_path
         self.last_retrieval: list[dict] = []
+        self.last_error: Optional[BaseException] = None
+
+    # A scanned page has no text operators. 300 DPI is enough for a utility bill
+    # and still cheap on a two-page invoice. 72 is PDF's own point size.
+    OCR_DPI = 300
 
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """Reads text from all pages of a PDF."""
@@ -99,6 +179,155 @@ class DocumentExtractor:
         except Exception as error:
             print(f"  [Error] Failed to read PDF {pdf_path}: {error}")
             return ""
+
+    def ocr_pdf(self, pdf_path: str) -> str:
+        """Read a PDF by looking at the page images. Nothing is uploaded.
+
+        Tesseract is a separate program. TESSERACT_CMD points at it when it is not
+        on PATH. A missing program raises TesseractNotFoundError, which the caller
+        treats as a temporary failure rather than a scanned page it has already read.
+        """
+        import pypdfium2 as pdfium
+        import pytesseract
+
+        command = os.environ.get("TESSERACT_CMD") or shutil.which("tesseract")
+        if not command:
+            windows = os.path.join(
+                os.environ.get("ProgramFiles", r"C:\Program Files"),
+                "Tesseract-OCR",
+                "tesseract.exe",
+            )
+            if os.path.isfile(windows):
+                command = windows
+        if command:
+            pytesseract.pytesseract.tesseract_cmd = command
+
+        # Tesseract's own threads fight each other: one page on four threads was about
+        # three times slower than on one, measured 2026-10-12. Pages are read side by
+        # side instead. A limit someone has already set is theirs to keep.
+        os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+
+        def read(image):
+            return pytesseract.image_to_string(image, lang="eng")
+
+        pdf = pdfium.PdfDocument(pdf_path)
+        try:
+            page_count = len(pdf)
+            workers = max(1, min(page_count, os.cpu_count() or 1))
+            texts = [""] * page_count
+            stripped = set()
+            # pdfium is not thread-safe, so pages are rendered here one at a time and
+            # only the Tesseract calls run in parallel. Rendering a batch at a time
+            # keeps at most `workers` page images in memory.
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                for start in range(0, page_count, workers):
+                    batch = range(start, min(start + workers, page_count))
+                    images = []
+                    for index in batch:
+                        page = pdf[index]
+                        try:
+                            if strip_scan_background(page):
+                                stripped.add(index)
+                            images.append(self._render_for_ocr(page))
+                        finally:
+                            page.close()
+                    for index, text in zip(batch, pool.map(read, images)):
+                        texts[index] = text
+        finally:
+            pdf.close()
+
+        # Dropping a background that held the text leaves almost nothing to read. Those
+        # pages are read again from the untouched file, so a wrong guess costs a second
+        # read rather than the text.
+        retry = [i for i in sorted(stripped) if len(re.findall(r"\w", texts[i])) < 20]
+        if retry:
+            pdf = pdfium.PdfDocument(pdf_path)
+            try:
+                for index in retry:
+                    page = pdf[index]
+                    try:
+                        texts[index] = read(self._render_for_ocr(page))
+                    finally:
+                        page.close()
+            finally:
+                pdf.close()
+        return "\n".join(texts).strip()
+
+    def _render_for_ocr(self, page):
+        """One page as a greyscale image. Tesseract reads grey; colour only costs memory."""
+        bitmap = page.render(scale=self.OCR_DPI / 72, grayscale=True)
+        try:
+            return bitmap.to_pil().copy()
+        finally:
+            bitmap.close()
+
+    def inspect_pdf(self, pdf_path: str):
+        """Read a PDF far enough to tell a scanned page from a broken file.
+
+        An embedded text layer is returned as-is and OCR is not called. A page with
+        no text is rendered and read locally. Ollama is not called from here.
+        """
+        try:
+            reader = PdfReader(pdf_path)
+        except OSError as error:
+            return DocumentRead(
+                status="retryable_failure",
+                reason=f"PDF could not be read: {error}",
+            )
+        except Exception as error:
+            return DocumentRead(
+                status="unsupported",
+                reason=f"PDF could not be read: {error}",
+            )
+
+        try:
+            if reader.is_encrypted:
+                try:
+                    reader.decrypt("")
+                except Exception as error:
+                    return DocumentRead(
+                        status="unsupported",
+                        reason=f"PDF is encrypted: {error}",
+                    )
+
+            try:
+                pages = reader.pages
+                page_count = len(pages)
+                text = "\n".join((page.extract_text() or "") for page in pages).strip()
+            except Exception as error:
+                message = str(error).lower()
+                if "decrypt" in message or "encrypted" in message:
+                    return DocumentRead(status="unsupported", reason="PDF is encrypted")
+                return DocumentRead(
+                    status="unsupported",
+                    reason=f"PDF could not be read: {error}",
+                )
+        finally:
+            # pypdf keeps the file open. On Windows that lock is still held during the
+            # later model calls, and the hash or the archive move then fails.
+            reader.close()
+
+        if page_count < 1:
+            return DocumentRead(status="unsupported", reason="PDF has no pages")
+        if text:
+            return DocumentRead(text=text)
+
+        try:
+            ocr_text = self.ocr_pdf(pdf_path)
+        except Exception as error:
+            if type(error).__name__ == "TesseractNotFoundError":
+                reason = f"Tesseract is not installed: {error}"
+            else:
+                reason = f"OCR failed: {error}"
+            return DocumentRead(status="retryable_failure", reason=reason)
+
+        ocr_text = (ocr_text or "").strip()
+        if not ocr_text:
+            return DocumentRead(status="needs_ocr", reason="PDF has no text layer")
+        print(
+            f"  └─ [OCR] Read {len(ocr_text)} characters from {os.path.basename(pdf_path)}"
+        )
+        return DocumentRead(text=ocr_text)
 
     def _infer_vendor_fallback(self, raw_text: str, file_name: str) -> Optional[str]:
         """Heuristic fallback to extract vendor name from text header or filename."""
@@ -138,6 +367,7 @@ class DocumentExtractor:
         callers that omit it keep the configured always-baseline or always-RAG behaviour.
         """
         self.last_retrieval = []
+        self.last_error = None
         rag_context = ""
         rag_enabled = self.use_rag if use_rag is None else use_rag
 
@@ -215,6 +445,7 @@ class DocumentExtractor:
 
             return parsed_data
         except Exception as error:
+            self.last_error = error
             print(f"  [Error] LLM Extraction failed: {error}")
             return None
 
@@ -594,6 +825,7 @@ class WorkflowOrchestrator:
         use_rag: bool = False,
         rag_limit: int = 1,
         rag_examples_path: str = rag_retrieval.DEFAULT_EXAMPLES_PATH,
+        db_path: str = storage.DEFAULT_DB_PATH,
     ):
         self.inbox_dir = inbox_dir
         self.archive_dir = archive_dir
@@ -608,197 +840,232 @@ class WorkflowOrchestrator:
         )
         self.validator = ConfidenceValidator(threshold=self.threshold)
         self.intelligence = DocumentIntelligenceRunner()
-        self.storage = StorageManager(db_path="workflow_platform.db")
+        self.storage = StorageManager(db_path=db_path)
         self.dispatcher = DownstreamDispatcher(self.storage)
 
         os.makedirs(self.inbox_dir, exist_ok=True)
         os.makedirs(self.archive_dir, exist_ok=True)
 
-    def run(self):
-        """Processes all documents in inbox."""
-        files = [f for f in os.listdir(self.inbox_dir) if not f.startswith(".")]
+    def _read_input(self, file_name: str, source_path: str) -> DocumentRead:
+        """Text for the model, or a permanent/temporary reason to stop before calling it."""
+        if file_name.lower().endswith(".pdf"):
+            return self.extractor.inspect_pdf(source_path)
+        try:
+            with open(source_path, "r", encoding="utf-8", errors="ignore") as handle:
+                raw_text = handle.read()
+        except OSError as error:
+            return DocumentRead(
+                status="retryable_failure",
+                reason=f"File could not be read: {error}",
+            )
+        except Exception as error:
+            return DocumentRead(
+                status="unsupported",
+                reason=f"File could not be read: {error}",
+            )
+        if not raw_text.strip():
+            return DocumentRead(status="unsupported", reason="File has no readable text")
+        return DocumentRead(text=raw_text)
 
-        if not files:
-            print(f"[*] Notice: No documents found in '{self.inbox_dir}'.")
-            return
+    def _record_failure(
+        self, file_name: str, source_path: str, status: str, reason: str
+    ) -> FileOutcome:
+        """Write one ingestion_failures row and describe it for the listener.
 
-        run_id = self.storage.start_run(
-            model_name=self.extractor.model_name,
-            threshold=self.threshold,
+        The byte hash is the identity. When the bytes cannot be read there is nothing
+        to hash, so the name is used instead: otherwise a locked file would be claimed
+        on every poll and the attempt count would never move.
+        """
+        source_sha256 = storage.sha256_file(source_path) or f"unreadable:{file_name}"
+        row = self.storage.record_ingestion_failure(
+            file_name, source_sha256, status, reason
         )
-        print(f"=== Starting AI Automation Pipeline ({len(files)} files found, run_id={run_id}) ===")
+        attempt = row["attempt_count"]
+        limit = storage.MAX_INGESTION_ATTEMPTS
+        if status == "needs_ocr":
+            print(f"  └─ [Needs OCR] {reason}")
+        elif status == "unsupported":
+            print(f"  └─ [Unsupported] {reason}")
+        elif attempt >= limit:
+            print(f"  └─ [Retry exhausted] attempt {attempt}/{limit}: {reason}")
+        else:
+            print(f"  └─ [Retry] attempt {attempt}/{limit}: {reason}")
+        return FileOutcome(
+            file_name=file_name,
+            status=status,
+            reason=reason,
+            source_sha256=source_sha256,
+            attempt_count=attempt,
+        )
 
-        processed_count = 0
-        for file_name in files:
-            source_path = os.path.join(self.inbox_dir, file_name)
-            print(f"\n[Step 1: Ingestion] Reading file: {file_name}")
+    def _process_file(self, file_name: str, run_id: int) -> FileOutcome:
+        """Run one file. A failure here is an outcome, not a reason to drop the rest."""
+        source_path = os.path.join(self.inbox_dir, file_name)
+        try:
+            with open(source_path, "rb") as handle:
+                source_sha256 = storage.sha256_bytes(handle.read())
+        except OSError as error:
+            return self._record_failure(
+                file_name,
+                source_path,
+                "retryable_failure",
+                f"Could not hash {file_name}: {error}",
+            )
 
-            # 1. Extract Text
-            raw_text = ""
-            if file_name.lower().endswith(".pdf"):
-                raw_text = self.extractor.extract_text_from_pdf(source_path)
-            else:
-                try:
-                    with open(source_path, "r", encoding="utf-8", errors="ignore") as f:
-                        raw_text = f.read()
-                except Exception:
-                    pass
+        read = self._read_input(file_name, source_path)
+        if read.status:
+            return self._record_failure(file_name, source_path, read.status, read.reason)
+        raw_text = read.text
 
-            if not raw_text.strip():
-                print(f"  └─ [Skip] Document is empty or binary.")
-                continue
+        # 2. Extract with AI. In selective RAG mode the first pass is deliberately
+        # example-free. Deterministic validation decides whether a second pass is useful.
+        print("  └─ [Step 2: AI Extraction] Processing with Ollama (llama3.2)...")
+        data = self.extractor.extract_invoice_data(
+            raw_text,
+            file_name,
+            use_rag=False if self.use_rag else None,
+        )
+        if not data:
+            detail = self.extractor.last_error
+            reason = f"AI extraction failed: {detail}" if detail else "AI extraction failed"
+            return self._record_failure(
+                file_name, source_path, "retryable_failure", reason
+            )
 
-            # 2. Extract with AI. In selective RAG mode the first pass is deliberately
-            # example-free. Deterministic validation decides whether a second pass is useful.
-            print("  └─ [Step 2: AI Extraction] Processing with Ollama (llama3.2)...")
-            data = self.extractor.extract_invoice_data(
+        verdict = self.validator.explain(data, raw_text)
+        if self.use_rag and should_retry_with_rag(verdict):
+            baseline_data, baseline_verdict = data, verdict
+            trigger = baseline_verdict["reason"]
+            print(f"  └─ [Step 2a: Selective RAG] Retry triggered: {trigger}")
+
+            rag_data = self.extractor.extract_invoice_data(
                 raw_text,
                 file_name,
-                use_rag=False if self.use_rag else None,
+                use_rag=True,
             )
-            if not data:
-                print("  └─ [Fail] AI extraction failed.")
-                continue
-
-            verdict = self.validator.explain(data, raw_text)
-            if self.use_rag and should_retry_with_rag(verdict):
-                baseline_data, baseline_verdict = data, verdict
-                trigger = baseline_verdict["reason"]
-                print(f"  └─ [Step 2a: Selective RAG] Retry triggered: {trigger}")
-
-                rag_data = self.extractor.extract_invoice_data(
-                    raw_text,
-                    file_name,
-                    use_rag=True,
+            if self.extractor.last_retrieval:
+                selected = ", ".join(
+                    f"{item['example_id']} (score {item['retrieval_score']})"
+                    for item in self.extractor.last_retrieval
                 )
-                if self.extractor.last_retrieval:
-                    selected = ", ".join(
-                        f"{item['example_id']} (score {item['retrieval_score']})"
-                        for item in self.extractor.last_retrieval
-                    )
-                    print(f"     Retrieved {selected}")
+                print(f"     Retrieved {selected}")
 
-                if rag_data:
-                    rag_verdict = self.validator.explain(rag_data, raw_text)
-                    if rag_result_is_better(baseline_verdict, rag_verdict):
-                        data, verdict = rag_data, rag_verdict
-                        print(
-                            "     Adopted RAG result: "
-                            f"{baseline_verdict['score']:.2f} -> {rag_verdict['score']:.2f}"
-                        )
-                    else:
-                        data, verdict = baseline_data, baseline_verdict
-                        print(
-                            "     Kept baseline result: RAG did not improve the "
-                            "evidence-based validation rank."
-                        )
+            if rag_data:
+                rag_verdict = self.validator.explain(rag_data, raw_text)
+                if rag_result_is_better(baseline_verdict, rag_verdict):
+                    data, verdict = rag_data, rag_verdict
+                    print(
+                        "     Adopted RAG result: "
+                        f"{baseline_verdict['score']:.2f} -> {rag_verdict['score']:.2f}"
+                    )
                 else:
                     data, verdict = baseline_data, baseline_verdict
-                    print("     Kept baseline result: the RAG extraction failed.")
-
-            # 2b. Trace the document back to the email that delivered it, then pull that
-            # sender's prior correspondence as context. A miss is normal rather than an
-            # error: a file dropped straight into inbox/ never had an email.
-            delivered_by = self.storage.email_for_attachment(file_name)
-            email_id = delivered_by["email_id"] if delivered_by else None
-            context = ""
-            if delivered_by:
-                print(f"  └─ [Step 2b: Link] Delivered by email_id={email_id} "
-                      f"from {delivered_by['sender']}")
-                hits = retrieval.retrieve(sender=delivered_by["sender"],
-                                          strategy="sender", limit=3,
-                                          db_path=self.storage.db_path)
-                # Exclude the email that carried this very document: it is not history.
-                hits = [h for h in hits if h["email_id"] != email_id]
-                if hits:
-                    context = retrieval.as_context(hits, max_chars=1200)
-                    print(f"  └─ [Step 2c: Retrieval] {len(hits)} prior emails, "
-                          f"{len(context)} chars of context")
+                    print(
+                        "     Kept baseline result: RAG did not improve the "
+                        "evidence-based validation rank."
+                    )
             else:
-                print("  └─ [Step 2b: Link] No email matched this file")
+                data, verdict = baseline_data, baseline_verdict
+                print("     Kept baseline result: the RAG extraction failed.")
 
-            # 3. Validation Gate. The verdict was calculated above so the optional RAG
-            # retry and the stored decision use exactly the same deterministic rules.
-            confidence, status = verdict["score"], verdict["status"]
-            print(f"  └─ [Step 3: Validation Gate] Score: {confidence} -> {status} "
-                  f"(amount {verdict['amount_state']})")
-            if verdict["amount_state"] != "verified":
-                print(f"     {verdict['reason']}")
+        # 2b. Trace the document back to the email that delivered it, then pull that
+        # sender's prior correspondence as context. A miss is normal rather than an
+        # error: a file dropped straight into inbox/ never had an email.
+        delivered_by = self.storage.email_for_attachment(file_name)
+        email_id = delivered_by["email_id"] if delivered_by else None
+        context = ""
+        if delivered_by:
+            print(f"  └─ [Step 2b: Link] Delivered by email_id={email_id} "
+                  f"from {delivered_by['sender']}")
+            hits = retrieval.retrieve(sender=delivered_by["sender"],
+                                      strategy="sender", limit=3,
+                                      db_path=self.storage.db_path)
+            # Exclude the email that carried this very document: it is not history.
+            hits = [h for h in hits if h["email_id"] != email_id]
+            if hits:
+                context = retrieval.as_context(hits, max_chars=1200)
+                print(f"  └─ [Step 2c: Retrieval] {len(hits)} prior emails, "
+                      f"{len(context)} chars of context")
+        else:
+            print("  └─ [Step 2b: Link] No email matched this file")
 
-            # 3b. Document Intelligence: category, summary, action items.
-            # Independent of steps 2-3 above; a failure here does not stop the document
-            # from being stored, it is just stored without these three fields.
-            print("  └─ [Step 3b: Document Intelligence] Categorising with Ollama...")
-            analysis = self.intelligence.analyse(file_name, raw_text)
-            if analysis:
-                print(f"     Category: {analysis.category} | "
-                      f"{len(analysis.action_items)} action item(s)")
+        # 3. Validation Gate. The verdict was calculated above so the optional RAG
+        # retry and the stored decision use exactly the same deterministic rules.
+        confidence, status = verdict["score"], verdict["status"]
+        print(f"  └─ [Step 3: Validation Gate] Score: {confidence} -> {status} "
+              f"(amount {verdict['amount_state']})")
+        if verdict["amount_state"] != "verified":
+            print(f"     {verdict['reason']}")
 
-            # 4. Storage, then archive.
-            # The database write commits first. If the move then fails, the file simply stays
-            # in inbox/ and the next run upserts onto the same row, rather than the old
-            # failure mode of a file archived with no record.
-            target_archive_path = os.path.abspath(os.path.join(self.archive_dir, file_name))
-            source_sha256 = storage.sha256_file(source_path)
-            if source_sha256 is None:
-                # The file was readable a moment ago, so this is close to impossible. Guard
-                # anyway: source_sha256 is NOT NULL, and a violation here would abort the run.
-                print(f"  └─ [Skip] Could not hash {file_name}.")
-                continue
-            content_sha256 = storage.content_hash(raw_text, source_sha256)
+        # 3b. Document Intelligence: category, summary, action items.
+        # Independent of steps 2-3 above; a failure here does not stop the document
+        # from being stored, it is just stored without these three fields.
+        print("  └─ [Step 3b: Document Intelligence] Categorising with Ollama...")
+        analysis = self.intelligence.analyse(file_name, raw_text)
+        if analysis:
+            print(f"     Category: {analysis.category} | "
+                  f"{len(analysis.action_items)} action item(s)")
 
-            record = ProcessedRecord(
-                file_name=file_name,
-                status=status,
-                confidence_score=confidence,
-                extracted_data=data,
-                archive_path=target_archive_path,
-                processed_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            )
+        # 4. Storage, then archive.
+        # The database write commits first. If the move then fails, the file simply stays
+        # in inbox/ and the next run upserts onto the same row, rather than the old
+        # failure mode of a file archived with no record.
+        target_archive_path = os.path.abspath(os.path.join(self.archive_dir, file_name))
+        content_sha256 = storage.content_hash(raw_text, source_sha256)
 
-            result = self.storage.save_invoice(
-                run_id=run_id,
-                file_name=record.file_name,
-                source_sha256=source_sha256,
-                content_sha256=content_sha256,
-                extracted=data.model_dump(),
-                validation_score=record.confidence_score,
-                validation_status=record.status,
-                archive_path=record.archive_path,
-                raw_json=data.model_dump_json(),
-                raw_text=raw_text,
-                category=analysis.category if analysis else None,
-                summary=analysis.summary if analysis else None,
-                action_items=self.intelligence.as_action_item_rows(analysis),
-                email_id=email_id,
-            )
-            processed_count += 1
+        record = ProcessedRecord(
+            file_name=file_name,
+            status=status,
+            confidence_score=confidence,
+            extracted_data=data,
+            archive_path=target_archive_path,
+            processed_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
 
-            action = "Updated" if result["was_update"] else "Inserted"
-            total = storage.from_cents(result["total_cents"])
-            total_text = "no total" if total is None else f"{total:,.2f}"
-            if result["recovery_note"]:
-                total_text += f" (recovered from {result['recovery_note']})"
-            print(f"  └─ [Step 4: Storage] {action} invoice_id={result['invoice_id']}: "
-                  f"{total_text}, {result['line_item_count']} line items, "
-                  f"{result['document_type']}, reconciliation {result['reconciliation']}")
-            if result["reconciliation"] == "short":
-                print("     [Warn] The stated total is less than the line items add up to. "
-                      "Tax and shipping cannot reduce a total, so one of the two is wrong.")
+        result = self.storage.save_invoice(
+            run_id=run_id,
+            file_name=record.file_name,
+            source_sha256=source_sha256,
+            content_sha256=content_sha256,
+            extracted=data.model_dump(),
+            validation_score=record.confidence_score,
+            validation_status=record.status,
+            archive_path=record.archive_path,
+            raw_json=data.model_dump_json(),
+            raw_text=raw_text,
+            category=analysis.category if analysis else None,
+            summary=analysis.summary if analysis else None,
+            action_items=self.intelligence.as_action_item_rows(analysis),
+            email_id=email_id,
+        )
+        self.storage.resolve_ingestion_failure(source_sha256)
 
-            try:
-                shutil.move(source_path, target_archive_path)
-                print(f"  └─ [Step 4b: Archive] Moved to: {target_archive_path}")
-            except OSError as error:
-                print(f"  └─ [Warn] Record saved but archiving failed: {error}. "
-                      f"File left in {self.inbox_dir} for the next run.")
+        action = "Updated" if result["was_update"] else "Inserted"
+        total = storage.from_cents(result["total_cents"])
+        total_text = "no total" if total is None else f"{total:,.2f}"
+        if result["recovery_note"]:
+            total_text += f" (recovered from {result['recovery_note']})"
+        print(f"  └─ [Step 4: Storage] {action} invoice_id={result['invoice_id']}: "
+              f"{total_text}, {result['line_item_count']} line items, "
+              f"{result['document_type']}, reconciliation {result['reconciliation']}")
+        if result["reconciliation"] == "short":
+            print("     [Warn] The stated total is less than the line items add up to. "
+                  "Tax and shipping cannot reduce a total, so one of the two is wrong.")
 
-            # 5. Downstream Dispatch
-            # Auto-approval is a hard rule, not a weight implication: score 1.0 alone is
-            # not enough. The amount must also be verified against the document
-            # (validation-gate-spec.md section 2). Checking amount_state explicitly means a
-            # future weight change cannot silently auto-approve unverified money. Anything
-            # that fails either check still opens a task and waits for a person.
+        try:
+            shutil.move(source_path, target_archive_path)
+            print(f"  └─ [Step 4b: Archive] Moved to: {target_archive_path}")
+        except OSError as error:
+            print(f"  └─ [Warn] Record saved but archiving failed: {error}. "
+                  f"File left in {self.inbox_dir} for the next run.")
+
+        # 5. Downstream Dispatch
+        # Auto-approval is a hard rule, not a weight implication: score 1.0 alone is
+        # not enough. The amount must also be verified against the document
+        # (validation-gate-spec.md section 2). Checking amount_state explicitly means a
+        # future weight change cannot silently auto-approve unverified money. Anything
+        # that fails either check still opens a task and waits for a person.
+        try:
             if confidence >= 1.0 and verdict["amount_state"] == "verified":
                 followup = self.storage.auto_approve(result["invoice_id"])
                 print(f"  └─ [Auto-Approval] Score {confidence:.2f}, amount verified -- "
@@ -822,9 +1089,64 @@ class WorkflowOrchestrator:
             else:
                 self.dispatcher.dispatch(result["invoice_id"], file_name, status, confidence,
                                          reason=verdict["reason"])
+        except Exception as error:
+            # The invoice row is already committed. A task failure must not send the
+            # file back through extraction, or a stored document would be quarantined
+            # after three attempts.
+            print(f"  └─ [Warn] Stored, but the follow-up task failed: {error}")
 
+        return FileOutcome(
+            file_name=file_name,
+            status="stored",
+            reason="",
+            source_sha256=source_sha256,
+            attempt_count=0,
+        )
+
+    def run(self) -> List[FileOutcome]:
+        """Processes all documents in inbox. One outcome per file, including failures."""
+        files = [f for f in os.listdir(self.inbox_dir) if not f.startswith(".")]
+
+        if not files:
+            print(f"[*] Notice: No documents found in '{self.inbox_dir}'.")
+            return []
+
+        run_id = self.storage.start_run(
+            model_name=self.extractor.model_name,
+            threshold=self.threshold,
+        )
+        print(f"=== Starting AI Automation Pipeline ({len(files)} files found, run_id={run_id}) ===")
+
+        outcomes: List[FileOutcome] = []
+        for file_name in files:
+            print(f"\n[Step 1: Ingestion] Reading file: {file_name}")
+            try:
+                outcome = self._process_file(file_name, run_id)
+            except Exception as error:
+                # One bad file must not abandon the rest of the batch.
+                print(f"  └─ [Fail] {file_name}: {error}")
+                try:
+                    outcome = self._record_failure(
+                        file_name,
+                        os.path.join(self.inbox_dir, file_name),
+                        "retryable_failure",
+                        str(error),
+                    )
+                except Exception as record_error:
+                    print(f"  └─ [Warn] Could not record the failure: {record_error}")
+                    outcome = FileOutcome(
+                        file_name=file_name,
+                        status="retryable_failure",
+                        reason=str(error),
+                        source_sha256=None,
+                        attempt_count=1,
+                    )
+            outcomes.append(outcome)
+
+        processed_count = sum(1 for outcome in outcomes if outcome.status == "stored")
         self.storage.finish_run(run_id, processed_count)
         print(f"\n=== Workflow Completed: {processed_count}/{len(files)} documents stored (run_id={run_id}) ===")
+        return outcomes
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -856,4 +1178,7 @@ if __name__ == "__main__":
         rag_limit=args.rag_limit,
         rag_examples_path=args.rag_examples,
     )
-    orchestrator.run()
+    outcomes = orchestrator.run()
+    # Imported here so loading the pipeline does not load the mailbox listener.
+    from email_listener import dispose_outcomes
+    dispose_outcomes(orchestrator.inbox_dir, outcomes)

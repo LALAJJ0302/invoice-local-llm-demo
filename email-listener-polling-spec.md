@@ -3,7 +3,7 @@
 **Status:** implemented in `email_listener.py`.
 **What it is:** `python email_listener.py` keeps checking Gmail until Ctrl+C. After each check it claims the files in `inbox/` and processes that batch in the background, using the same pipeline as `python main.py`. The next check does not wait, and it does not take files already claimed.
 
-`python main.py` is unchanged. It still reads `./inbox` once and exits. The listener calls `WorkflowOrchestrator` with `inbox_dir` pointed at the claimed batch.
+`python main.py` still reads the top of `./inbox` once and exits. It uses the same per-file results as the listener, so a file it cannot retry is quarantined instead of being left in the inbox. The listener calls `WorkflowOrchestrator` with `inbox_dir` pointed at the claimed batch.
 
 ## Why
 
@@ -29,9 +29,19 @@ Email linking is by file name. The move does not rename the file, so the message
 
 ## When a file comes back
 
-The thread moves anything still in the batch back to `inbox/` after the pipeline returns. Archived files are already in `archive/` and are not returned. A name collision on the way back becomes `name_1.pdf`, so a newer download is not overwritten.
+The pipeline returns one result per file: `stored`, `retryable_failure`, `needs_ocr`, or `unsupported`.
 
-That return is the retry. A failed extraction is claimed again by a later poll, after this batch has finished, not while it is in flight.
+Archived files are already in `archive/` and are not returned. A `stored` file whose archive move failed stays in the batch and goes back to `inbox/` for a later upsert. That return is not counted as a failure.
+
+Only `retryable_failure` is a retry, and only while the attempt count is under 3. An Ollama timeout or a database lock is this case. The file goes back to `inbox/` and a later poll claims it, after this batch has finished, not while it is in flight. A name collision on the way back becomes `name_1.pdf`, so a newer download is not overwritten.
+
+Anything else is moved under `inbox/.failed/` before the leftovers are released. `claim_inbox` only lists files in the top of `inbox/` and skips names that start with `.`, so these are not claimed again. A killed process still recovers only `inbox/.processing/`.
+
+- `needs_ocr` — OCR read a PDF that had no embedded text and found nothing. One attempt. Ollama is not called. Moved to `inbox/.failed/needs_ocr/`. A PDF that already has a text layer never reaches OCR. A missing Tesseract program is `retryable_failure` instead, because the page was never read, and after three attempts it goes to `inbox/.failed/retry_exhausted/`.
+- `unsupported` — encrypted, unreadable, or a non-PDF with no text. One attempt. Moved to `inbox/.failed/unsupported/`.
+- `retryable_failure` after 3 attempts — moved to `inbox/.failed/retry_exhausted/`.
+
+Each failure is one row in `ingestion_failures`, keyed by the file's byte hash, with the reason, the attempt count, and the first and last attempt times. The same hash updates that row instead of inserting another. A later successful store sets `resolved_at`. No invoice row is written until a run actually stores one.
 
 ## Stopping
 
@@ -47,6 +57,6 @@ Ctrl+C stops the loop immediately. In-flight threads are non-daemon, so the proc
 
 ## What this does not change
 
-- `main.py` has no new flag. A bare `python main.py` still scans `./inbox` only, so it will not see files already moved under `inbox/.processing/`.
+- `main.py` has no new flag. A bare `python main.py` still scans only the top of `./inbox`, so it will not see files under `inbox/.processing/` or `inbox/.failed/`.
 - The search is still the Inbox, and still `SUBJECT "invoice"`. Other folders, and subjects that do not contain `invoice`, are not fetched.
 - Two emails can still save the same attachment name if the first file has already left `inbox/`. That was already true after a file was archived. The link to the covering email is the newest matching file name.

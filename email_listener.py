@@ -371,7 +371,10 @@ def _download_from_open_mailbox(mail, store, attachment_dir, mailbox, mark_as_re
 
 # Claimed files leave inbox/ for inbox/.processing/<batch>/ before a pipeline run.
 # WorkflowOrchestrator only lists the top of its inbox, so a later poll cannot see them.
+# Permanent failures leave the batch for inbox/.failed/<reason>/, which is also invisible
+# to the next claim: the name starts with '.' and claim_inbox does not descend.
 PROCESSING_DIR_NAME = ".processing"
+FAILED_DIR_NAME = ".failed"
 
 
 def resolve_inbox_dir(inbox_dir=None):
@@ -472,20 +475,68 @@ def run_pipeline(inbox_dir="./inbox"):
     """Process one folder the same way `python main.py` does.
 
     Imported here so a poll loop that supplies its own process_fn never loads Ollama.
+    Returns the per-file outcomes. A process_fn that returns None keeps the old
+    contract: leftovers go back to the inbox.
     """
     from main import WorkflowOrchestrator
 
-    WorkflowOrchestrator(
+    return WorkflowOrchestrator(
         inbox_dir=str(inbox_dir),
         archive_dir="./archive",
         threshold=0.80,
     ).run()
 
 
+def dispose_outcomes(holding_dir, outcomes, inbox_dir=None):
+    """Move files the pipeline will not retry out of the folder it was reading.
+
+    holding_dir is where the files are now: a claimed batch, or inbox/ for a one-shot
+    `python main.py`. inbox_dir is the inbox root the next poll claims from. Quarantine
+    folders live under that root, never back in it.
+
+    A list of outcomes is the new contract. None means the caller did not classify
+    files, and this function leaves them for release_batch.
+    """
+    if not isinstance(outcomes, list):
+        return
+    holding = Path(holding_dir)
+    inbox = Path(inbox_dir) if inbox_dir is not None else holding
+    limit = storage.MAX_INGESTION_ATTEMPTS
+    for outcome in outcomes:
+        status = getattr(outcome, "status", None)
+        name = getattr(outcome, "file_name", None)
+        if not name or status == "stored":
+            continue
+        attempt = getattr(outcome, "attempt_count", 1) or 1
+        if status == "retryable_failure" and attempt < limit:
+            print(f"[Retry] {name} attempt {attempt}/{limit}, returning to inbox")
+            continue
+        if status == "needs_ocr":
+            bucket, label = "needs_ocr", "Needs OCR"
+        elif status == "unsupported":
+            bucket, label = "unsupported", "Unsupported"
+        elif status in ("retryable_failure", "retry_exhausted"):
+            bucket, label = "retry_exhausted", "Retry exhausted"
+        else:
+            continue
+        path = holding / name
+        if not path.is_file():
+            continue
+        destination_dir = inbox / FAILED_DIR_NAME / bucket
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        os.replace(path, _unique_path(destination_dir, name))
+        print(f"[{label}] Moved {name} to {inbox.name}/.failed/{bucket}/")
+
+
 def finish_batch(batch, process_fn, active):
-    """Run the pipeline for one claimed batch, then return anything it did not archive."""
+    """Run the pipeline for one claimed batch, then put each leftover where it belongs.
+
+    Classified permanent failures are quarantined. A retryable failure under the
+    attempt limit, and anything left behind by an exception, goes back to inbox/.
+    """
+    outcomes = None
     try:
-        process_fn(str(batch))
+        outcomes = process_fn(str(batch))
     except KeyboardInterrupt:
         raise
     except Exception as error:
@@ -495,6 +546,8 @@ def finish_batch(batch, process_fn, active):
         )
     finally:
         try:
+            if isinstance(outcomes, list):
+                dispose_outcomes(batch, outcomes, inbox_dir=Path(batch).parent.parent)
             release_batch(batch)
         finally:
             active.discard(Path(batch).resolve())
