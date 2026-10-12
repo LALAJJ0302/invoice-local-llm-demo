@@ -868,7 +868,7 @@ st.markdown("""
    :focus-visible rather than :focus so a mouse click does not leave a ring behind. */
 :is(button, input, select, textarea, a, [role="tab"], [tabindex]):focus-visible {
   outline: none !important;
-  box-shadow: 0 0 0 3px rgba(91,91,214,0.16) !important;
+  box-shadow: 0 0 0 3px rgba(10,102,255,0.18) !important;
   border-radius: 8px;
 }
 
@@ -890,44 +890,55 @@ st.markdown("""
    the document card and the review dialog depend on. square-handoff/ carries the design this
    was built from, and the colours there were estimated by eye from a screenshot. */
 .stApp:has(.st-key-ovroot) { background:#FFFFFF; }
-.st-key-ovroot { --ov-rule:#E6E6E6; --ov-text:#111111; --ov-muted:#6B6B6B; --ov-fill:#F0F0F0;
-  --ov-blue:#0A66FF; --ov-blue-text:#0A57D6;
-  --ov-font:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif;
-  font-family:var(--ov-font); font-variant-numeric:tabular-nums; }
-.st-key-ovroot, .st-key-ovroot * { --text:var(--ov-text); --text-muted:var(--ov-muted); }
+/* The design's own variables, from square-handoff/result2/tokens.css, defined once for the four
+   places the theme reaches. Not on :root: --text and --caution-text exist there with other values
+   and a global change would move every page at once. */
+.st-key-ovroot, [data-testid="stDialog"] [role="dialog"], .st-key-login-card,
+[data-testid="stSidebar"] {
+  --page:#FFFFFF; --rule:#E6E6E6; --text:#111111; --text-muted:#6B6B6B; --control-fill:#F0F0F0;
+  --blue:#0A66FF; --blue-wash:#CFE0FF; --blue-text:#0A57D6;
+  --caution:#A65A1E; --caution-wash:#FAF0E2; --caution-text:#8A4612; --caution-chip:#F2DFC6;
+  --caution-rule:#E8D3B6; --positive:#3D9A50; --positive-text:#2B7038;
+  --radius:8px; --radius-lg:12px;
+  --shadow-soft:0 1px 2px rgba(17,17,17,0.04),0 6px 20px rgba(17,17,17,0.06);
+  --shadow-dialog:0 24px 64px rgba(17,17,17,0.18); --backdrop:rgba(17,17,17,0.45);
+  --code-fill:#FAFAFA; --field-border:#8F8F8F;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.st-key-ovroot { font-family:var(--font); font-variant-numeric:tabular-nums; }
 .st-key-ovroot .ov-number, .st-key-ovroot .ov-note, .st-key-ovroot .dense-doc,
-.st-key-ovroot .dense-amount, .st-key-ovroot .dense-right { font-family:var(--ov-font); }
+.st-key-ovroot .dense-amount, .st-key-ovroot .dense-right { font-family:var(--font); }
 
 /* Quick actions under the greeting. */
 .st-key-ovactions button { height:44px; padding:0 18px; border:0 !important; border-radius:8px;
-  background:var(--ov-fill) !important; color:var(--ov-blue-text) !important; font-weight:600; }
-.st-key-ovact-review button { background:var(--ov-blue) !important; color:#fff !important; }
+  background:var(--control-fill) !important; color:var(--blue-text) !important; font-weight:600; }
+.st-key-ovact-review button { background:var(--blue) !important; color:#fff !important; }
 
 /* Six stats: no box, no shadow, a big plain number with a grey pill beneath it. */
 .st-key-ovroot .ov-strip { grid-template-columns:repeat(3,1fr); gap:40px 48px;
-  margin:32px 0 8px; padding-top:40px; border-top:1px solid var(--ov-rule); }
+  margin:32px 0 8px; padding-top:40px; border-top:1px solid var(--rule); }
 .st-key-ovroot .ov-tile, .st-key-ovroot .ov-strip > .ov-tile:nth-child(n) {
   background:transparent; border:0; box-shadow:none; padding:0; border-radius:0; gap:6px; }
-.st-key-ovroot .ov-label { font-size:13px; color:var(--ov-muted); }
+.st-key-ovroot .ov-label { font-size:13px; color:var(--text-muted); }
 .st-key-ovroot .ov-value { flex-direction:column; align-items:flex-start; gap:10px; }
-.st-key-ovroot .ov-number { font-size:30px; font-weight:600; line-height:1.15; color:var(--ov-text); }
-.st-key-ovroot .ov-note { font-size:13px; font-weight:500; color:var(--ov-muted);
-  background:var(--ov-fill); border-radius:6px; padding:2px 8px; }
+.st-key-ovroot .ov-number { font-size:30px; font-weight:600; line-height:1.15; color:var(--text); }
+.st-key-ovroot .ov-note { font-size:13px; font-weight:500; color:var(--text-muted);
+  background:var(--control-fill); border-radius:6px; padding:2px 8px; }
 .st-key-ovroot .ov-strip > .ov-tile:nth-child(5) .ov-number { color:var(--caution-text); }
 .st-key-ovroot .ov-strip > .ov-tile:nth-child(5) .ov-note { background:var(--caution-wash);
   color:var(--caution-text); }
 
 /* Section headings: a rule and space, not a tinted band with a coloured edge. */
 .st-key-ovroot [class*="st-key-sechead-"] { background:transparent !important; border:0 !important;
-  border-top:1px solid var(--ov-rule) !important; border-radius:0 !important;
+  border-top:1px solid var(--rule) !important; border-radius:0 !important;
   margin:56px 0 12px !important; padding:40px 0 0 !important; }
 .st-key-ovroot .sec-icon { display:none; }
-.st-key-ovroot .sec-title { font-size:20px; font-weight:700; color:var(--ov-text); }
-.st-key-ovroot .sec-note { font-size:14px; color:var(--ov-muted); }
-.st-key-ovroot [class*="st-key-open-"] button { border:0 !important; background:var(--ov-fill) !important;
-  color:var(--ov-blue-text) !important; border-radius:8px; font-weight:600; }
+.st-key-ovroot .sec-title { font-size:20px; font-weight:700; color:var(--text); }
+.st-key-ovroot .sec-note { font-size:14px; color:var(--text-muted); }
+.st-key-ovroot [class*="st-key-open-"] button { border:0 !important; background:var(--control-fill) !important;
+  color:var(--blue-text) !important; border-radius:8px; font-weight:600; }
 .st-key-ovroot [class*="st-key-sechead-outbox-failed"] .sec-title,
-.st-key-ovroot [class*="st-key-sechead-awaiting"] .sec-title { color:var(--ov-text); }
+.st-key-ovroot [class*="st-key-sechead-awaiting"] .sec-title { color:var(--text); }
 
 /* Row panels. Needs attention keeps the one warm fill on the page. */
 .st-key-ovroot .dense-panel, .st-key-ovroot [class*="st-key-ovpanel-"] {
@@ -936,28 +947,28 @@ st.markdown("""
 .st-key-ovroot .st-key-ovpanel-attention > [data-testid="stLayoutWrapper"]:not(:last-child)
   > [class*="st-key-ovattn-"] { border-bottom:1px solid #EBDCC6; }
 .st-key-ovroot [class*="st-key-ovattn-"] button { border:0 !important; border-radius:8px;
-  background:var(--ov-blue) !important; color:#fff !important; font-weight:600; }
+  background:var(--blue) !important; color:#fff !important; font-weight:600; }
 .st-key-ovroot .st-key-ovpanel-attention .dense-right { color:var(--caution-text); font-size:14px; }
 .st-key-ovroot [class*="st-key-ovout-"] button { border:0 !important; border-radius:8px;
-  background:var(--ov-fill) !important; color:var(--ov-blue-text) !important; font-weight:600; }
+  background:var(--control-fill) !important; color:var(--blue-text) !important; font-weight:600; }
 
 /* Recent invoices: hairlines between rows, plain text, a dot for the validation state. */
 .st-key-ovroot .rc-head { font-size:13px; font-weight:500; letter-spacing:0; text-transform:none;
-  color:var(--ov-muted); padding:0 20px 12px; }
-.st-key-ovroot [class*="st-key-ovrec-"] { border-top:1px solid var(--ov-rule); }
+  color:var(--text-muted); padding:0 20px 12px; }
+.st-key-ovroot [class*="st-key-ovrec-"] { border-top:1px solid var(--rule); }
 .st-key-ovroot .rc-row { padding:14px 14px; font-size:15px; }
 .st-key-ovroot .rc-chip { background:transparent; padding:0; border-radius:0; font-size:15px;
-  color:var(--ov-text); display:inline-flex; align-items:center; gap:8px; }
+  color:var(--text); display:inline-flex; align-items:center; gap:8px; }
 .st-key-ovroot .rc-ok { color:var(--positive-text); font-weight:500; }
 .st-key-ovroot .rc-ok::before { content:""; width:8px; height:8px; border-radius:50%;
   background:var(--positive); display:inline-block; }
 .st-key-ovroot .rc-risk { background:var(--caution-wash); color:var(--caution-text);
   padding:2px 8px; border-radius:6px; font-size:13px; }
 .st-key-ovroot [class*="st-key-ovrec-"] button { border:0 !important; border-radius:8px;
-  background:var(--ov-fill) !important; color:var(--ov-blue-text) !important; font-weight:600; }
-.st-key-ovroot .ov-foot { background:transparent; border-top:1px solid var(--ov-rule);
+  background:var(--control-fill) !important; color:var(--blue-text) !important; font-weight:600; }
+.st-key-ovroot .ov-foot { background:transparent; border-top:1px solid var(--rule);
   border-radius:0; padding:20px 0 0; margin-top:40px; font-size:13px; }
-.st-key-ovroot .ov-more { color:var(--ov-muted); }
+.st-key-ovroot .ov-more { color:var(--text-muted); }
 
 .stApp:has(.st-key-ovroot) [data-testid="stHeader"] { background:#FFFFFF; }
 /* One set of column widths for every row, so the figures line up from row to row. */
@@ -984,60 +995,60 @@ st.markdown("""
 
 /* Group A pages: Documents, Vendors, Pipeline runs, Outbox, History. */
 .st-key-ovroot [data-testid="stBaseButton-secondary"] { border:0; border-radius:8px;
-  background:var(--ov-fill); color:var(--ov-blue-text); font-weight:600; }
-.st-key-ovroot [data-testid="stBaseButton-secondary"]:hover { background:#E6E6E6; color:var(--ov-blue-text); }
-.st-key-ovroot [data-testid="stBaseButton-secondary"]:disabled { background:var(--ov-fill);
-  color:var(--ov-muted); opacity:0.7; }
+  background:var(--control-fill); color:var(--blue-text); font-weight:600; }
+.st-key-ovroot [data-testid="stBaseButton-secondary"]:hover { background:var(--rule); color:var(--blue-text); }
+.st-key-ovroot [data-testid="stBaseButton-secondary"]:disabled { background:var(--control-fill);
+  color:var(--text-muted); opacity:0.7; }
 .st-key-ovroot [data-testid="stBaseButton-primary"] { border:0; border-radius:8px;
-  background:var(--ov-blue); color:#fff; font-weight:600; }
+  background:var(--blue); color:#fff; font-weight:600; }
 .st-key-ovroot [class*="st-key-out-"] { box-shadow:none !important; border:0 !important;
-  border-bottom:1px solid var(--ov-rule) !important; border-radius:0 !important;
+  border-bottom:1px solid var(--rule) !important; border-radius:0 !important;
   background:transparent !important; }
-.st-key-ovroot .tab-note { background:var(--ov-fill); border-radius:8px; }
+.st-key-ovroot .tab-note { background:var(--control-fill); border-radius:8px; }
 .st-key-ovroot .tab-warn { border-radius:8px; }
-.st-key-ovroot .empty { box-shadow:none; background:var(--ov-fill); border-radius:8px; }
+.st-key-ovroot .empty { box-shadow:none; background:var(--control-fill); border-radius:8px; }
 .st-key-ovroot .dense-panel { border-radius:0; }
 .st-key-ovroot [class*="st-key-ovauto-"], .st-key-ovroot [class*="st-key-ovhist-"] {
-  border-bottom:1px solid var(--ov-rule); }
+  border-bottom:1px solid var(--rule); }
 .st-key-ovroot .page-eyebrow { display:none; }
 
 /* The sidebar is on every page, so it takes the theme everywhere, not only under ovroot. */
-[data-testid="stSidebar"] { background:#FFFFFF; border-right:1px solid #E6E6E6; }
+[data-testid="stSidebar"] { background:#FFFFFF; border-right:1px solid var(--rule); }
 [data-testid="stSidebar"] .side-mark { background:#111111; }
 [data-testid="stSidebar"] label[data-testid="stRadioOption"]:hover { background:#F5F5F5; }
-[data-testid="stSidebar"] label[data-selected="true"] { background:#F0F0F0; color:#0A57D6; }
-[data-testid="stSidebar"] label[data-selected="true"]::after { background:#0A66FF; }
-[data-testid="stSidebar"] [data-testid="stTextInputRootElement"] { background:#F0F0F0; border:0; }
+[data-testid="stSidebar"] label[data-selected="true"] { background:var(--control-fill); color:var(--blue-text); }
+[data-testid="stSidebar"] label[data-selected="true"]::after { background:var(--blue); }
+[data-testid="stSidebar"] [data-testid="stTextInputRootElement"] { background:var(--control-fill); border:0; }
 [data-testid="stSidebar"] [data-testid="stBaseButton-secondary"] { border:0; border-radius:8px;
-  background:#F0F0F0; color:#0A57D6; font-weight:600; }
+  background:var(--control-fill); color:var(--blue-text); font-weight:600; }
 
 /* Document cards (Awaiting approval, Approved by the system), from square-handoff/result2. */
-.st-key-ovroot [class*="st-key-doc-"] { border:1px solid var(--ov-rule) !important; border-radius:12px;
-  box-shadow:0 1px 2px rgba(17,17,17,0.04), 0 4px 12px rgba(17,17,17,0.04); margin-bottom:8px; }
+.st-key-ovroot [class*="st-key-doc-"] { border:1px solid var(--rule) !important; border-radius:12px;
+  box-shadow:var(--shadow-soft); margin-bottom:8px; }
 .st-key-ovroot [class*="st-key-doc-"]:hover { box-shadow:0 1px 2px rgba(17,17,17,0.05), 0 6px 16px rgba(17,17,17,0.06); }
 .st-key-ovroot .card-head { grid-template-columns:minmax(0,1fr) 240px; padding:28px 32px 24px; gap:24px; align-items:start; }
 .st-key-ovroot .doc-icon { display:none; }
 .st-key-ovroot .vendor { font-size:22px; font-weight:700; letter-spacing:-0.01em; }
-.st-key-ovroot .card-meta { font-family:var(--ov-font); font-size:15px; color:var(--ov-muted); }
-.st-key-ovroot .card-head .amount { font-family:var(--ov-font); font-size:34px; font-weight:700;
+.st-key-ovroot .card-meta { font-family:var(--font); font-size:15px; color:var(--text-muted); }
+.st-key-ovroot .card-head .amount { font-family:var(--font); font-size:34px; font-weight:700;
   letter-spacing:-0.01em; }
 .st-key-ovroot .amount-stack { width:240px; align-items:flex-end; gap:16px; }
 .st-key-ovroot .amount-stack .score { width:100%; align-items:flex-start; }
-.st-key-ovroot .score-label, .st-key-ovroot .score-gate { font-family:var(--ov-font); font-size:13px; }
-.st-key-ovroot .score-value { font-family:var(--ov-font); font-size:20px; font-weight:600; color:var(--ov-text); }
+.st-key-ovroot .score-label, .st-key-ovroot .score-gate { font-family:var(--font); font-size:13px; }
+.st-key-ovroot .score-value { font-family:var(--font); font-size:20px; font-weight:600; color:var(--text); }
 .st-key-ovroot .score-verdict { font-size:14px; font-weight:600; }
-.st-key-ovroot .score-track { height:6px; border-radius:3px; background:var(--ov-fill); width:100%; }
+.st-key-ovroot .score-track { height:6px; border-radius:3px; background:var(--control-fill); width:100%; }
 .st-key-ovroot .score-fill { border-radius:3px; }
-.st-key-ovroot .chip { background:var(--ov-fill); border-radius:6px; font-size:14px; color:var(--ov-text);
+.st-key-ovroot .chip { background:var(--control-fill); border-radius:6px; font-size:14px; color:var(--text);
   padding:5px 10px; margin:0 8px 8px 0; }
 .st-key-ovroot .signal-strip { border-top:0; padding:20px 32px; gap:6px 12px; background:var(--caution-wash); }
-.st-key-ovroot .signal-strip.clear { background:var(--ov-fill); }
-.st-key-ovroot .verdict { border-radius:6px; background:#F2DFC6; padding:3px 10px; font-size:13px; }
+.st-key-ovroot .signal-strip.clear { background:var(--control-fill); }
+.st-key-ovroot .verdict { border-radius:6px; background:var(--caution-chip); padding:3px 10px; font-size:13px; }
 .st-key-ovroot .verdict-clear { background:var(--positive-wash); }
 .st-key-ovroot .signal { font-size:18px; font-weight:700; }
-.st-key-ovroot .signal-detail { flex-basis:100%; font-size:15px; color:var(--ov-text); }
+.st-key-ovroot .signal-detail { flex-basis:100%; font-size:15px; color:var(--text); }
 .st-key-ovroot [class*="st-key-foot-"] { border-top:0; padding:20px 32px 24px !important; }
-.st-key-ovroot .queue-count { font-size:15px; color:var(--ov-muted); }
+.st-key-ovroot .queue-count { font-size:15px; color:var(--text-muted); }
 .st-key-ovroot [class*="st-key-foot-"] button { min-height:44px; padding:0 18px; font-size:15px; }
 .st-key-ovroot [class*="st-key-doc-"] { margin-top:8px; }
 
@@ -1046,11 +1057,11 @@ st.markdown("""
 [data-testid="stDialog"] [role="dialog"] { background:#FFFFFF; border-radius:16px;
   font-variant-numeric:tabular-nums; --text:#111111; --text-muted:#6B6B6B; }
 [data-testid="stDialog"] [data-testid="stBaseButton-secondary"] { border:0; border-radius:8px;
-  background:#F0F0F0; color:#0A57D6; font-weight:600; }
-[data-testid="stDialog"] [data-testid="stBaseButton-secondary"]:hover { background:#E6E6E6; }
+  background:var(--control-fill); color:var(--blue-text); font-weight:600; }
+[data-testid="stDialog"] [data-testid="stBaseButton-secondary"]:hover { background:var(--rule); }
 [data-testid="stDialog"] [data-testid="stBaseButton-primary"] { border:0; border-radius:8px;
-  background:#0A66FF; color:#FFFFFF; font-weight:600; }
-[data-testid="stDialog"] [data-testid="stBaseButton-primary"]:hover { background:#0A57D6; }
+  background:var(--blue); color:#FFFFFF; font-weight:600; }
+[data-testid="stDialog"] [data-testid="stBaseButton-primary"]:hover { background:var(--blue-text); }
 [data-testid="stDialog"] [class*="st-key-approve-"] button { min-height:52px; font-size:16px; }
 [data-testid="stDialog"] [class*="st-key-reject-"] button { min-height:44px; }
 [data-testid="stDialog"] .dlg-vendor { font-size:22px; font-weight:700; }
@@ -1061,26 +1072,29 @@ st.markdown("""
 [data-testid="stDialog"] .dlg-amount { font-size:34px; font-weight:700; letter-spacing:-0.01em; }
 [data-testid="stDialog"] .dlg-meta { font-size:14px; }
 [data-testid="stDialog"] .score-value { font-size:18px; font-weight:600; color:#111111; }
-[data-testid="stDialog"] .score-track { background:#F0F0F0; height:6px; }
-[data-testid="stDialog"] .chip { background:#F0F0F0; border-radius:6px; }
+[data-testid="stDialog"] .score-track { background:var(--control-fill); height:6px; }
+[data-testid="stDialog"] .chip { background:var(--control-fill); border-radius:6px; }
 [data-testid="stDialog"] .dlg-risk { border-radius:12px; padding:16px 20px; margin-top:28px; }
 [data-testid="stDialog"] .doc-text { max-height:380px; }
 [data-testid="stDialog"] [class*="st-key-dlgdl-"] { margin-top:14px; }
 [data-testid="stDialog"] .panel { background:transparent; box-shadow:none; padding:0 4px; }
-[data-testid="stDialog"] .doc-text { background:#FAFAFA; border:1px solid #E6E6E6; border-radius:8px;
+[data-testid="stDialog"] .doc-text { background:var(--code-fill); border:1px solid var(--rule); border-radius:8px;
   padding:14px 16px; }
 [data-testid="stDialog"] .doc-missed { box-shadow:none; }
 [data-testid="stDialog"] .clash { box-shadow:none; border-radius:12px; padding:20px; }
 [data-testid="stDialog"] .clash-title { font-size:17px; }
 [data-testid="stDialog"] .clash-note { color:#111111; font-size:14px; }
-[data-testid="stDialog"] .field { padding:12px 0; border-bottom:1px solid #E6E6E6; }
+[data-testid="stDialog"] .field { padding:12px 0; border-bottom:1px solid var(--rule); }
 [data-testid="stDialog"] .field-label { font-size:14px; }
 [data-testid="stDialog"] .field-value { font-size:15px; font-weight:600; }
-[data-testid="stDialog"] [data-testid="stExpander"] details { border:0; border-top:1px solid #E6E6E6;
+[data-testid="stDialog"] [data-testid="stExpander"] details { border:0; border-top:1px solid var(--rule);
   border-radius:0; background:transparent; }
 [data-testid="stDialog"] [data-testid="stExpander"] summary { font-weight:700; padding:20px 0; }
-[data-testid="stDialog"] textarea { background:#FFFFFF; border:1px solid #8F8F8F; border-radius:8px; }
-[data-testid="stDialog"] a { color:#0A57D6; }
+[data-testid="stDialog"] textarea { background:#FFFFFF; border:1px solid var(--field-border); border-radius:8px; }
+[data-testid="stDialog"] a { color:var(--blue-text); }
+
+/* Streamlit puts an anchor-link icon beside every st.title; the design has none. */
+[data-testid="stHeaderActionElements"] { display:none; }
 
 /* Empty state: grey placeholder bars and one blue button, as in the reference. */
 .ov-ph-bars { display:flex; align-items:flex-end; gap:8px; height:140px; margin:24px 0 8px; }
