@@ -26,6 +26,8 @@ st.set_page_config(
 DB_PATH = DEFAULT_DB_PATH
 # The page the sidebar is on, kept in the URL as ?v= so a refresh stays on it.
 VIEW_PARAM = "v"
+# How often the page checks the database for rows another process wrote.
+LIVE_REFRESH_SECONDS = 3
 
 def load_data(db_file: str = DB_PATH) -> pd.DataFrame:
     """Loads invoices from the normalised schema. Money is converted to dollars here, at the edge.
@@ -994,7 +996,12 @@ def human_approval_note(row) -> str | None:
     return HUMAN_APPROVAL_NOTE
 
 
-@st.dialog("Review document", width="large")
+def _review_dismissed():
+    """The dialog was closed with the X or Esc. Lets the live refresh run again."""
+    st.session_state["dialog_open"] = False
+
+
+@st.dialog("Review document", width="large", on_dismiss=_review_dismissed)
 def review_dialog(row):
     """The only place approve and reject exist, laid out as `review-dialog-design.html`.
 
@@ -1011,6 +1018,7 @@ def review_dialog(row):
     below the fold: on a screen whose whole argument is that a person should look before
     clicking, the thing they were being asked to click was the one thing they could not see.
     """
+    st.session_state["dialog_open"] = True
     with st.container(key=f"dlg-head-{row['id']}", gap=None):
         st.markdown(
             f"<div class='dlg-head'>"
@@ -1744,6 +1752,40 @@ def require_login() -> None:
 
 
 require_login()
+
+
+def should_redraw(seen: str, now: str, dialog_open: bool) -> bool:
+    """Whether the live refresh should redraw the whole page.
+
+    Never while the review dialog is open: a full rerun closes it and throws away an unsaved
+    note. The change is not lost, only deferred. `seen` is left alone, so the next tick after
+    the dialog closes still sees a difference.
+    """
+    return now != seen and not dialog_open
+
+
+@st.fragment(run_every=LIVE_REFRESH_SECONDS)
+def watch_for_new_rows():
+    """Redraws the page when another process has written to the database.
+
+    Streamlit only runs this script on a click or a page load, and the pipeline and the email
+    listener are separate processes that never tell the dashboard. This fragment is a timer
+    that asks the database whether anything changed and, only if it did, reruns the page once.
+    Most ticks draw nothing.
+    """
+    now = StorageManager(DB_PATH).change_token()
+    if should_redraw(st.session_state.get("db_stamp", now), now,
+                     st.session_state.get("dialog_open", False)):
+        st.rerun(scope="app")
+
+
+# Taken before load_data(), not after: a row committed in between then makes the next tick
+# redraw once more, which is the safe direction. The dialog flag is reset here and set again
+# by review_dialog() if this run opens it, so a flag left behind by a dismissed dialog cannot
+# freeze the refresh.
+st.session_state["db_stamp"] = StorageManager(DB_PATH).change_token()
+st.session_state["dialog_open"] = False
+watch_for_new_rows()
 
 df = load_data()
 if df.empty:

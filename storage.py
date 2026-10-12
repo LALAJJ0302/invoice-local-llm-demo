@@ -1374,6 +1374,31 @@ class StorageManager:
         with connect(self.db_path) as conn:
             return int(conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"])
 
+    def change_token(self) -> str:
+        """One short string that changes whenever a row the dashboard shows is added or changed.
+
+        The dashboard compares it with the one it drew from, on a timer, and redraws only when
+        they differ. It is a count plus the newest id and timestamp per table, so it costs six
+        index-light lookups rather than reading any invoice. A change that moves none of those
+        is invisible to it: an UPDATE that does not touch processed_at or reviewed_at. Every
+        update the dashboard itself makes reruns the page anyway, so the token is only for
+        what another process writes: the pipeline, the listener, a teammate's dashboard.
+        """
+        with connect(self.db_path) as conn:
+            parts = conn.execute(
+                "SELECT"
+                " (SELECT COUNT(*) || ':' || COALESCE(MAX(invoice_id), 0) || ':'"
+                "  || COALESCE(MAX(processed_at), '') || ':' || COALESCE(MAX(reviewed_at), '')"
+                "  FROM invoices),"
+                " (SELECT COUNT(*) || ':' || COALESCE(MAX(task_id), 0) FROM tasks),"
+                " (SELECT COUNT(*) || ':' || COALESCE(MAX(outbox_id), 0) || ':'"
+                "  || COALESCE(MAX(sent_at), '') FROM outbound_messages),"
+                " (SELECT COUNT(*) || ':' || COALESCE(MAX(email_id), 0) FROM email_messages),"
+                " (SELECT COUNT(*) || ':' || COALESCE(MAX(decision_id), 0)"
+                "  FROM invoice_decisions)"
+            ).fetchone()
+        return "|".join(parts)
+
     def user_by_id(self, user_id: int) -> Optional[sqlite3.Row]:
         """Display name and Jira account id for a reviewer. No password hash."""
         with connect(self.db_path) as conn:
