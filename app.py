@@ -601,6 +601,9 @@ st.markdown("""
                box-shadow:var(--lift); overflow:hidden; }
 .dense { display:grid; grid-template-columns:auto 1fr auto auto auto; align-items:center;
          gap:16px; padding:11px 18px; border-radius:10px; }
+/* A row that carries a validation score has six items, not five. Without this the last one wrapped
+   onto a second line. */
+.dense.scored { grid-template-columns:auto 1fr auto auto auto auto; }
 [class*="st-key-ovauto-"]:hover .dense, [class*="st-key-ovout-"]:hover .dense,
 [class*="st-key-ovhist-"]:hover .dense { background:var(--row-hover); }
 .dense:last-child { border-bottom:none; }
@@ -1133,6 +1136,8 @@ h1.title-art { margin:0; font-size:48px !important; font-weight:800 !important;
   border-radius:var(--radius); background:var(--page); min-height:46px; }
 .st-key-login-card [data-testid="stTextInputRootElement"] input { font-size:15px; color:var(--text); }
 .st-key-login-card [data-testid="stTextInputRootElement"] button { color:var(--text-muted); }
+.st-key-login-card [data-testid="stTextInputRootElement"] button svg { transform:scale(1.3); }
+.st-key-login-card [data-testid="stBaseButton-secondary"] { margin-top:12px; }
 .st-key-login-card [data-testid^="stBaseButton-primary"] { min-height:48px; border:0;
   border-radius:var(--radius); background:var(--blue); color:#fff; font-size:16px; font-weight:600; }
 .st-key-login-card [data-testid="stBaseButton-secondary"] { min-height:44px; border:0;
@@ -2489,7 +2494,8 @@ def dense_rows(rows) -> str:
     for row in rows:
         dot, left, doc, amount, right = row[:5]
         score = f"<span class='dense-score'>{row[5]}</span>" if len(row) > 5 else ""
-        out.append(f"<div class='dense'><span class='dot' style='background:{dot}'></span>"
+        out.append(f"<div class='dense{' scored' if len(row) > 5 else ''}'>"
+                   f"<span class='dot' style='background:{dot}'></span>"
                    f"<span class='dense-left'>{left}</span>"
                    f"<span class='dense-doc'>{doc}</span>"
                    f"<span class='dense-amount'>{amount}</span>{score}"
