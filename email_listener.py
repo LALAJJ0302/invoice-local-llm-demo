@@ -4,7 +4,7 @@ import os
 import re
 from email.header import decode_header
 from html import unescape
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from dotenv import load_dotenv
 
@@ -79,10 +79,38 @@ def decode_text(value):
     return result
 
 
+# The sender chooses an attachment's name, so it must never choose the folder. Windows reads
+# "C:x.pdf" as drive-relative and "x.pdf:y" as a hidden stream, which is why removing slashes
+# alone was not enough (codeql-fixes-spec.md). Unicode letters are kept on purpose.
+_FORBIDDEN_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVED_DEVICE_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+MAX_FILENAME_LENGTH = 200
+
+
 def safe_filename(filename):
-    filename = decode_text(filename)
-    filename = filename.replace("/", "_").replace("\\", "_")
-    return filename.strip()
+    name = decode_text(filename)
+    # The last component under either separator; this also drops "C:" and "\\server\share".
+    name = PureWindowsPath(name.replace("/", "\\")).name
+    name = _FORBIDDEN_FILENAME_CHARS.sub("_", name).strip(" .")
+    if not name:
+        return "attachment"
+    if name.split(".")[0].upper() in _RESERVED_DEVICE_NAMES:
+        name = f"attachment_{name}"
+    if len(name) > MAX_FILENAME_LENGTH:
+        suffix = Path(name).suffix[:20]
+        name = name[:MAX_FILENAME_LENGTH - len(suffix)] + suffix
+    return name
+
+
+def _is_inside(directory, path):
+    """True when `path` resolves to something strictly inside `directory`."""
+    directory = Path(directory).resolve()
+    path = Path(path).resolve()
+    return path != directory and path.is_relative_to(directory)
 
 
 def connect_to_gmail():
@@ -279,6 +307,11 @@ def download_attachments(mailbox="INBOX", mark_as_read=True, db_path=storage.DEF
                 suffix = file_path.suffix
                 file_path = attachment_dir / f"{stem}_{counter}{suffix}"
                 counter += 1
+
+            # Backstop: safe_filename should already guarantee this.
+            if not _is_inside(attachment_dir, file_path):
+                print(f"  [Skip] {filename}: would be saved outside {attachment_dir}.")
+                continue
 
             with open(file_path, "wb") as file:
                 file.write(payload)
