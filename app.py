@@ -311,6 +311,19 @@ except ZoneInfoNotFoundError:
     LOCAL_TZ, LOCAL_TZ_LABEL = timezone.utc, "UTC"
 
 
+def shown(value, missing: str = "-") -> str:
+    """A stored cell as text, or `missing` when the database has nothing there.
+
+    Pandas reads a SQL NULL as NaN, and NaN is truthy, so `value or "-"` keeps the float.
+    Overview joins those cells with `' · '.join`, which then raises TypeError and takes the
+    whole page down. That is what happened on 2026-10-12: the newest pending document has no
+    invoice number.
+    """
+    if value is None or (not isinstance(value, str) and pd.isna(value)) or value == "":
+        return missing
+    return str(value)
+
+
 def local_time(value, *, seconds: bool = False) -> str:
     """A stored UTC timestamp as Sydney wall-clock time, or "-" when there is none."""
     if value is None or (not isinstance(value, str) and pd.isna(value)) or value == "":
@@ -897,14 +910,43 @@ def document_text(path) -> str:
     The text is a downgrade for layout and an upgrade for the job: the question an approver is
     answering is whether the model read the document correctly, and this is exactly what it was
     given. The original is one click away for anyone who needs the layout.
+
+    A scan has no text layer. The pipeline reads those pages locally before it calls the model,
+    and this does the same read, cached on the file's modification time so opening the dialog
+    again does not render the page a second time.
     """
-    if not path or not os.path.exists(path):
+    if path is None or (not isinstance(path, str) and pd.isna(path)) or path == "":
         return ""
+    if not os.path.exists(path):
+        return ""
+    text = _embedded_text(path)
+    if text.strip() or not str(path).lower().endswith(".pdf"):
+        return text
+    return _scanned_pdf_text(str(path), os.path.getmtime(path))
+
+
+def _embedded_text(path) -> str:
+    """The PDF text layer, or an empty string when the file has none or cannot be read."""
     try:
         from pypdf import PdfReader
-        return "\n".join((page.extract_text() or "") for page in PdfReader(path).pages)
+        reader = PdfReader(path)
+        try:
+            return "\n".join((page.extract_text() or "") for page in reader.pages)
+        finally:
+            reader.close()
     except Exception:                                   # noqa: BLE001
         return ""
+
+
+@st.cache_data(show_spinner="Reading the scanned document…")
+def _scanned_pdf_text(path: str, _mtime: float) -> str:
+    """The same local OCR the pipeline uses when a PDF has no text layer.
+
+    `_mtime` is part of the cache key and is not read. Replacing the archived file
+    changes it, so a reprocessed scan is read again.
+    """
+    from main import DocumentExtractor
+    return (DocumentExtractor().inspect_pdf(path).text or "").strip()
 
 
 def document_panel(text: str, missed) -> str:
@@ -1046,8 +1088,9 @@ def review_dialog(row):
                         f"</div>{document_panel(text, marked)}</div>", unsafe_allow_html=True)
         else:
             st.markdown("<div class='panel'><div class='panel-label'>What the model read</div>"
-                        "<p class='ov-more'>No text layer. This document would need OCR, which "
-                        "the pipeline does not do.</p></div>", unsafe_allow_html=True)
+                        "<p class='ov-more'>Nothing could be read from this file. Scanned pages "
+                        "are read locally with Tesseract, and this read returned no text.</p>"
+                        "</div>", unsafe_allow_html=True)
         original = original_for(row)
         if original:
             data, name = original
@@ -1058,10 +1101,10 @@ def review_dialog(row):
         stored = "none" if items.empty else str(len(items))
         st.markdown(
             "<div class='panel'><div class='panel-label'>What the model stored</div>"
-            + field_row("Date", row.get("invoice_date") or "-")
-            + field_row("Currency", row.get("currency") or "-")
+            + field_row("Date", shown(row.get("invoice_date")))
+            + field_row("Currency", shown(row.get("currency")))
             + field_row("Total", money(row["total_amount"], row["currency"]),
-                        row.get("total_source") or "")
+                        shown(row.get("total_source"), ""))
             + field_row("Vendor", "read from the document"
                         if row.get("vendor_source") == "model" else "recovered by our code")
             # SC-3. The panel lists what the model stored, so it should also list what our own
@@ -1160,14 +1203,23 @@ def review_dialog(row):
             st.rerun()
 
 
-def dialog_meta(row) -> str:
-    parts = [row["invoice_number"] or "-"]
+def meta_parts(row) -> list[str]:
+    """Invoice number, issue date and how long the document has been waiting.
+
+    The number goes through `shown`. A missing one is NaN, and joining that float is what
+    blanked Overview.
+    """
+    parts = [shown(row["invoice_number"])]
     if row.get("invoice_date") and not pd.isna(row["invoice_date"]):
         parts.append(f"issued {row['invoice_date']}")
     waited = waiting_days(row)
     if waited is not None:
         parts.append(f"waiting {waited}d")
-    return " &middot; ".join(parts)
+    return parts
+
+
+def dialog_meta(row) -> str:
+    return " &middot; ".join(meta_parts(row))
 
 
 DOC_ICON = (
@@ -1306,12 +1358,7 @@ def document_card(row, *, actionable: bool, context: str = "queue"):
     The action stays an `st.button` rather than markup inside the card: a string cannot carry a
     widget. The card is markdown, the action is a widget, and the CSS makes the seam invisible.
     """
-    waited = waiting_days(row)
-    meta = [row["invoice_number"] or "-"]
-    if row.get("invoice_date") and not pd.isna(row["invoice_date"]):
-        meta.append(f"issued {row['invoice_date']}")
-    if waited is not None:
-        meta.append(f"waiting {waited}d")
+    meta = meta_parts(row)
 
     signal = risk_signal(row)
     detail = risk_detail(row)
@@ -1339,8 +1386,8 @@ def document_card(row, *, actionable: bool, context: str = "queue"):
             f"<div class='card-head'>"
             f"<div class='doc-icon'>{DOC_ICON}</div>"
             f"<div class='card-id'>"
-            f"<div class='card-title'><span class='vendor'>{row['vendor_name'] or '-'}</span>"
-            f"{chip(row['document_type'], 'var(--text-faint)')}</div>"
+            f"<div class='card-title'><span class='vendor'>{shown(row['vendor_name'])}</span>"
+            f"{chip(shown(row['document_type']), 'var(--text-faint)')}</div>"
             f"<div class='card-meta'>{' · '.join(meta)}</div>"
             f"</div>"
             f"<div class='amount-stack'>"
@@ -1841,8 +1888,8 @@ def outbox_body(frame):
             body.markdown(
                 f"<div class='out-row'><div class='out-head'>"
                 f"<span class='dot' style='background:{state_dot}'></span>"
-                f"<span class='out-doc'>{row['invoice_number'] or '-'}</span>"
-                f"<span class='out-vendor'>{row['vendor_name'] or '-'}</span>"
+                f"<span class='out-doc'>{shown(row['invoice_number'])}</span>"
+                f"<span class='out-vendor'>{shown(row['vendor_name'])}</span>"
                 f"<span class='out-when'>{local_time(row['created_at'])}</span></div>"
                 f"<div class='out-payload'>{row['payload']}</div>{failure}</div>",
                 unsafe_allow_html=True)
@@ -1941,8 +1988,8 @@ def history_body(frame):
                 f"<div class='hist'>"
                 f"<span class='dot' style='background:{dot}'></span>"
                 f"<span class='hist-decision'>{headline}</span>"
-                f"<span class='hist-vendor'>{row['vendor_name'] or '-'}</span>"
-                f"<span class='hist-doc'>{row['invoice_number'] or '-'}</span>"
+                f"<span class='hist-vendor'>{shown(row['vendor_name'])}</span>"
+                f"<span class='hist-doc'>{shown(row['invoice_number'])}</span>"
                 f"<span class='hist-amount'>{money(row['total_amount'], row['currency'])}</span>"
                 f"</div>"
                 f"<div class='hist-facts'>"
@@ -2118,7 +2165,7 @@ def overview_body(pending, auto, outbox, history):
             # is the misreading fe-score-spec.md §3 exists to prevent.
             score = "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}"
             record_row(key=f"ovauto-{r['id']}", dot="var(--positive)",
-                       left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
+                       left=shown(r["vendor_name"]), doc=shown(r["invoice_number"]),
                        value=money(r["total_amount"], r["currency"]),
                        right=f"validation score {score} · {local_time(r['system_processed_at'])[11:16]}",
                        action="Open", on_action=lambda row=r: review_dialog(row))
@@ -2147,7 +2194,7 @@ def overview_body(pending, auto, outbox, history):
             # elsewhere holds the state instead: Pending or Failed is the thing worth reading.
             record_row(key=f"ovout-{r['outbox_id']}",
                        dot="var(--caution)" if r["state"] == "Failed" else "var(--text-muted)",
-                       left=r["vendor_name"] or "-", doc=r["invoice_number"] or "-",
+                       left=shown(r["vendor_name"]), doc=shown(r["invoice_number"]),
                        value=r["state"], right=local_time(r["created_at"]),
                        action="Push to Jira", disabled=not ready,
                        help=None if ready else "Jira is not configured. Set JIRA_ENABLED in .env",
@@ -2169,8 +2216,8 @@ def overview_body(pending, auto, outbox, history):
             record_row(key=f"ovhist-{int(r['decision_id'])}",
                        dot={"Rejected": "var(--caution)", "Reopened": "var(--text-muted)"}.get(
                            r["approval_status"], "var(--positive)"),
-                       left=f"{r['approval_status']} · {r['vendor_name'] or '-'}",
-                       doc=r["invoice_number"] or "-",
+                       left=f"{r['approval_status']} · {shown(r['vendor_name'])}",
+                       doc=shown(r["invoice_number"]),
                        value=money(r["total_amount"], r["currency"]),
                        right=local_time(r["reviewed_at"]),
                        action="Open", disabled=full is None,
@@ -2250,8 +2297,8 @@ def runs_panel():
                 "read by, which is worth knowing when a result is being compared against an "
                 "older one.</p>", unsafe_allow_html=True)
     rows = [("var(--caution)" if not r["finished_at"] else "var(--positive)",
-             f"run {int(r['run_id'])} &middot; {r['run_kind'] or 'unknown kind'}",
-             r["model_name"] or "-",
+             f"run {int(r['run_id'])} &middot; {shown(r['run_kind'], 'unknown kind')}",
+             shown(r["model_name"]),
              f"{int(r['doc_count'] or 0)} document{'' if r['doc_count'] == 1 else 's'}",
              local_time(r["started_at"]))
             for _, r in runs.iterrows()]
@@ -2267,8 +2314,8 @@ def documents_panel(frame):
     # the spread of scores is visible: a column of 1.00, 1.00, 0.85 says something no single
     # card can, which is that the gate clears almost everything it is given.
     rows = [("var(--caution)" if r["approval_status"] == "Pending" else "var(--positive)",
-             r["vendor_name"] or "Unknown vendor",
-             r["file_name"] or "-",
+             shown(r["vendor_name"], "Unknown vendor"),
+             shown(r["file_name"]),
              money(r["total_amount"], r["currency"]),
              f"run {int(r['run_id'])} &middot; {local_time(r['system_processed_at'])}",
              "-" if pd.isna(r["validation_score"]) else f"{r['validation_score']:.2f}")

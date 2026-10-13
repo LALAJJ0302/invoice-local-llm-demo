@@ -305,6 +305,30 @@ class TestUpsert:
         assert row["approval_status"] == "Approved"
         assert row["reviewed_at"] == "2026-08-28"
 
+    def test_an_update_reports_the_decision_it_kept(self, store, run_id):
+        """A re-sent document that a person already decided stays decided, and the caller
+        is told so. Reported 2026-10-13: a rejected bill was re-sent to be reviewed again,
+        nothing said its rejection had been kept, and it looked as if it had vanished."""
+        first = save(store, run_id)
+        assert first["kept_decision"] is None
+        with connect(store.db_path) as conn:
+            conn.execute(
+                "UPDATE invoices SET approval_status='Rejected', reviewed_at='2026-10-13' "
+                "WHERE invoice_id = ?", (first["invoice_id"],))
+            conn.commit()
+
+        assert save(store, run_id)["kept_decision"] == "Rejected"
+
+    def test_an_automatic_approval_is_not_a_kept_decision(self, store, run_id):
+        """Approved with no reviewer is the score-1.0 path, not a person's decision."""
+        first = save(store, run_id)
+        with connect(store.db_path) as conn:
+            conn.execute("UPDATE invoices SET approval_status='Approved' WHERE invoice_id = ?",
+                         (first["invoice_id"],))
+            conn.commit()
+
+        assert save(store, run_id)["kept_decision"] is None
+
     def test_line_items_are_replaced_not_appended(self, store, run_id):
         save(store, run_id)
         save(store, run_id, extracted=sample_extracted(items=[

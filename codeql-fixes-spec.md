@@ -3,7 +3,7 @@
 **Owner:** Luke (`zethio44`). The `safe_filename` change is in Luke's lane; the regex change is in
 `main.py` extraction, which is **Neo + JJ's lane** and needs one of them to review the PR.
 **Branch:** `luke/codeql-fixes`, from `origin/main` at `0062042`.
-**Status:** approved 2026-10-13 with SA-04 dropped; implemented on this branch, not pushed.
+**Status:** approved 2026-10-13 with SA-04 dropped. Implemented on `luke/codeql-fixes` and merged into `luke/poll-and-process`. The `main.py` regex change is Neo + JJ's lane and still needs one of them to review it.
 **Evidence:** `static_analysis_codeql_1/Security_Report.docx` (CodeQL 2.27.2, run 2026-10-12).
 That folder is local and untracked; the measurements this spec relies on are repeated below.
 
@@ -111,5 +111,4 @@ conflict.
 
 - The full suite passes, with the new tests failing on `main` before the change and passing after.
 - CodeQL re-run on the branch: no `py/polynomial-redos` alert remains on the three patterns.
-- Committed on `luke/codeql-fixes`, not pushed. When it goes up, the PR needs a review from Neo
-  or JJ on the `main.py` part.
+- Included in the `luke/poll-and-process` pull request. Neo or JJ still reviews the `main.py` part.

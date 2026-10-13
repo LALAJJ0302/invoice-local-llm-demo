@@ -27,11 +27,11 @@ Following supervisor feedback, the project was de-scoped into a local-first work
 
 ## Features
 
-- Gmail attachment ingestion using IMAP
+- Gmail attachment ingestion using IMAP, with continuous polling and background processing
 - Secure local credential handling through `.env`
 - Local inbox/archive workflow
 - Mock invoice generation for testing
-- PDF text extraction with `pypdf`
+- PDF text extraction with `pypdf`, and local OCR for scanned pages when Tesseract is installed
 - Local LLM extraction through Ollama
 - Optional local RAG using anonymised invoice examples
 - Structured invoice fields stored in SQLite
@@ -68,7 +68,7 @@ cd invoice-local-llm-demo
 ### 2. Install Python dependencies
 
 ```bash
-pip3 install ollama pypdf pydantic streamlit pandas plotly python-dotenv reportlab
+pip3 install -r requirements.txt
 ```
 
 ### 3. Install and prepare Ollama
@@ -86,6 +86,12 @@ ollama pull llama3.2
 ```
 
 Make sure Ollama is running before using `main.py`.
+
+Scanned PDFs need Tesseract as well. The Python packages only call that program, the same way `ollama` calls the Ollama server. Install it and leave it on `PATH`. Without it, a page with no text layer is retried and then moved to `inbox/.failed/retry_exhausted/`. The Docker image installs Tesseract itself.
+
+- Windows: https://github.com/UB-Mannheim/tesseract/wiki
+- macOS: `brew install tesseract`
+- Debian/Ubuntu: `sudo apt-get install tesseract-ocr`
 
 ### 4. Configure Gmail credentials
 
@@ -274,15 +280,13 @@ way, and `docker-compose.yml`'s header comment for the full command list.
 
 ## Current Limitations
 
-- Some scanned or image-based PDFs are skipped because `pypdf` can only read PDFs with a text layer.
-- OCR support is not implemented yet.
+- A scanned PDF is read only when Tesseract is installed. A page that OCR cannot read is quarantined under `inbox/.failed/` and recorded in `ingestion_failures`.
 - Some fields, especially `vendor_name` and `currency`, may need prompt refinement.
 - SQLite currently appends new records each time the pipeline runs, so repeated tests may create duplicate records.
 - Real email attachments may contain private information, so demo data should be cleaned before presentation.
 
 ## Planned Improvements
 
-- Add OCR support for scanned/image-based PDFs.
 - Add duplicate detection for repeated attachments or invoice numbers.
 - Add a `run_id` or `batch_id` field to separate test runs.
 - Improve extraction prompt and fallback rules for vendor, currency, date, and total amount.

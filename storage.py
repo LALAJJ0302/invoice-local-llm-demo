@@ -1159,6 +1159,16 @@ class StorageManager:
         return {
             "invoice_id": invoice_id,
             "was_update": existing is not None,
+            # The decision a person had already made, which this write left in force. None
+            # for a new row and for an automatic approval (no reviewer). The caller says so,
+            # so a re-sent document does not look as if it vanished.
+            "kept_decision": (
+                existing["approval_status"]
+                if existing is not None
+                and existing["approval_status"] != "Pending"
+                and existing["reviewed_at"] is not None
+                else None
+            ),
             "total_cents": total_cents,
             "total_source": total_source,
             "recovery_note": recovery_note,
