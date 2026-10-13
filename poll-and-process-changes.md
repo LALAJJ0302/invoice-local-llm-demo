@@ -84,7 +84,7 @@ A missing Tesseract program is a retry, not a dead file: the page was never read
 
 ## 4. Three fresh sample invoices
 
-`generate_fresh_invoices.py` writes three PDFs into `inbox/`. Two use a Grand Total the gate can verify. The third has no total label, so it cannot score 1.00. `generate_mock_invoices.py` is unchanged.
+`generate_fresh_invoices.py` writes three PDFs into `inbox/`. Two use a Grand Total the gate can verify. The third states the payable amount as "Amount payable" and does not use "total", "amount due", or "balance due", so the gate cannot mark the amount verified or score it 1.00. `generate_mock_invoices.py` is unchanged.
 
 ## 5. Two sender-controlled issues from the CodeQL pass
 
