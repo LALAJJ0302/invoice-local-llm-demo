@@ -23,19 +23,23 @@ from storage import StorageManager
 # fields out of documents. These regexes backfill fields the model
 # missed (returned null / 0.0 / "Unknown") using the same "fallback
 # only fills gaps" approach as the existing vendor-name heuristic.
+#
+# Each optional separator carries its own trailing \s*, so two \s* runs are never
+# adjacent. Adjacent runs made the total pattern cubic on PDF text: "Amount Due"
+# plus 2,000 spaces took 25 s, and the other two quadratic (codeql-fixes-spec.md).
 INVOICE_NUMBER_PATTERN = re.compile(
     r"(?:Invoice\s*(?:Number|No\.?|#)|Tax\s*Invoice\s*(?:Number|No\.?)|Receipt\s*(?:Number|No\.?)|Order\s*#|Ref\s*#)"
-    r"\s*[:\-]?\s*([A-Za-z0-9][A-Za-z0-9\-\/]{2,})",
+    r"\s*(?:[:\-]\s*)?([A-Za-z0-9][A-Za-z0-9\-\/]{2,})",
     re.IGNORECASE
 )
 DATE_LABEL_PATTERN = re.compile(
     r"(?:Date\s*of\s*Issue|Invoice\s*Date|Bill\s*Date|Transaction\s*Date|Date)"
-    r"\s*[:\-]?\s*([A-Za-z0-9,\/\-\. ]{6,25})",
+    r"\s*(?:[:\-]\s*)?([A-Za-z0-9,\/\-\. ]{6,25})",
     re.IGNORECASE
 )
 TOTAL_AMOUNT_PATTERN = re.compile(
     r"(?:Grand\s*Total|Total\s*Amount\s*Due|Amount\s*Due|Balance\s*Due|Total\s*Payable)"
-    r"\s*[:\-]?\s*(?:[A-Z]{3}|\$|€|£)?\s*([\d,]+\.\d{2})",
+    r"\s*(?:[:\-]\s*)?(?:(?:[A-Z]{3}|\$|€|£)\s*)?([\d,]+\.\d{2})",
     re.IGNORECASE
 )
 CURRENCY_CODE_PATTERN = re.compile(r"\b(AUD|USD|EUR|GBP|CAD|NZD|TWD|JPY|SGD|HKD|CNY|INR)\b", re.IGNORECASE)
