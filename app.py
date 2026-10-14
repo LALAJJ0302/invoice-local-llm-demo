@@ -9,6 +9,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 import auth
+from document_reader import DocumentReader
 import overview_data
 import task_dispatch
 from review_signals import (DOCUMENTS_SCORE_NOTE, GATE_THRESHOLD, SCORE_NOTE, SCORE_NOTE_SHORT, risk_detail,
@@ -25,7 +26,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-DB_PATH = DEFAULT_DB_PATH
+DB_PATH = os.environ.get("WORKFLOW_DB_PATH", DEFAULT_DB_PATH)
 # The page the sidebar is on, kept in the URL as ?v= so a refresh stays on it.
 VIEW_PARAM = "v"
 # How often the page checks the database for rows another process wrote.
@@ -1259,34 +1260,20 @@ def document_text(path) -> str:
         return ""
     if not os.path.exists(path):
         return ""
-    text = _embedded_text(path)
-    if text.strip() or not str(path).lower().endswith(".pdf"):
-        return text
-    return _scanned_pdf_text(str(path), os.path.getmtime(path))
-
-
-def _embedded_text(path) -> str:
-    """The PDF text layer, or an empty string when the file has none or cannot be read."""
-    try:
-        from pypdf import PdfReader
-        reader = PdfReader(path)
-        try:
-            return "\n".join((page.extract_text() or "") for page in reader.pages)
-        finally:
-            reader.close()
-    except Exception:                                   # noqa: BLE001
+    if not str(path).lower().endswith(".pdf"):
         return ""
+    return _cached_document_text(str(path), os.path.getmtime(path))
 
 
-@st.cache_data(show_spinner="Reading the scanned document…")
-def _scanned_pdf_text(path: str, _mtime: float) -> str:
-    """The same local OCR the pipeline uses when a PDF has no text layer.
+@st.cache_data(show_spinner="Reading the document…")
+def _cached_document_text(path: str, _mtime: float) -> str:
+    """Use the pipeline's lightweight reader without importing its Ollama workflow.
 
     `_mtime` is part of the cache key and is not read. Replacing the archived file
-    changes it, so a reprocessed scan is read again.
+    changes it, so a reprocessed document is read again. ``DocumentReader`` combines native
+    and OCR pages in order, including mixed PDFs, but has no model or RAG dependencies.
     """
-    from main import DocumentExtractor
-    return (DocumentExtractor().inspect_pdf(path).text or "").strip()
+    return (DocumentReader().inspect_pdf(path).text or "").strip()
 
 
 def document_panel(text: str, missed) -> str:

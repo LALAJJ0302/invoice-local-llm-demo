@@ -11,7 +11,7 @@ import shutil
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from signed_in import REPO_ROOT, sign_in
+from signed_in import REPO_ROOT, active_db_path, sign_in
 from storage import DEFAULT_DB_PATH, StorageManager, connect
 
 APP = str(pathlib.Path(__file__).resolve().parents[1] / "app.py")
@@ -19,11 +19,12 @@ APP = str(pathlib.Path(__file__).resolve().parents[1] / "app.py")
 
 @pytest.fixture
 def sandbox(tmp_path, monkeypatch):
+    sandbox_db = tmp_path / DEFAULT_DB_PATH
+    shutil.copy2(active_db_path(), sandbox_db)
+    monkeypatch.setenv("WORKFLOW_DB_PATH", str(sandbox_db))
     at = sign_in(AppTest.from_file(APP, default_timeout=120))
-    shutil.copy2(os.path.join(REPO_ROOT, DEFAULT_DB_PATH), tmp_path / DEFAULT_DB_PATH)
-    monkeypatch.chdir(tmp_path)
-    store = StorageManager(DEFAULT_DB_PATH)
-    with connect(DEFAULT_DB_PATH) as conn:
+    store = StorageManager(str(sandbox_db))
+    with connect(str(sandbox_db)) as conn:
         row = conn.execute("SELECT invoice_id FROM invoices ORDER BY invoice_id").fetchone()
     if row is None:
         pytest.skip("no documents in the working database; run main.py first")
@@ -44,7 +45,7 @@ def test_a_decided_document_can_be_reopened_from_history(sandbox):
 
     reopen[0].click().run()
     assert not at.exception, [str(e.value) for e in at.exception]
-    with connect(DEFAULT_DB_PATH) as conn:
+    with connect(store.db_path) as conn:
         status = conn.execute("SELECT approval_status FROM invoices WHERE invoice_id = ?",
                               (invoice_id,)).fetchone()[0]
         logged = [r[0] for r in conn.execute(

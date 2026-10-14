@@ -22,14 +22,10 @@ def write_textless_pdf(path):
     pdf.save()
 
 
-def test_a_text_layer_is_shown_without_scanning(tmp_path, monkeypatch):
+def test_a_text_layer_is_shown_without_loading_the_model_pipeline(tmp_path):
     path = tmp_path / "invoice.pdf"
     write_text_pdf(path)
 
-    def scanned(*_args, **_kwargs):
-        raise AssertionError("a text layer must not be sent to OCR")
-
-    monkeypatch.setattr(app, "_scanned_pdf_text", scanned)
     text = app.document_text(str(path))
     assert "INV-2026-9001" in text
     assert "10.00" in text
@@ -40,12 +36,12 @@ def test_a_scan_is_read_by_the_pipeline_ocr(tmp_path, monkeypatch):
     write_textless_pdf(path)
     seen = {}
 
-    def scanned(file_path, mtime):
+    def read(file_path, mtime):
         seen["path"] = file_path
         seen["mtime"] = mtime
         return "Sydney Water\nAmount due 268.47"
 
-    monkeypatch.setattr(app, "_scanned_pdf_text", scanned)
+    monkeypatch.setattr(app, "_cached_document_text", read)
     assert "268.47" in app.document_text(str(path))
     assert seen["path"] == str(path)
     assert seen["mtime"] == path.stat().st_mtime

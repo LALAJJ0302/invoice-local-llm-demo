@@ -97,7 +97,7 @@ class TestAgainstTheRealDatabase:
 
     def test_the_pending_document_gets_the_sentence_the_spec_predicts(self):
         from storage import connect
-        db = os.path.join(REPO_ROOT, "workflow_platform.db")
+        db = os.environ["WORKFLOW_DB_PATH"]
         if not os.path.exists(db):
             pytest.skip("no local database")
         with connect(db) as conn:

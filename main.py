@@ -3,15 +3,14 @@ import os
 import re
 import shutil
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
 from dateutil import parser as date_parser
 from pydantic import BaseModel, Field
-from pypdf import PdfReader
 import ollama
 
+from document_reader import DocumentRead, DocumentReader, strip_scan_background
 import email_ai
 import rag_retrieval
 import retrieval
@@ -162,26 +161,6 @@ class ProcessedRecord(BaseModel):
     archive_path: str
     processed_at: str
 
-# =====================================================================
-# 2. Document Extraction Engine with Heuristic Fallbacks
-# =====================================================================
-class DocumentRead:
-    """Text taken from a file, or why that file cannot be sent to the model.
-
-    status is None when text is usable. Otherwise it is needs_ocr, unsupported,
-    or retryable_failure, which is the same vocabulary WorkflowOrchestrator returns.
-    """
-
-    def __init__(self, text: str = "", status: Optional[str] = None, reason: str = "",
-                 extraction_source: Optional[str] = None):
-        self.text = text
-        self.status = status
-        self.reason = reason
-        # Runtime provenance for evaluation and diagnostics. `embedded` means the PDF's
-        # native text layer, `ocr` means page images, and `hybrid` means both were used.
-        self.extraction_source = extraction_source
-
-
 @dataclass
 class FileOutcome:
     """What one file did in a pipeline run.
@@ -197,52 +176,7 @@ class FileOutcome:
     source_sha256: Optional[str]
     attempt_count: int
 
-
-def _clipped_area(bounds, width, height):
-    left, bottom, right, top = bounds
-    return max(0.0, min(right, width) - max(left, 0.0)) * max(
-        0.0, min(top, height) - max(bottom, 0.0)
-    )
-
-
-def strip_scan_background(page) -> bool:
-    """Drop the coloured background picture from a layered scan. True if anything went.
-
-    Some scanners, and the print houses behind utility bills, write each page as a
-    low-resolution colour photo with the text laid on top as sharp 1-bit masks. The
-    masks are what OCR should read; the photo behind them only adds tint and speckle.
-
-    A photo is dropped only when it covers nearly the whole page and 1-bit images cover
-    at least half of it. One photo per page, a black-and-white scan, or a photo with a
-    small 1-bit stamp on it is left exactly as it is, because there the photo is the
-    text. `page` is a pypdfium2 page; the change is in memory only, never saved.
-    """
-    import pypdfium2.raw as pdfium_raw
-
-    width, height = page.get_size()
-    page_area = width * height
-    if page_area <= 0:
-        return False
-
-    masks, photos = [], []
-    for obj in page.get_objects(max_depth=1):
-        if obj.type != pdfium_raw.FPDF_PAGEOBJ_IMAGE:
-            continue
-        area = _clipped_area(obj.get_bounds(), width, height)
-        if obj.get_metadata().bits_per_pixel == 1:
-            masks.append(area)
-        elif area >= 0.9 * page_area:
-            photos.append(obj)
-
-    if not photos or sum(masks) < 0.5 * page_area:
-        return False
-    for obj in photos:
-        page.remove_obj(obj)
-    page.gen_content()
-    return True
-
-
-class DocumentExtractor:
+class DocumentExtractor(DocumentReader):
     """Extracts text from PDF and performs structured inference using Ollama."""
 
     def __init__(
@@ -258,209 +192,6 @@ class DocumentExtractor:
         self.rag_examples_path = rag_examples_path
         self.last_retrieval: list[dict] = []
         self.last_error: Optional[BaseException] = None
-
-    # A scanned page has no text operators. 300 DPI is enough for a utility bill
-    # and still cheap on a two-page invoice. 72 is PDF's own point size.
-    OCR_DPI = 300
-
-    def extract_text_from_pdf(self, pdf_path: str) -> str:
-        """Reads text from all pages of a PDF."""
-        try:
-            reader = PdfReader(pdf_path)
-            full_text = ""
-            for page in reader.pages:
-                full_text += (page.extract_text() or "") + "\n"
-            return full_text.strip()
-        except Exception as error:
-            print(f"  [Error] Failed to read PDF {pdf_path}: {error}")
-            return ""
-
-    @staticmethod
-    def _usable_ocr_text(text: str) -> bool:
-        """Reject output that is non-empty but too small to be meaningful.
-
-        Tesseract can return a stray character from dust, a stamp, or a page number. Passing
-        that to the LLM turns an OCR failure into a plausible-looking extraction failure. The
-        deliberately small gate accepts short receipts while rejecting obvious noise.
-        """
-        text = (text or "").strip()
-        characters = re.findall(r"[A-Za-z0-9]", text)
-        words = re.findall(r"\b[A-Za-z0-9]{2,}\b", text)
-        return len(characters) >= 20 and len(words) >= 4
-
-    def _ocr_pages(self, pdf_path: str, page_indexes=None) -> dict[int, str]:
-        """OCR selected zero-based pages and return their text keyed by page number."""
-        import pypdfium2 as pdfium
-        import pytesseract
-
-        command = os.environ.get("TESSERACT_CMD") or shutil.which("tesseract")
-        if not command:
-            windows = os.path.join(
-                os.environ.get("ProgramFiles", r"C:\Program Files"),
-                "Tesseract-OCR",
-                "tesseract.exe",
-            )
-            if os.path.isfile(windows):
-                command = windows
-        if command:
-            pytesseract.pytesseract.tesseract_cmd = command
-
-        os.environ.setdefault("OMP_THREAD_LIMIT", "1")
-
-        def read(image):
-            return pytesseract.image_to_string(image, lang="eng")
-
-        pdf = pdfium.PdfDocument(pdf_path)
-        try:
-            selected = list(range(len(pdf))) if page_indexes is None else sorted(set(page_indexes))
-            if any(index < 0 or index >= len(pdf) for index in selected):
-                raise IndexError("OCR page index is outside the PDF")
-            workers = max(1, min(len(selected) or 1, os.cpu_count() or 1))
-            texts = {index: "" for index in selected}
-            stripped = set()
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                for start in range(0, len(selected), workers):
-                    batch = selected[start:start + workers]
-                    images = []
-                    for index in batch:
-                        page = pdf[index]
-                        try:
-                            if strip_scan_background(page):
-                                stripped.add(index)
-                            images.append(self._render_for_ocr(page))
-                        finally:
-                            page.close()
-                    for index, text in zip(batch, pool.map(read, images)):
-                        texts[index] = text
-        finally:
-            pdf.close()
-
-        # If removing a suspected background also removed the real text, read the untouched
-        # page once more. This is separate from the final quality gate in inspect_pdf().
-        retry = [i for i in sorted(stripped) if len(re.findall(r"\w", texts[i])) < 20]
-        if retry:
-            pdf = pdfium.PdfDocument(pdf_path)
-            try:
-                for index in retry:
-                    page = pdf[index]
-                    try:
-                        texts[index] = read(self._render_for_ocr(page))
-                    finally:
-                        page.close()
-            finally:
-                pdf.close()
-        return texts
-
-    def ocr_pdf(self, pdf_path: str) -> str:
-        """Read a PDF by looking at the page images. Nothing is uploaded.
-
-        Tesseract is a separate program. TESSERACT_CMD points at it when it is not
-        on PATH. A missing program raises TesseractNotFoundError, which the caller
-        treats as a temporary failure rather than a scanned page it has already read.
-        """
-        texts = self._ocr_pages(pdf_path)
-        return "\n".join(texts[index] for index in sorted(texts)).strip()
-
-    def _render_for_ocr(self, page):
-        """One page as a greyscale image. Tesseract reads grey; colour only costs memory."""
-        bitmap = page.render(scale=self.OCR_DPI / 72, grayscale=True)
-        try:
-            return bitmap.to_pil().copy()
-        finally:
-            bitmap.close()
-
-    def inspect_pdf(self, pdf_path: str):
-        """Read a PDF far enough to tell a scanned page from a broken file.
-
-        An embedded text layer is returned as-is and OCR is not called. A page with
-        no text is rendered and read locally. Ollama is not called from here.
-        """
-        try:
-            reader = PdfReader(pdf_path)
-        except OSError as error:
-            return DocumentRead(
-                status="retryable_failure",
-                reason=f"PDF could not be read: {error}",
-            )
-        except Exception as error:
-            return DocumentRead(
-                status="unsupported",
-                reason=f"PDF could not be read: {error}",
-            )
-
-        try:
-            if reader.is_encrypted:
-                try:
-                    reader.decrypt("")
-                except Exception as error:
-                    return DocumentRead(
-                        status="unsupported",
-                        reason=f"PDF is encrypted: {error}",
-                    )
-
-            try:
-                pages = reader.pages
-                page_count = len(pages)
-                page_texts = [(page.extract_text() or "").strip() for page in pages]
-            except Exception as error:
-                message = str(error).lower()
-                if "decrypt" in message or "encrypted" in message:
-                    return DocumentRead(status="unsupported", reason="PDF is encrypted")
-                return DocumentRead(
-                    status="unsupported",
-                    reason=f"PDF could not be read: {error}",
-                )
-        finally:
-            # pypdf keeps the file open. On Windows that lock is still held during the
-            # later model calls, and the hash or the archive move then fails.
-            reader.close()
-
-        if page_count < 1:
-            return DocumentRead(status="unsupported", reason="PDF has no pages")
-        missing_pages = [index for index, text in enumerate(page_texts) if not text]
-        if not missing_pages:
-            return DocumentRead(text="\n".join(page_texts), extraction_source="embedded")
-
-        try:
-            # Preserve the public whole-document OCR path for image-only PDFs. Hybrid files
-            # OCR only their missing pages, then merge them back in original page order.
-            if len(missing_pages) == page_count:
-                ocr_by_page = {0: self.ocr_pdf(pdf_path)}
-                all_scanned = True
-            else:
-                ocr_by_page = self._ocr_pages(pdf_path, missing_pages)
-                all_scanned = False
-        except Exception as error:
-            if type(error).__name__ == "TesseractNotFoundError":
-                reason = f"Tesseract is not installed: {error}"
-            else:
-                reason = f"OCR failed: {error}"
-            return DocumentRead(status="retryable_failure", reason=reason)
-
-        if all_scanned:
-            ocr_text = (ocr_by_page.get(0) or "").strip()
-            if not self._usable_ocr_text(ocr_text):
-                return DocumentRead(
-                    status="needs_ocr",
-                    reason="OCR output failed the minimum text quality check",
-                )
-            combined = ocr_text
-            source = "ocr"
-        else:
-            for index in missing_pages:
-                ocr_text = (ocr_by_page.get(index) or "").strip()
-                if not self._usable_ocr_text(ocr_text):
-                    return DocumentRead(
-                        status="needs_ocr",
-                        reason=f"Page {index + 1} OCR output failed the minimum text quality check",
-                    )
-                page_texts[index] = ocr_text
-            combined = "\n".join(page_texts).strip()
-            source = "hybrid"
-        print(
-            f"  └─ [OCR] Read {len(combined)} characters from {os.path.basename(pdf_path)}"
-        )
-        return DocumentRead(text=combined, extraction_source=source)
 
     def _infer_vendor_fallback(self, raw_text: str, file_name: str) -> Optional[str]:
         """Heuristic fallback to extract vendor name from text header or filename."""

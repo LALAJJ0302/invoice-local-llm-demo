@@ -68,7 +68,7 @@ def test_the_terms_reproduce_the_validators_own_score():
 
     from pypdf import PdfReader
 
-    db = os.path.join(REPO_ROOT, "workflow_platform.db")
+    db = os.environ["WORKFLOW_DB_PATH"]
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
     rows = [r for r in conn.execute(

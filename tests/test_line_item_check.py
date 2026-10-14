@@ -81,7 +81,9 @@ def test_the_dialog_draws_the_contradiction_rather_than_only_exposing_it():
     # one pending document. It now holds two, because a fourth mock invoice arrived with
     # luke/team-tasks, and the first button became a document whose rows were stored correctly.
     # A test that silently changes subject is worse than one that fails.
-    with connect(str(ROOT / "workflow_platform.db")) as conn:
+    import app
+
+    with connect(app.DB_PATH) as conn:
         without_rows = [
             r["invoice_id"] for r in conn.execute(
                 "SELECT i.invoice_id FROM invoices i "
