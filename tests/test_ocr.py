@@ -29,6 +29,65 @@ needs_tesseract = pytest.mark.skipif(
 )
 
 
+def mixed_pdf(path):
+    """One native-text page followed by one page that needs OCR."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    pdf = canvas.Canvas(str(path), pagesize=A4)
+    pdf.drawString(72, 800, "COVER PAGE")
+    pdf.showPage()
+    pdf.rect(72, 400, 200, 80, stroke=1, fill=0)
+    pdf.showPage()
+    pdf.save()
+    return path
+
+
+def test_a_hybrid_pdf_keeps_native_text_and_ocrs_only_missing_pages(tmp_path, monkeypatch):
+    path = mixed_pdf(tmp_path / "mixed.pdf")
+    seen = []
+
+    def selected_pages(self, pdf_path, page_indexes=None):
+        seen.append(list(page_indexes))
+        return {1: "Invoice INV-2026-4412 Grand Total AUD 279.40"}
+
+    monkeypatch.setattr(main.DocumentExtractor, "_ocr_pages", selected_pages)
+
+    result = main.DocumentExtractor().inspect_pdf(str(path))
+
+    assert seen == [[1]]
+    assert "COVER PAGE" in result.text
+    assert "Grand Total AUD 279.40" in result.text
+    assert result.text.index("COVER PAGE") < result.text.index("Grand Total")
+    assert result.extraction_source == "hybrid"
+
+
+def test_nonempty_ocr_noise_does_not_count_as_a_success(tmp_path, monkeypatch):
+    path = scans.plain_scan(tmp_path / "scan.pdf", kind="jpeg")
+    monkeypatch.setattr(main.DocumentExtractor, "ocr_pdf", lambda self, pdf_path: "x")
+
+    result = main.DocumentExtractor().inspect_pdf(str(path))
+
+    assert result.text == ""
+    assert result.status == "needs_ocr"
+    assert "quality" in result.reason.lower()
+
+
+def test_native_text_records_its_provenance(tmp_path):
+    # A one-page file avoids invoking OCR for the provenance assertion.
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    native = tmp_path / "native.pdf"
+    pdf = canvas.Canvas(str(native), pagesize=A4)
+    pdf.drawString(72, 800, "Invoice INV-2026-4412 Grand Total AUD 279.40")
+    pdf.showPage()
+    pdf.save()
+
+    result = main.DocumentExtractor().inspect_pdf(str(native))
+
+    assert result.extraction_source == "embedded"
+
+
 def corner_pixel(pdf_path, strip):
     """The colour at a blank corner of page 1, after the background step if `strip`."""
     pdf = pdfium.PdfDocument(str(pdf_path))

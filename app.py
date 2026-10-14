@@ -1350,6 +1350,17 @@ def human_approval_note(row) -> str | None:
     return HUMAN_APPROVAL_NOTE
 
 
+def decision_mode(row) -> str:
+    """Which decision controls are valid for the document's current persisted state."""
+    status = row.get("approval_status")
+    reviewed_at = row.get("reviewed_at")
+    if status == "Pending":
+        return "pending"
+    if status == "Approved" and (reviewed_at is None or pd.isna(reviewed_at)):
+        return "system_approved"
+    return "read_only"
+
+
 def _review_dismissed():
     """The dialog was closed with the X or Esc. Lets the live refresh run again."""
     st.session_state["dialog_open"] = False
@@ -1408,8 +1419,8 @@ def review_dialog(row):
                         f"</div>{document_panel(text, marked)}</div>", unsafe_allow_html=True)
         else:
             st.markdown("<div class='panel'><div class='panel-label'>What the model read</div>"
-                        "<p class='ov-more'>No text layer. This document would need OCR, which "
-                        "the pipeline does not do.</p></div>", unsafe_allow_html=True)
+                        "<p class='ov-more'>No readable document text was stored. Check the "
+                        "ingestion failure and OCR details.</p></div>", unsafe_allow_html=True)
         original = original_for(row)
         if original:
             data, name = original
@@ -1492,6 +1503,22 @@ def review_dialog(row):
         held = human_approval_note(row)
         if held:
             st.info(held)
+        mode = decision_mode(row)
+        if mode == "read_only":
+            st.info(
+                "This document already has a human decision. Use History → Reopen before "
+                "changing it."
+            )
+            return
+        if mode == "system_approved":
+            st.info(
+                "The system approved this document without a person. You may reject that "
+                "automatic decision after reviewing the evidence."
+            )
+            if st.button("Reject automatic approval", key=f"reject-{row['id']}"):
+                record_decision(int(row["id"]), "Rejected")
+                st.rerun()
+            return
         # FE-12, corrected 2026-09-20. This said "Approving creates a Jira task Payment
         # immediately", which is false whenever Jira is unconfigured, and it is unconfigured
         # now. `record_decision` always writes a local follow-up task and queues an outbox row;

@@ -693,6 +693,7 @@ better report line than a normaliser that guesses and is usually right.
 | 15 | `migrations/015_review_note.py` | Added `invoices.review_note` and `review_note_at`. Additive. | **Applied** |
 | 16 | `migrations/016_invoice_decisions.py` | Added `invoice_decisions`, one row per decision a person makes. Additive. | **Applied** |
 | 17 | `migrations/017_ingestion_failures.py` | Added `ingestion_failures`, one row per file-byte hash the pipeline could not store. Additive. | **Applied** |
+| 18 | `migrations/018_dashboard_revision.py` | Added one monotonic dashboard revision and triggers for dashboard-visible writes. Additive. | **Applied** |
 
 Every migration backs the database up first, refuses to run out of order, is idempotent, and prints
 a before/after report that proves no money moved.

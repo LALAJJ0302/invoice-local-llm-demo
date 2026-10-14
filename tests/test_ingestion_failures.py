@@ -125,7 +125,7 @@ def test_image_only_pdf_is_quarantined_and_not_claimed_again(tmp_path, monkeypat
     assert len(rows) == 1
     assert rows[0]["status"] == "needs_ocr"
     assert rows[0]["attempt_count"] == 1
-    assert rows[0]["reason"] == "PDF has no text layer"
+    assert rows[0]["reason"] == "OCR output failed the minimum text quality check"
     assert rows[0]["resolved_at"] is None
     assert invoices == 0
     assert runs == 1

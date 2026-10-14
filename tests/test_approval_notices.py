@@ -47,3 +47,18 @@ def test_human_approval_note_is_absent_otherwise():
         "validation_status": "NeedsReview",
         "reviewed_at": None,
     }) is None
+
+
+def test_decision_mode_only_allows_valid_transitions():
+    assert app.decision_mode({
+        "approval_status": "Pending", "reviewed_at": None,
+    }) == "pending"
+    assert app.decision_mode({
+        "approval_status": "Approved", "reviewed_at": None,
+    }) == "system_approved"
+    assert app.decision_mode({
+        "approval_status": "Approved", "reviewed_at": "2026-10-13 09:00:00",
+    }) == "read_only"
+    assert app.decision_mode({
+        "approval_status": "Rejected", "reviewed_at": "2026-10-13 09:00:00",
+    }) == "read_only"

@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
@@ -472,6 +472,72 @@ CREATE TABLE thread_decisions (
     decision           TEXT    NOT NULL,
     UNIQUE (thread_analysis_id, decision_no)
 );
+
+-- End of migration 011 email-analysis objects.
+
+-- One monotonic value for dashboard cache invalidation. Triggers make every write to a
+-- dashboard-visible table observable, including in-place state changes such as an outbox row
+-- moving from Pending to Failed. COUNT/MAX fingerprints cannot see those updates reliably.
+CREATE TABLE dashboard_revision (
+    id       INTEGER PRIMARY KEY CHECK (id = 1),
+    revision INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO dashboard_revision (id, revision) VALUES (1, 0);
+
+CREATE TRIGGER dashboard_processing_runs_insert AFTER INSERT ON processing_runs BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_processing_runs_update AFTER UPDATE ON processing_runs BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_processing_runs_delete AFTER DELETE ON processing_runs BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_email_messages_insert AFTER INSERT ON email_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_email_messages_update AFTER UPDATE ON email_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_email_messages_delete AFTER DELETE ON email_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoices_insert AFTER INSERT ON invoices BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoices_update AFTER UPDATE ON invoices BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoices_delete AFTER DELETE ON invoices BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_line_items_insert AFTER INSERT ON line_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_line_items_update AFTER UPDATE ON line_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_line_items_delete AFTER DELETE ON line_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_tasks_insert AFTER INSERT ON tasks BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_tasks_update AFTER UPDATE ON tasks BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_tasks_delete AFTER DELETE ON tasks BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_outbound_messages_insert AFTER INSERT ON outbound_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_outbound_messages_update AFTER UPDATE ON outbound_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_outbound_messages_delete AFTER DELETE ON outbound_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_decisions_insert AFTER INSERT ON invoice_decisions BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_decisions_update AFTER UPDATE ON invoice_decisions BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_decisions_delete AFTER DELETE ON invoice_decisions BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_actions_insert AFTER INSERT ON invoice_action_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_actions_update AFTER UPDATE ON invoice_action_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_actions_delete AFTER DELETE ON invoice_action_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_ingestion_failures_insert AFTER INSERT ON ingestion_failures BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_ingestion_failures_update AFTER UPDATE ON ingestion_failures BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_ingestion_failures_delete AFTER DELETE ON ingestion_failures BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
 """
 
 
@@ -1375,29 +1441,12 @@ class StorageManager:
             return int(conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"])
 
     def change_token(self) -> str:
-        """One short string that changes whenever a row the dashboard shows is added or changed.
-
-        The dashboard compares it with the one it drew from, on a timer, and redraws only when
-        they differ. It is a count plus the newest id and timestamp per table, so it costs six
-        index-light lookups rather than reading any invoice. A change that moves none of those
-        is invisible to it: an UPDATE that does not touch processed_at or reviewed_at. Every
-        update the dashboard itself makes reruns the page anyway, so the token is only for
-        what another process writes: the pipeline, the listener, a teammate's dashboard.
-        """
+        """The monotonic revision changed by triggers on dashboard-visible tables."""
         with connect(self.db_path) as conn:
-            parts = conn.execute(
-                "SELECT"
-                " (SELECT COUNT(*) || ':' || COALESCE(MAX(invoice_id), 0) || ':'"
-                "  || COALESCE(MAX(processed_at), '') || ':' || COALESCE(MAX(reviewed_at), '')"
-                "  FROM invoices),"
-                " (SELECT COUNT(*) || ':' || COALESCE(MAX(task_id), 0) FROM tasks),"
-                " (SELECT COUNT(*) || ':' || COALESCE(MAX(outbox_id), 0) || ':'"
-                "  || COALESCE(MAX(sent_at), '') FROM outbound_messages),"
-                " (SELECT COUNT(*) || ':' || COALESCE(MAX(email_id), 0) FROM email_messages),"
-                " (SELECT COUNT(*) || ':' || COALESCE(MAX(decision_id), 0)"
-                "  FROM invoice_decisions)"
+            row = conn.execute(
+                "SELECT revision FROM dashboard_revision WHERE id = 1"
             ).fetchone()
-        return "|".join(parts)
+        return str(row["revision"])
 
     def user_by_id(self, user_id: int) -> Optional[sqlite3.Row]:
         """Display name and Jira account id for a reviewer. No password hash."""
@@ -1416,8 +1465,11 @@ class StorageManager:
         as the pipeline left them. An unknown user_id is rejected rather than stored: a
         decision with no real reviewer is not a decision. Returns whether a row changed.
 
-        "Pending" is no longer accepted. Taking a decision back also has to deal with the work
-        that followed it, which is `reopen_for_review`'s job, and a second way in would skip it.
+        A pending document may be approved or rejected. A system-approved document may be
+        rejected by a person, but approving it again is not a decision. A human-approved or
+        human-rejected document is immutable until `reopen_for_review` returns it to Pending.
+        These rules are enforced here as well as in the UI so a stale browser tab cannot
+        overwrite a newer decision.
         """
         if decision not in ("Approved", "Rejected"):
             raise ValueError(f"unknown decision {decision!r}")
@@ -1427,13 +1479,28 @@ class StorageManager:
             ).fetchone()
             if not reviewer:
                 raise ValueError(f"unknown reviewer {reviewed_by}")
+            if decision == "Approved":
+                allowed = "approval_status = 'Pending'"
+            else:
+                allowed = ("(approval_status = 'Pending' OR "
+                           "(approval_status = 'Approved' AND reviewed_at IS NULL))")
             cursor = conn.execute(
                 "UPDATE invoices SET approval_status = ?, reviewed_at = datetime('now'), "
-                "reviewed_by = ? WHERE invoice_id = ?",
+                f"reviewed_by = ? WHERE invoice_id = ? AND {allowed}",
                 (decision, reviewed_by, invoice_id),
             )
             if cursor.rowcount:
                 self._log_decision(conn, invoice_id, decision, reviewed_by)
+            else:
+                current = conn.execute(
+                    "SELECT approval_status, reviewed_at FROM invoices WHERE invoice_id = ?",
+                    (invoice_id,),
+                ).fetchone()
+                if current:
+                    raise ValueError(
+                        "This document already has a human decision. Reopen it before "
+                        "recording another decision."
+                    )
             conn.commit()
             return cursor.rowcount > 0
 

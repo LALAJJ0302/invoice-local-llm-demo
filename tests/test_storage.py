@@ -1252,6 +1252,49 @@ class TestRecordDecision:
         user_id = self._user(store)
         assert store.record_decision(404, "Approved", user_id) is False
 
+    def test_a_human_decision_cannot_be_overwritten_without_reopening(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        user_id = self._user(store)
+        store.record_decision(invoice_id, "Approved", user_id)
+
+        with pytest.raises(ValueError, match="Reopen"):
+            store.record_decision(invoice_id, "Rejected", user_id)
+
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status FROM invoices WHERE invoice_id = ?", (invoice_id,)
+            ).fetchone()
+            decisions = conn.execute(
+                "SELECT COUNT(*) c FROM invoice_decisions WHERE invoice_id = ?", (invoice_id,)
+            ).fetchone()["c"]
+        assert row["approval_status"] == "Approved"
+        assert decisions == 1
+
+    def test_a_person_may_reject_a_system_approval(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        user_id = self._user(store)
+        with connect(store.db_path) as conn:
+            conn.execute(
+                "UPDATE invoices SET approval_status = 'Approved', reviewed_at = NULL, "
+                "reviewed_by = NULL WHERE invoice_id = ?", (invoice_id,)
+            )
+            conn.commit()
+
+        assert store.record_decision(invoice_id, "Rejected", user_id) is True
+
+    def test_a_system_approval_cannot_be_approved_again(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        user_id = self._user(store)
+        with connect(store.db_path) as conn:
+            conn.execute(
+                "UPDATE invoices SET approval_status = 'Approved', reviewed_at = NULL "
+                "WHERE invoice_id = ?", (invoice_id,)
+            )
+            conn.commit()
+
+        with pytest.raises(ValueError, match="Reopen"):
+            store.record_decision(invoice_id, "Approved", user_id)
+
 
 # =====================================================================
 # The decision log and reopening a decision (migration 016)

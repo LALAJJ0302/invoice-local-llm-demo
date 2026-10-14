@@ -32,6 +32,7 @@ Following supervisor feedback, the project was de-scoped into a local-first work
 - Local inbox/archive workflow
 - Mock invoice generation for testing
 - PDF text extraction with `pypdf`
+- Local page-level OCR for scanned and mixed PDFs with Tesseract
 - Local LLM extraction through Ollama
 - Optional local RAG using anonymised invoice examples
 - Structured invoice fields stored in SQLite
@@ -274,8 +275,8 @@ way, and `docker-compose.yml`'s header comment for the full command list.
 
 ## Current Limitations
 
-- Some scanned or image-based PDFs are skipped because `pypdf` can only read PDFs with a text layer.
-- OCR support is not implemented yet.
+- OCR currently uses the English Tesseract language pack. Other languages require their
+  matching local language data and evaluation fixtures.
 - Some fields, especially `vendor_name` and `currency`, may need prompt refinement.
 - SQLite currently appends new records each time the pipeline runs, so repeated tests may create duplicate records.
 - Real email attachments may contain private information, so demo data should be cleaned before presentation.
