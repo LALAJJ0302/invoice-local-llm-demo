@@ -12,6 +12,7 @@ a fixture deep in an import chain did not fire is much harder to read than one t
 
 import os
 import sys
+import tempfile
 
 import pytest
 
@@ -20,29 +21,95 @@ sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.join(REPO_ROOT, "evaluation"))
 
 from samples_fixture import ensure_samples  # noqa: E402
-from storage import DEFAULT_DB_PATH, StorageManager  # noqa: E402
+from storage import DEFAULT_DB_PATH, StorageManager, connect  # noqa: E402
 
-# Guarantee a schema-valid database exists, for the same reason the fixture below guarantees
-# the sample PDFs: both are gitignored, so neither exists on a fresh clone.
+# UI tests must never depend on, or mutate, a developer's working database.  This setup runs
+# before pytest imports the test modules because several of them import app.py at collection
+# time.  A normal fixture would run too late to redirect those imports.
+_UI_DB_DIRECTORY = tempfile.TemporaryDirectory(prefix="invoice-ui-tests-")
+UI_TEST_DB_PATH = os.path.join(_UI_DB_DIRECTORY.name, DEFAULT_DB_PATH)
+os.environ["WORKFLOW_DB_PATH"] = UI_TEST_DB_PATH
 #
-# This runs at import rather than as a fixture, and that is the whole point. `tests/
-# test_sidebar_views.py` and `tests/test_score_block.py` do `import app` at module level to
-# reach its helpers, and pytest imports test modules during **collection**, before any fixture
-# has run. A fixture is therefore too late: measured on 2026-09-24, a clone with no database
-# failed with `KeyError: 'id'` during collection and took the whole suite down with it, fixture
-# or no fixture. conftest.py is imported before collection begins, which makes this the only
-# point early enough.
-#
-# What went wrong without it is worth recording, because the guard in app.py looks sufficient
-# and is not. `app.py` handles an empty database with `st.stop()`, which does stop a real
-# Streamlit script run. Outside one it is a no-op, so an `import app` fell straight through it
-# into `keep = set(df["id"])` against an untyped empty frame.
-#
-# `StorageManager.__init__` creates the schema when the file is absent and only asserts the
-# version when it is present, so this is idempotent and costs nothing on a populated machine.
-# It creates schema, never rows: a test that needs documents still fails loudly, which is
-# correct, because the answer to that is to run the pipeline and not to fake the data.
-StorageManager(os.path.join(REPO_ROOT, DEFAULT_DB_PATH))
+# The dataset is deliberately small but covers the states rendered by the dashboard: one
+# pending document with no stored line items, one system-approved document, a covering email,
+# and a pending outbound notification.  Every run therefore starts from the same state.
+ensure_samples()
+_ui_store = StorageManager(UI_TEST_DB_PATH)
+_run_id = _ui_store.start_run("ui-test-model", 0.80)
+_email_id = _ui_store.record_email(
+    "<ui-test-invoice@example.test>",
+    "accounts@example.test",
+    subject="Invoice INV-2026-001",
+    received_at="2026-09-15 02:00:00",
+    attachment_count=1,
+    body_text="Please review the attached invoice.",
+    body_source="mock",
+    attachment_names=["sample_invoice_1_INV-2026-001.pdf"],
+)["email_id"]
+
+_pending = _ui_store.save_invoice(
+    _run_id,
+    "sample_invoice_1_INV-2026-001.pdf",
+    "ui-source-pending",
+    "ui-content-pending",
+    {
+        "invoice_number": "INV-2026-001",
+        "vendor_name": "Northwind Services",
+        "date": "2026-09-15",
+        "total_amount": 1500.00,
+        "currency": "AUD",
+        "items": [],
+    },
+    0.76,
+    "Validated",
+    os.path.join(REPO_ROOT, "evaluation", "samples", "sample_invoice_1_INV-2026-001.pdf"),
+    None,
+    email_id=_email_id,
+    raw_text="TAX INVOICE\nInvoice INV-2026-001\nTotal AUD 1,500.00",
+    category="Invoice",
+    summary="Three service charges requiring approval.",
+)
+
+_approved = _ui_store.save_invoice(
+    _run_id,
+    "sample_invoice_2_INV-2026-002.pdf",
+    "ui-source-approved",
+    "ui-content-approved",
+    {
+        "invoice_number": "INV-2026-002",
+        "vendor_name": "Contoso Supplies",
+        "date": "2026-09-16",
+        "total_amount": 2650.00,
+        "currency": "AUD",
+        "items": [
+            {"description": "Equipment", "quantity": 1, "unit_price": 2000.00,
+             "line_total": 2000.00},
+            {"description": "Support", "quantity": 1, "unit_price": 650.00,
+             "line_total": 650.00},
+        ],
+    },
+    0.96,
+    "Validated",
+    os.path.join(REPO_ROOT, "evaluation", "samples", "sample_invoice_2_INV-2026-002.pdf"),
+    None,
+    raw_text="TAX INVOICE\nInvoice INV-2026-002\nTotal AUD 2,650.00",
+    category="Invoice",
+    summary="Equipment and support invoice.",
+)
+
+with connect(UI_TEST_DB_PATH) as _conn:
+    _conn.execute(
+        "UPDATE invoices SET approval_status = 'Approved' WHERE invoice_id = ?",
+        (_approved["invoice_id"],),
+    )
+    _conn.commit()
+
+_ui_store.queue_outbound(
+    _pending["invoice_id"],
+    "Jira",
+    '{"summary":"Review INV-2026-001"}',
+)
+_ui_store.finish_run(_run_id, 2)
 
 
 @pytest.fixture(scope="session", autouse=True)

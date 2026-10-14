@@ -8,6 +8,10 @@
 # Pipeline
 ollama==0.6.2
 pypdf==6.16.2
+# Renders a scanned page to an image. Tesseract itself is a separate install,
+# the same way the Ollama server is: this package only calls it.
+pypdfium2==5.14.0
+pytesseract==0.3.13
 pydantic==2.13.4
 python-dotenv==1.2.3
 # Used by DocumentExtractor's regex date fallback. Declared explicitly even though

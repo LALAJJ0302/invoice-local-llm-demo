@@ -305,6 +305,30 @@ class TestUpsert:
         assert row["approval_status"] == "Approved"
         assert row["reviewed_at"] == "2026-08-28"
 
+    def test_an_update_reports_the_decision_it_kept(self, store, run_id):
+        """A re-sent document that a person already decided stays decided, and the caller
+        is told so. Reported 2026-10-13: a rejected bill was re-sent to be reviewed again,
+        nothing said its rejection had been kept, and it looked as if it had vanished."""
+        first = save(store, run_id)
+        assert first["kept_decision"] is None
+        with connect(store.db_path) as conn:
+            conn.execute(
+                "UPDATE invoices SET approval_status='Rejected', reviewed_at='2026-10-13' "
+                "WHERE invoice_id = ?", (first["invoice_id"],))
+            conn.commit()
+
+        assert save(store, run_id)["kept_decision"] == "Rejected"
+
+    def test_an_automatic_approval_is_not_a_kept_decision(self, store, run_id):
+        """Approved with no reviewer is the score-1.0 path, not a person's decision."""
+        first = save(store, run_id)
+        with connect(store.db_path) as conn:
+            conn.execute("UPDATE invoices SET approval_status='Approved' WHERE invoice_id = ?",
+                         (first["invoice_id"],))
+            conn.commit()
+
+        assert save(store, run_id)["kept_decision"] is None
+
     def test_line_items_are_replaced_not_appended(self, store, run_id):
         save(store, run_id)
         save(store, run_id, extracted=sample_extracted(items=[
@@ -1251,6 +1275,49 @@ class TestRecordDecision:
     def test_missing_invoice_returns_false(self, store):
         user_id = self._user(store)
         assert store.record_decision(404, "Approved", user_id) is False
+
+    def test_a_human_decision_cannot_be_overwritten_without_reopening(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        user_id = self._user(store)
+        store.record_decision(invoice_id, "Approved", user_id)
+
+        with pytest.raises(ValueError, match="Reopen"):
+            store.record_decision(invoice_id, "Rejected", user_id)
+
+        with connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT approval_status FROM invoices WHERE invoice_id = ?", (invoice_id,)
+            ).fetchone()
+            decisions = conn.execute(
+                "SELECT COUNT(*) c FROM invoice_decisions WHERE invoice_id = ?", (invoice_id,)
+            ).fetchone()["c"]
+        assert row["approval_status"] == "Approved"
+        assert decisions == 1
+
+    def test_a_person_may_reject_a_system_approval(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        user_id = self._user(store)
+        with connect(store.db_path) as conn:
+            conn.execute(
+                "UPDATE invoices SET approval_status = 'Approved', reviewed_at = NULL, "
+                "reviewed_by = NULL WHERE invoice_id = ?", (invoice_id,)
+            )
+            conn.commit()
+
+        assert store.record_decision(invoice_id, "Rejected", user_id) is True
+
+    def test_a_system_approval_cannot_be_approved_again(self, store, run_id):
+        invoice_id = save(store, run_id)["invoice_id"]
+        user_id = self._user(store)
+        with connect(store.db_path) as conn:
+            conn.execute(
+                "UPDATE invoices SET approval_status = 'Approved', reviewed_at = NULL "
+                "WHERE invoice_id = ?", (invoice_id,)
+            )
+            conn.commit()
+
+        with pytest.raises(ValueError, match="Reopen"):
+            store.record_decision(invoice_id, "Approved", user_id)
 
 
 # =====================================================================

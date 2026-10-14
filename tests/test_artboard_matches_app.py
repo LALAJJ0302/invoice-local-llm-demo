@@ -68,6 +68,10 @@ def test_separation_is_shadow_not_border():
     single careless `border:1px solid` added later would undo it without failing anything else.
     """
     stylesheet = APP[APP.index("st.markdown(\"\"\"\n<style>"):APP.index("</style>")]
+    # The Overview page was restyled to the Square feel on 2026-10-12 and draws hairlines on
+    # purpose. That block is scoped under .st-key-ovroot and starts at the marker below, so this
+    # rule keeps governing every other page and the block is not counted.
+    stylesheet = stylesheet[:stylesheet.index("/* Overview, Square feel.")]
     # Five, and every one is the kind §9 keeps: a hairline between two parts of one element.
     # Three inside the document card, the keycap outline on the search field's shortcut hint,
     # and the rule under the contradiction block's row list, which separates the rows from the

@@ -1,10 +1,13 @@
+import argparse
 import email
 import imaplib
 import os
 import re
+import threading
+import time
 from email.header import decode_header
 from html import unescape
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from dotenv import load_dotenv
 
@@ -79,10 +82,38 @@ def decode_text(value):
     return result
 
 
+# The sender chooses an attachment's name, so it must never choose the folder. Windows reads
+# "C:x.pdf" as drive-relative and "x.pdf:y" as a hidden stream, which is why removing slashes
+# alone was not enough (codeql-fixes-spec.md). Unicode letters are kept on purpose.
+_FORBIDDEN_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVED_DEVICE_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+MAX_FILENAME_LENGTH = 200
+
+
 def safe_filename(filename):
-    filename = decode_text(filename)
-    filename = filename.replace("/", "_").replace("\\", "_")
-    return filename.strip()
+    name = decode_text(filename)
+    # The last component under either separator; this also drops "C:" and "\\server\share".
+    name = PureWindowsPath(name.replace("/", "\\")).name
+    name = _FORBIDDEN_FILENAME_CHARS.sub("_", name).strip(" .")
+    if not name:
+        return "attachment"
+    if name.split(".")[0].upper() in _RESERVED_DEVICE_NAMES:
+        name = f"attachment_{name}"
+    if len(name) > MAX_FILENAME_LENGTH:
+        suffix = Path(name).suffix[:20]
+        name = name[:MAX_FILENAME_LENGTH - len(suffix)] + suffix
+    return name
+
+
+def _is_inside(directory, path):
+    """True when `path` resolves to something strictly inside `directory`."""
+    directory = Path(directory).resolve()
+    path = Path(path).resolve()
+    return path != directory and path.is_relative_to(directory)
 
 
 def connect_to_gmail():
@@ -156,6 +187,42 @@ def extract_body(message):
     return ""
 
 
+# IMAP SEARCH: unread messages whose subject contains "invoice". Read mail is left alone.
+UNREAD_INVOICE_SEARCH = '(UNSEEN SUBJECT "invoice")'
+DEFAULT_POLL_INTERVAL_SECONDS = 10
+MIN_POLL_INTERVAL_SECONDS = 1
+
+
+def poll_interval_seconds(explicit=None):
+    """Seconds between inbox checks. Never below one second, so the loop cannot spin."""
+    if explicit is None:
+        raw = os.getenv("EMAIL_POLL_INTERVAL", str(DEFAULT_POLL_INTERVAL_SECONDS))
+        try:
+            seconds = float(raw)
+        except (TypeError, ValueError):
+            print(
+                f"Invalid EMAIL_POLL_INTERVAL {raw!r}; "
+                f"using {DEFAULT_POLL_INTERVAL_SECONDS}s."
+            )
+            seconds = float(DEFAULT_POLL_INTERVAL_SECONDS)
+    else:
+        seconds = float(explicit)
+    if seconds < MIN_POLL_INTERVAL_SECONDS:
+        print(
+            f"Poll interval {seconds:g}s is too small; "
+            f"using {MIN_POLL_INTERVAL_SECONDS}s."
+        )
+        return float(MIN_POLL_INTERVAL_SECONDS)
+    return seconds
+
+
+def _close_mailbox(mail):
+    try:
+        mail.logout()
+    except Exception as error:
+        print(f"Could not close mailbox: {error}")
+
+
 def download_attachments(mailbox="INBOX", mark_as_read=True, db_path=storage.DEFAULT_DB_PATH):
     load_dotenv()
 
@@ -168,21 +235,47 @@ def download_attachments(mailbox="INBOX", mark_as_read=True, db_path=storage.DEF
     store = storage.StorageManager(db_path)
 
     mail = connect_to_gmail()
+    try:
+        counts = _download_from_open_mailbox(
+            mail, store, attachment_dir, mailbox, mark_as_read
+        )
+    finally:
+        _close_mailbox(mail)
+
+    if counts is None:
+        return
+
+    downloaded_count, skipped_seen_emails, skipped_seen_attachments, skipped_non_document = counts
+
+    print("\n========================================")
+    print(f"Downloaded {downloaded_count} attachment(s) to: {attachment_dir}")
+    if skipped_seen_emails:
+        print(f"Skipped {skipped_seen_emails} already-fetched email(s).")
+    if skipped_seen_attachments:
+        print(f"Skipped {skipped_seen_attachments} duplicate attachment(s).")
+    if skipped_non_document:
+        print(f"Skipped {skipped_non_document} non-document attachment(s).")
+    print("Done.")
+
+
+def _download_from_open_mailbox(mail, store, attachment_dir, mailbox, mark_as_read):
+    """One pass over the open mailbox. Returns counts, or None when the search failed
+    or nothing unread matched. Does not log out; the caller closes the connection.
+    """
     mail.select(mailbox)
 
-    status, messages = mail.search(None, '(SUBJECT "invoice")')
+    status, messages = mail.search(None, UNREAD_INVOICE_SEARCH)
 
     if status != "OK":
         print("Could not search mailbox.")
-        mail.logout()
-        return
+        return None
 
-    email_ids = messages[0].split()
+    raw_ids = messages[0] if messages else None
+    email_ids = raw_ids.split() if raw_ids else []
 
     if not email_ids:
         print('No unread emails found with subject containing "invoice".')
-        mail.logout()
-        return
+        return None
 
     print(f"Found {len(email_ids)} matching email(s).")
 
@@ -280,6 +373,11 @@ def download_attachments(mailbox="INBOX", mark_as_read=True, db_path=storage.DEF
                 file_path = attachment_dir / f"{stem}_{counter}{suffix}"
                 counter += 1
 
+            # Backstop: safe_filename should already guarantee this.
+            if not _is_inside(attachment_dir, file_path):
+                print(f"  [Skip] {filename}: would be saved outside {attachment_dir}.")
+                continue
+
             with open(file_path, "wb") as file:
                 file.write(payload)
 
@@ -296,18 +394,315 @@ def download_attachments(mailbox="INBOX", mark_as_read=True, db_path=storage.DEF
         if mark_as_read:
             mail.store(email_id, "+FLAGS", "\\Seen")
 
-    mail.logout()
+    return (
+        downloaded_count,
+        skipped_seen_emails,
+        skipped_seen_attachments,
+        skipped_non_document,
+    )
 
-    print("\n========================================")
-    print(f"Downloaded {downloaded_count} attachment(s) to: {attachment_dir}")
-    if skipped_seen_emails:
-        print(f"Skipped {skipped_seen_emails} already-fetched email(s).")
-    if skipped_seen_attachments:
-        print(f"Skipped {skipped_seen_attachments} duplicate attachment(s).")
-    if skipped_non_document:
-        print(f"Skipped {skipped_non_document} non-document attachment(s).")
-    print("Done.")
+
+# Claimed files leave inbox/ for inbox/.processing/<batch>/ before a pipeline run.
+# WorkflowOrchestrator only lists the top of its inbox, so a later poll cannot see them.
+# Permanent failures leave the batch for inbox/.failed/<reason>/, which is also invisible
+# to the next claim: the name starts with '.' and claim_inbox does not descend.
+PROCESSING_DIR_NAME = ".processing"
+FAILED_DIR_NAME = ".failed"
+
+
+def resolve_inbox_dir(inbox_dir=None):
+    """Folder the listener downloads into and later claims. Tests pass their own."""
+    if inbox_dir is not None:
+        return inbox_dir
+    load_dotenv()
+    return os.getenv("ATTACHMENT_DIR", "./inbox")
+
+
+def _unique_path(directory, name):
+    directory = Path(directory)
+    candidate = directory / name
+    if not candidate.exists():
+        return candidate
+    stem = Path(name).stem
+    suffix = Path(name).suffix
+    counter = 1
+    while True:
+        candidate = directory / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def claim_inbox(inbox_dir="./inbox"):
+    """Move visible files in inbox/ into a new batch directory.
+
+    Returns that directory, or None when there is nothing to claim. Names starting
+    with '.' and directories stay where they are. os.replace is atomic on one drive,
+    so a file is either still in the inbox or already in the batch.
+    """
+    inbox = Path(inbox_dir)
+    inbox.mkdir(parents=True, exist_ok=True)
+    files = sorted(
+        (
+            path for path in inbox.iterdir()
+            if path.is_file() and not path.name.startswith(".")
+        ),
+        key=lambda path: path.name,
+    )
+    if not files:
+        return None
+
+    processing = inbox / PROCESSING_DIR_NAME
+    processing.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    batch = processing / stamp
+    suffix = 1
+    while batch.exists():
+        batch = processing / f"{stamp}-{suffix}"
+        suffix += 1
+    batch.mkdir()
+    for path in files:
+        os.replace(path, batch / path.name)
+    print(f"[poll] claimed {len(files)} file(s) into {batch}")
+    return batch
+
+
+def release_batch(batch):
+    """Move anything the pipeline left in the batch back to inbox/."""
+    batch = Path(batch)
+    if not batch.is_dir():
+        return
+    inbox = batch.parent.parent
+    inbox.mkdir(parents=True, exist_ok=True)
+    for path in sorted(batch.iterdir(), key=lambda item: item.name):
+        if not path.is_file() or path.name.startswith("."):
+            continue
+        destination = _unique_path(inbox, path.name)
+        os.replace(path, destination)
+        print(f"[poll] returned {destination.name} to inbox for a later check")
+    try:
+        batch.rmdir()
+    except OSError:
+        pass
+
+
+def recover_stranded_batches(inbox_dir="./inbox", active=None):
+    """Return batches left behind by a killed process. Live batches are left alone."""
+    processing = Path(inbox_dir) / PROCESSING_DIR_NAME
+    if not processing.is_dir():
+        return
+    live = {Path(path).resolve() for path in (active or ())}
+    for batch in list(processing.iterdir()):
+        if not batch.is_dir():
+            continue
+        if batch.resolve() in live:
+            continue
+        release_batch(batch)
+    try:
+        processing.rmdir()
+    except OSError:
+        pass
+
+
+def run_pipeline(inbox_dir="./inbox"):
+    """Process one folder the same way `python main.py` does.
+
+    Imported here so a poll loop that supplies its own process_fn never loads Ollama.
+    Returns the per-file outcomes. A process_fn that returns None keeps the old
+    contract: leftovers go back to the inbox.
+    """
+    from main import WorkflowOrchestrator
+
+    return WorkflowOrchestrator(
+        inbox_dir=str(inbox_dir),
+        archive_dir="./archive",
+        threshold=0.80,
+    ).run()
+
+
+def dispose_outcomes(holding_dir, outcomes, inbox_dir=None):
+    """Move files the pipeline will not retry out of the folder it was reading.
+
+    holding_dir is where the files are now: a claimed batch, or inbox/ for a one-shot
+    `python main.py`. inbox_dir is the inbox root the next poll claims from. Quarantine
+    folders live under that root, never back in it.
+
+    A list of outcomes is the new contract. None means the caller did not classify
+    files, and this function leaves them for release_batch.
+    """
+    if not isinstance(outcomes, list):
+        return
+    holding = Path(holding_dir)
+    inbox = Path(inbox_dir) if inbox_dir is not None else holding
+    limit = storage.MAX_INGESTION_ATTEMPTS
+    for outcome in outcomes:
+        status = getattr(outcome, "status", None)
+        name = getattr(outcome, "file_name", None)
+        if not name or status == "stored":
+            continue
+        attempt = getattr(outcome, "attempt_count", 1) or 1
+        if status == "retryable_failure" and attempt < limit:
+            print(f"[Retry] {name} attempt {attempt}/{limit}, returning to inbox")
+            continue
+        if status == "needs_ocr":
+            bucket, label = "needs_ocr", "Needs OCR"
+        elif status == "unsupported":
+            bucket, label = "unsupported", "Unsupported"
+        elif status in ("retryable_failure", "retry_exhausted"):
+            bucket, label = "retry_exhausted", "Retry exhausted"
+        else:
+            continue
+        path = holding / name
+        if not path.is_file():
+            continue
+        destination_dir = inbox / FAILED_DIR_NAME / bucket
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        os.replace(path, _unique_path(destination_dir, name))
+        print(f"[{label}] Moved {name} to {inbox.name}/.failed/{bucket}/")
+
+
+def finish_batch(batch, process_fn, active):
+    """Run the pipeline for one claimed batch, then put each leftover where it belongs.
+
+    Classified permanent failures are quarantined. A retryable failure under the
+    attempt limit, and anything left behind by an exception, goes back to inbox/.
+    """
+    outcomes = None
+    try:
+        outcomes = process_fn(str(batch))
+    except KeyboardInterrupt:
+        raise
+    except Exception as error:
+        print(
+            f"[poll] pipeline failed for {batch} ({error}). "
+            "Leftover files return to inbox."
+        )
+    finally:
+        try:
+            if isinstance(outcomes, list):
+                dispose_outcomes(batch, outcomes, inbox_dir=Path(batch).parent.parent)
+            release_batch(batch)
+        finally:
+            active.discard(Path(batch).resolve())
+
+
+def spawn_background(process_fn, batch, active):
+    """Start finish_batch on a thread the process will wait for on the way out."""
+    thread = threading.Thread(
+        target=finish_batch,
+        args=(batch, process_fn, active),
+        name=f"pipeline-{Path(batch).name}",
+        daemon=False,
+    )
+    thread.start()
+    return thread
+
+
+def poll_inbox(
+    mailbox="INBOX",
+    mark_as_read=True,
+    db_path=storage.DEFAULT_DB_PATH,
+    interval=None,
+    sleep_fn=None,
+    process_fn=None,
+    spawn_fn=None,
+    inbox_dir=None,
+):
+    """Keep checking the inbox until Ctrl+C. One IMAP error does not stop the loop.
+
+    After each check, files still in the inbox are claimed and processed on a
+    background thread. The next check does not wait for that thread and does not
+    see the claimed files. A failed inbox check still claims what is already there.
+    Passing spawn_fn replaces the thread (tests use it to run a batch inline).
+    """
+    if sleep_fn is None:
+        sleep_fn = time.sleep
+    if process_fn is None:
+        process_fn = run_pipeline
+    if spawn_fn is None:
+        spawn_fn = spawn_background
+    inbox_dir = resolve_inbox_dir(inbox_dir)
+    seconds = poll_interval_seconds(interval)
+    active = set()
+
+    def stopped():
+        running = len(active)
+        if running:
+            print(
+                f"Stopped. {running} pipeline(s) still running; "
+                "this process exits when they finish."
+            )
+        else:
+            print("Stopped.")
+
+    recover_stranded_batches(inbox_dir, active)
+    print(
+        f"Watching {mailbox} for unread invoice mail every {seconds:g}s. "
+        "Each check processes new inbox files in the background. Ctrl+C to stop."
+    )
+    while True:
+        print("[poll] checking inbox")
+        try:
+            download_attachments(
+                mailbox=mailbox, mark_as_read=mark_as_read, db_path=db_path
+            )
+        except KeyboardInterrupt:
+            stopped()
+            return
+        except Exception as error:
+            print(f"[poll] inbox check failed ({error}). Will retry.")
+        try:
+            batch = claim_inbox(inbox_dir)
+            if batch is None:
+                print("[poll] inbox empty, nothing to process")
+            else:
+                resolved = Path(batch).resolve()
+                active.add(resolved)
+                print(f"[poll] processing {Path(batch).name} in the background")
+                try:
+                    spawn_fn(process_fn, batch, active)
+                except Exception:
+                    active.discard(resolved)
+                    release_batch(batch)
+                    raise
+        except KeyboardInterrupt:
+            stopped()
+            return
+        except Exception as error:
+            print(f"[poll] could not start pipeline ({error}). Will retry.")
+        try:
+            print(f"[poll] sleeping {seconds:g}s")
+            sleep_fn(seconds)
+        except KeyboardInterrupt:
+            stopped()
+            return
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Watch Gmail for unread invoice mail, save attachments, and process them."
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Check the inbox once and exit, without processing. The default is to keep polling.",
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=None,
+        help=(
+            "Seconds between inbox checks when polling "
+            f"(default {DEFAULT_POLL_INTERVAL_SECONDS}, or EMAIL_POLL_INTERVAL)."
+        ),
+    )
+    args = parser.parse_args(argv)
+    if args.once:
+        download_attachments()
+        return 0
+    poll_inbox(interval=args.interval)
+    return 0
 
 
 if __name__ == "__main__":
-    download_attachments()
+    raise SystemExit(main())

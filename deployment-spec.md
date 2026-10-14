@@ -36,12 +36,14 @@ The trade-off: this is a development/demo convenience, not an isolated productio
 artifact — the container is not hermetic, by design, matching the project's own "local
 prototype" framing.
 
-## Why `pipeline` and `listener` are one-shot, not daemons
+## Why `pipeline` exits and `listener` polls
 
-`main.py` and `email_listener.py` already process what is there and exit — that is how they
-behave outside Docker too. Making them `docker compose run --rm` invocations rather than
-long-running services matches existing behaviour instead of inventing a new one (a polling
-loop, a cron container) that the project has never had and this task did not ask for.
+`main.py` still processes what is in `inbox/` and exits. `email_listener.py` keeps polling
+unread invoice mail until Ctrl+C (`--once` is the single pass). After each check the listener
+claims the files in `inbox/` and runs that same pipeline in the background, so the next check
+does not wait and does not take files already claimed. The compose `listener`
+service runs that same command, so it stays up. `pipeline` is still a `docker compose run
+--rm` batch job.
 
 ## Why `env_file: .env` and not variables inline in the compose file
 

@@ -2,13 +2,15 @@ import argparse
 import os
 import re
 import shutil
+import sys
+from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
 from dateutil import parser as date_parser
 from pydantic import BaseModel, Field
-from pypdf import PdfReader
 import ollama
 
+from document_reader import DocumentRead, DocumentReader, strip_scan_background
 import email_ai
 import rag_retrieval
 import retrieval
@@ -23,23 +25,113 @@ from storage import StorageManager
 # fields out of documents. These regexes backfill fields the model
 # missed (returned null / 0.0 / "Unknown") using the same "fallback
 # only fills gaps" approach as the existing vendor-name heuristic.
+#
+# Each optional separator carries its own trailing \s*, so two \s* runs are never
+# adjacent. Adjacent runs made the total pattern cubic on PDF text: "Amount Due"
+# plus 2,000 spaces took 25 s, and the other two quadratic (codeql-fixes-spec.md).
 INVOICE_NUMBER_PATTERN = re.compile(
     r"(?:Invoice\s*(?:Number|No\.?|#)|Tax\s*Invoice\s*(?:Number|No\.?)|Receipt\s*(?:Number|No\.?)|Order\s*#|Ref\s*#)"
-    r"\s*[:\-]?\s*([A-Za-z0-9][A-Za-z0-9\-\/]{2,})",
+    r"\s*(?:[:\-]\s*)?([A-Za-z0-9][A-Za-z0-9\-\/]{2,})",
     re.IGNORECASE
 )
 DATE_LABEL_PATTERN = re.compile(
     r"(?:Date\s*of\s*Issue|Invoice\s*Date|Bill\s*Date|Transaction\s*Date|Date)"
-    r"\s*[:\-]?\s*([A-Za-z0-9,\/\-\. ]{6,25})",
+    r"\s*(?:[:\-]\s*)?([A-Za-z0-9,\/\-\. ]{6,25})",
     re.IGNORECASE
 )
 TOTAL_AMOUNT_PATTERN = re.compile(
     r"(?:Grand\s*Total|Total\s*Amount\s*Due|Amount\s*Due|Balance\s*Due|Total\s*Payable)"
-    r"\s*[:\-]?\s*(?:[A-Z]{3}|\$|€|£)?\s*([\d,]+\.\d{2})",
+    r"\s*(?:[:\-]\s*)?(?:(?:[A-Z]{3}|\$|€|£)\s*)?([\d,]+\.\d{2})",
     re.IGNORECASE
 )
 CURRENCY_CODE_PATTERN = re.compile(r"\b(AUD|USD|EUR|GBP|CAD|NZD|TWD|JPY|SGD|HKD|CNY|INR)\b", re.IGNORECASE)
 INVOICE_CODE_TOKEN_PATTERN = re.compile(r"^[A-Za-z]{2,5}-?\d+", re.IGNORECASE)
+
+# A grand total printed on the same line as its label. When a document has one, it outranks
+# every other amount. A summary table puts its labels on one line and its amounts on the
+# next, and only the column position says which amount is the total; plain text loses that.
+# Found 2026-10-13 on a scanned water bill: "Last bill ... Total amount due" over
+# "$268.47 ... $279.40". The model took 268.47, the previous bill, and so would
+# TOTAL_AMOUNT_PATTERN, whose \s* crosses the line break. The same bill later says
+# "Total amount due $279.40" on one line, which is what this reads.
+#
+# A subtotal is not the payable amount, so a "sub" prefix is excluded. A bare "Total" counts
+# only at the start of a line and not when it introduces tax ("Total GST 25.40"). Every
+# separator is [ \t]* between literals, so matching stays linear on sender-controlled text.
+STATED_TOTAL_LABEL_PATTERN = re.compile(
+    r"(?<!sub)(?<!sub-)(?<!sub )"
+    r"(?:grand[ \t]*total|total[ \t]*amount[ \t]*due|total[ \t]*due|amount[ \t]*due"
+    r"|balance[ \t]*due|total[ \t]*payable|amount[ \t]*payable|invoice[ \t]*total)\b"
+    r"|^[ \t]*total\b(?![ \t]*(?:gst|tax|vat|excl?\b|ex\b))",
+    re.IGNORECASE,
+)
+MONEY_TOKEN_PATTERN = re.compile(r"\d[\d,]*(?:\.\d+)?")
+TWO_DECIMAL_AMOUNT = re.compile(r"[\d,]+\.\d{2}")
+
+
+def red(text: str, stream=None) -> str:
+    """`text` in red when it is going to a terminal, unchanged otherwise.
+
+    Redirected output and NO_COLOR (https://no-color.org) get plain text, so a log file never
+    fills with escape codes. Windows consoles only draw ANSI colour once virtual-terminal
+    processing is switched on, which _enable_windows_ansi does.
+    """
+    stream = stream or sys.stdout
+    if os.environ.get("NO_COLOR") or not getattr(stream, "isatty", lambda: False)():
+        return text
+    if os.name == "nt":
+        _enable_windows_ansi()
+    return f"\033[31m{text}\033[0m"
+
+
+def _enable_windows_ansi() -> None:
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)  # VIRTUAL_TERMINAL_PROCESSING
+    except Exception:
+        pass  # No colour is the worst case, never a failed run.
+
+
+def kept_decision_notice(result: dict) -> Optional[str]:
+    """What to say when a re-sent document kept a person's decision, or None.
+
+    storage.save_invoice never overwrites a human decision, so a rejected document sent
+    again stays rejected and opens no review task. Without this line it looks as if the
+    document vanished. History's Reopen is the way back into the approval queue.
+    """
+    decision = result.get("kept_decision")
+    if not decision:
+        return None
+    return (f"     [Kept] invoice_id={result['invoice_id']} was already {decision} by a "
+            f"person, so it stays {decision} and is not back in the approval queue. "
+            "To review it again, open History in the dashboard and press Reopen.")
+
+
+def stated_total_cents(raw_text: str) -> List[int]:
+    """Every distinct amount that follows a grand-total label on the label's own line.
+
+    In cents, in the order they first appear. Only the first amount after each label is
+    taken, and it must have two decimal places, so a quantity or a date beside the label is
+    not mistaken for money. An empty list means the document never states its total on one
+    line, which is how the generated invoices are laid out; callers then behave as before.
+    """
+    found: List[int] = []
+    for line in raw_text.splitlines():
+        label = STATED_TOTAL_LABEL_PATTERN.search(line)
+        if not label:
+            continue
+        for token in MONEY_TOKEN_PATTERN.findall(line, label.end()):
+            if TWO_DECIMAL_AMOUNT.fullmatch(token):
+                cents = storage.to_cents(token.replace(",", ""))
+                if cents and cents not in found:
+                    found.append(cents)
+                break
+    return found
 
 # =====================================================================
 # 1. Enhanced Data Schema Definitions
@@ -69,10 +161,22 @@ class ProcessedRecord(BaseModel):
     archive_path: str
     processed_at: str
 
-# =====================================================================
-# 2. Document Extraction Engine with Heuristic Fallbacks
-# =====================================================================
-class DocumentExtractor:
+@dataclass
+class FileOutcome:
+    """What one file did in a pipeline run.
+
+    status is stored, retryable_failure, needs_ocr, or unsupported.
+    attempt_count is 0 when the file was stored. A failure count comes from
+    ingestion_failures and is how the listener decides whether to try again.
+    """
+
+    file_name: str
+    status: str
+    reason: str
+    source_sha256: Optional[str]
+    attempt_count: int
+
+class DocumentExtractor(DocumentReader):
     """Extracts text from PDF and performs structured inference using Ollama."""
 
     def __init__(
@@ -87,18 +191,7 @@ class DocumentExtractor:
         self.rag_limit = rag_limit
         self.rag_examples_path = rag_examples_path
         self.last_retrieval: list[dict] = []
-
-    def extract_text_from_pdf(self, pdf_path: str) -> str:
-        """Reads text from all pages of a PDF."""
-        try:
-            reader = PdfReader(pdf_path)
-            full_text = ""
-            for page in reader.pages:
-                full_text += (page.extract_text() or "") + "\n"
-            return full_text.strip()
-        except Exception as error:
-            print(f"  [Error] Failed to read PDF {pdf_path}: {error}")
-            return ""
+        self.last_error: Optional[BaseException] = None
 
     def _infer_vendor_fallback(self, raw_text: str, file_name: str) -> Optional[str]:
         """Heuristic fallback to extract vendor name from text header or filename."""
@@ -138,6 +231,7 @@ class DocumentExtractor:
         callers that omit it keep the configured always-baseline or always-RAG behaviour.
         """
         self.last_retrieval = []
+        self.last_error = None
         rag_context = ""
         rag_enabled = self.use_rag if use_rag is None else use_rag
 
@@ -209,12 +303,14 @@ class DocumentExtractor:
                 parsed_data.vendor_name = self._infer_vendor_fallback(raw_text, file_name)
 
             parsed_data.vendor_name = self._clean_vendor_label(parsed_data.vendor_name)
+            parsed_data = self._clean_total_amount(parsed_data, raw_text)
 
             # Deterministic regex fallback for the remaining structured fields
             parsed_data = self._infer_missing_fields_fallback(parsed_data, raw_text)
 
             return parsed_data
         except Exception as error:
+            self.last_error = error
             print(f"  [Error] LLM Extraction failed: {error}")
             return None
 
@@ -238,6 +334,25 @@ class DocumentExtractor:
                 return text[len(label):].strip() or None
         return text
 
+    def _clean_total_amount(self, data: ExtractedInvoice, raw_text: str) -> ExtractedInvoice:
+        """Replaces a total the document contradicts with the one it states beside its label.
+
+        On 2026-10-13 the model returned 268.47 for a water bill whose summary table reads
+        "Last bill ... Total amount due" over "$268.47 ... $279.40": the first amount under
+        the label line, which is the previous bill. The bill also prints "Total amount due
+        $279.40" on one line. See stated_total_cents.
+
+        Acts only when the document states exactly one total that way. Two different stated
+        totals are left for a person, and the gate will not verify either. A missing total
+        is the fallback's job, not this one. Named _clean_* so evaluation/run_eval.py
+        switches it off when measuring the model alone.
+        """
+        stated = stated_total_cents(raw_text)
+        extracted = storage.to_cents(data.total_amount)
+        if len(stated) == 1 and extracted and extracted != stated[0]:
+            data.total_amount = storage.from_cents(stated[0])
+        return data
+
     def _infer_missing_fields_fallback(self, data: ExtractedInvoice, raw_text: str) -> ExtractedInvoice:
         """Deterministic regex fallback that backfills fields the LLM missed.
 
@@ -260,8 +375,13 @@ class DocumentExtractor:
                     pass
 
         if not data.total_amount or data.total_amount <= 0:
-            match = TOTAL_AMOUNT_PATTERN.search(raw_text)
-            if match:
+            # A total stated on its label's line comes first. The pattern below can cross a
+            # line break, and under a summary table's label line that reaches the wrong column.
+            stated = stated_total_cents(raw_text)
+            match = None if len(stated) == 1 else TOTAL_AMOUNT_PATTERN.search(raw_text)
+            if len(stated) == 1:
+                data.total_amount = storage.from_cents(stated[0])
+            elif match:
                 try:
                     data.total_amount = float(match.group(1).replace(",", ""))
                 except ValueError:
@@ -334,6 +454,17 @@ class ConfidenceValidator:
             return "absent"
 
         lines = raw_text.splitlines()
+
+        # A total printed beside its own label settles the question. Proximity alone does
+        # not: under a summary table's label line every column's amount is one line away,
+        # and on 2026-10-13 that verified a previous bill's 268.47 as the total.
+        stated = stated_total_cents(raw_text)
+        if stated:
+            if target in stated:
+                return "verified"
+            on_page = any(target in self._cents_on_line(line) for line in lines)
+            return "present" if on_page else "absent"
+
         label_lines = [
             i for i, line in enumerate(lines)
             if any(label in line.lower() for label in self.TOTAL_LABELS)
@@ -409,7 +540,14 @@ class ConfidenceValidator:
 
         empty = [k for k, v in complete.items() if not v] + ([] if has_items else ["items"])
 
-        if amount_state == "absent":
+        stated = stated_total_cents(raw_text)
+        extracted = storage.to_cents(data.total_amount)
+
+        if stated and extracted and extracted not in stated:
+            reason = (f"The document states the total as "
+                      f"{' or '.join(f'{c / 100:,.2f}' for c in stated)} beside its label, "
+                      f"but {data.total_amount} was extracted.")
+        elif amount_state == "absent":
             reason = (f"The total {data.total_amount} does not appear in the document."
                       if data.total_amount else "No total amount was extracted.")
         elif amount_state == "present":
@@ -594,6 +732,7 @@ class WorkflowOrchestrator:
         use_rag: bool = False,
         rag_limit: int = 1,
         rag_examples_path: str = rag_retrieval.DEFAULT_EXAMPLES_PATH,
+        db_path: str = storage.DEFAULT_DB_PATH,
     ):
         self.inbox_dir = inbox_dir
         self.archive_dir = archive_dir
@@ -608,197 +747,235 @@ class WorkflowOrchestrator:
         )
         self.validator = ConfidenceValidator(threshold=self.threshold)
         self.intelligence = DocumentIntelligenceRunner()
-        self.storage = StorageManager(db_path="workflow_platform.db")
+        self.storage = StorageManager(db_path=db_path)
         self.dispatcher = DownstreamDispatcher(self.storage)
 
         os.makedirs(self.inbox_dir, exist_ok=True)
         os.makedirs(self.archive_dir, exist_ok=True)
 
-    def run(self):
-        """Processes all documents in inbox."""
-        files = [f for f in os.listdir(self.inbox_dir) if not f.startswith(".")]
+    def _read_input(self, file_name: str, source_path: str) -> DocumentRead:
+        """Text for the model, or a permanent/temporary reason to stop before calling it."""
+        if file_name.lower().endswith(".pdf"):
+            return self.extractor.inspect_pdf(source_path)
+        try:
+            with open(source_path, "r", encoding="utf-8", errors="ignore") as handle:
+                raw_text = handle.read()
+        except OSError as error:
+            return DocumentRead(
+                status="retryable_failure",
+                reason=f"File could not be read: {error}",
+            )
+        except Exception as error:
+            return DocumentRead(
+                status="unsupported",
+                reason=f"File could not be read: {error}",
+            )
+        if not raw_text.strip():
+            return DocumentRead(status="unsupported", reason="File has no readable text")
+        return DocumentRead(text=raw_text)
 
-        if not files:
-            print(f"[*] Notice: No documents found in '{self.inbox_dir}'.")
-            return
+    def _record_failure(
+        self, file_name: str, source_path: str, status: str, reason: str
+    ) -> FileOutcome:
+        """Write one ingestion_failures row and describe it for the listener.
 
-        run_id = self.storage.start_run(
-            model_name=self.extractor.model_name,
-            threshold=self.threshold,
+        The byte hash is the identity. When the bytes cannot be read there is nothing
+        to hash, so the name is used instead: otherwise a locked file would be claimed
+        on every poll and the attempt count would never move.
+        """
+        source_sha256 = storage.sha256_file(source_path) or f"unreadable:{file_name}"
+        row = self.storage.record_ingestion_failure(
+            file_name, source_sha256, status, reason
         )
-        print(f"=== Starting AI Automation Pipeline ({len(files)} files found, run_id={run_id}) ===")
+        attempt = row["attempt_count"]
+        limit = storage.MAX_INGESTION_ATTEMPTS
+        if status == "needs_ocr":
+            print(f"  └─ [Needs OCR] {reason}")
+        elif status == "unsupported":
+            print(f"  └─ [Unsupported] {reason}")
+        elif attempt >= limit:
+            print(f"  └─ [Retry exhausted] attempt {attempt}/{limit}: {reason}")
+        else:
+            print(f"  └─ [Retry] attempt {attempt}/{limit}: {reason}")
+        return FileOutcome(
+            file_name=file_name,
+            status=status,
+            reason=reason,
+            source_sha256=source_sha256,
+            attempt_count=attempt,
+        )
 
-        processed_count = 0
-        for file_name in files:
-            source_path = os.path.join(self.inbox_dir, file_name)
-            print(f"\n[Step 1: Ingestion] Reading file: {file_name}")
+    def _process_file(self, file_name: str, run_id: int) -> FileOutcome:
+        """Run one file. A failure here is an outcome, not a reason to drop the rest."""
+        source_path = os.path.join(self.inbox_dir, file_name)
+        try:
+            with open(source_path, "rb") as handle:
+                source_sha256 = storage.sha256_bytes(handle.read())
+        except OSError as error:
+            return self._record_failure(
+                file_name,
+                source_path,
+                "retryable_failure",
+                f"Could not hash {file_name}: {error}",
+            )
 
-            # 1. Extract Text
-            raw_text = ""
-            if file_name.lower().endswith(".pdf"):
-                raw_text = self.extractor.extract_text_from_pdf(source_path)
-            else:
-                try:
-                    with open(source_path, "r", encoding="utf-8", errors="ignore") as f:
-                        raw_text = f.read()
-                except Exception:
-                    pass
+        read = self._read_input(file_name, source_path)
+        if read.status:
+            return self._record_failure(file_name, source_path, read.status, read.reason)
+        raw_text = read.text
 
-            if not raw_text.strip():
-                print(f"  └─ [Skip] Document is empty or binary.")
-                continue
+        # 2. Extract with AI. In selective RAG mode the first pass is deliberately
+        # example-free. Deterministic validation decides whether a second pass is useful.
+        print("  └─ [Step 2: AI Extraction] Processing with Ollama (llama3.2)...")
+        data = self.extractor.extract_invoice_data(
+            raw_text,
+            file_name,
+            use_rag=False if self.use_rag else None,
+        )
+        if not data:
+            detail = self.extractor.last_error
+            reason = f"AI extraction failed: {detail}" if detail else "AI extraction failed"
+            return self._record_failure(
+                file_name, source_path, "retryable_failure", reason
+            )
 
-            # 2. Extract with AI. In selective RAG mode the first pass is deliberately
-            # example-free. Deterministic validation decides whether a second pass is useful.
-            print("  └─ [Step 2: AI Extraction] Processing with Ollama (llama3.2)...")
-            data = self.extractor.extract_invoice_data(
+        verdict = self.validator.explain(data, raw_text)
+        if self.use_rag and should_retry_with_rag(verdict):
+            baseline_data, baseline_verdict = data, verdict
+            trigger = baseline_verdict["reason"]
+            print(f"  └─ [Step 2a: Selective RAG] Retry triggered: {trigger}")
+
+            rag_data = self.extractor.extract_invoice_data(
                 raw_text,
                 file_name,
-                use_rag=False if self.use_rag else None,
+                use_rag=True,
             )
-            if not data:
-                print("  └─ [Fail] AI extraction failed.")
-                continue
-
-            verdict = self.validator.explain(data, raw_text)
-            if self.use_rag and should_retry_with_rag(verdict):
-                baseline_data, baseline_verdict = data, verdict
-                trigger = baseline_verdict["reason"]
-                print(f"  └─ [Step 2a: Selective RAG] Retry triggered: {trigger}")
-
-                rag_data = self.extractor.extract_invoice_data(
-                    raw_text,
-                    file_name,
-                    use_rag=True,
+            if self.extractor.last_retrieval:
+                selected = ", ".join(
+                    f"{item['example_id']} (score {item['retrieval_score']})"
+                    for item in self.extractor.last_retrieval
                 )
-                if self.extractor.last_retrieval:
-                    selected = ", ".join(
-                        f"{item['example_id']} (score {item['retrieval_score']})"
-                        for item in self.extractor.last_retrieval
-                    )
-                    print(f"     Retrieved {selected}")
+                print(f"     Retrieved {selected}")
 
-                if rag_data:
-                    rag_verdict = self.validator.explain(rag_data, raw_text)
-                    if rag_result_is_better(baseline_verdict, rag_verdict):
-                        data, verdict = rag_data, rag_verdict
-                        print(
-                            "     Adopted RAG result: "
-                            f"{baseline_verdict['score']:.2f} -> {rag_verdict['score']:.2f}"
-                        )
-                    else:
-                        data, verdict = baseline_data, baseline_verdict
-                        print(
-                            "     Kept baseline result: RAG did not improve the "
-                            "evidence-based validation rank."
-                        )
+            if rag_data:
+                rag_verdict = self.validator.explain(rag_data, raw_text)
+                if rag_result_is_better(baseline_verdict, rag_verdict):
+                    data, verdict = rag_data, rag_verdict
+                    print(
+                        "     Adopted RAG result: "
+                        f"{baseline_verdict['score']:.2f} -> {rag_verdict['score']:.2f}"
+                    )
                 else:
                     data, verdict = baseline_data, baseline_verdict
-                    print("     Kept baseline result: the RAG extraction failed.")
-
-            # 2b. Trace the document back to the email that delivered it, then pull that
-            # sender's prior correspondence as context. A miss is normal rather than an
-            # error: a file dropped straight into inbox/ never had an email.
-            delivered_by = self.storage.email_for_attachment(file_name)
-            email_id = delivered_by["email_id"] if delivered_by else None
-            context = ""
-            if delivered_by:
-                print(f"  └─ [Step 2b: Link] Delivered by email_id={email_id} "
-                      f"from {delivered_by['sender']}")
-                hits = retrieval.retrieve(sender=delivered_by["sender"],
-                                          strategy="sender", limit=3,
-                                          db_path=self.storage.db_path)
-                # Exclude the email that carried this very document: it is not history.
-                hits = [h for h in hits if h["email_id"] != email_id]
-                if hits:
-                    context = retrieval.as_context(hits, max_chars=1200)
-                    print(f"  └─ [Step 2c: Retrieval] {len(hits)} prior emails, "
-                          f"{len(context)} chars of context")
+                    print(
+                        "     Kept baseline result: RAG did not improve the "
+                        "evidence-based validation rank."
+                    )
             else:
-                print("  └─ [Step 2b: Link] No email matched this file")
+                data, verdict = baseline_data, baseline_verdict
+                print("     Kept baseline result: the RAG extraction failed.")
 
-            # 3. Validation Gate. The verdict was calculated above so the optional RAG
-            # retry and the stored decision use exactly the same deterministic rules.
-            confidence, status = verdict["score"], verdict["status"]
-            print(f"  └─ [Step 3: Validation Gate] Score: {confidence} -> {status} "
-                  f"(amount {verdict['amount_state']})")
-            if verdict["amount_state"] != "verified":
-                print(f"     {verdict['reason']}")
+        # 2b. Trace the document back to the email that delivered it, then pull that
+        # sender's prior correspondence as context. A miss is normal rather than an
+        # error: a file dropped straight into inbox/ never had an email.
+        delivered_by = self.storage.email_for_attachment(file_name)
+        email_id = delivered_by["email_id"] if delivered_by else None
+        context = ""
+        if delivered_by:
+            print(f"  └─ [Step 2b: Link] Delivered by email_id={email_id} "
+                  f"from {delivered_by['sender']}")
+            hits = retrieval.retrieve(sender=delivered_by["sender"],
+                                      strategy="sender", limit=3,
+                                      db_path=self.storage.db_path)
+            # Exclude the email that carried this very document: it is not history.
+            hits = [h for h in hits if h["email_id"] != email_id]
+            if hits:
+                context = retrieval.as_context(hits, max_chars=1200)
+                print(f"  └─ [Step 2c: Retrieval] {len(hits)} prior emails, "
+                      f"{len(context)} chars of context")
+        else:
+            print("  └─ [Step 2b: Link] No email matched this file")
 
-            # 3b. Document Intelligence: category, summary, action items.
-            # Independent of steps 2-3 above; a failure here does not stop the document
-            # from being stored, it is just stored without these three fields.
-            print("  └─ [Step 3b: Document Intelligence] Categorising with Ollama...")
-            analysis = self.intelligence.analyse(file_name, raw_text)
-            if analysis:
-                print(f"     Category: {analysis.category} | "
-                      f"{len(analysis.action_items)} action item(s)")
+        # 3. Validation Gate. The verdict was calculated above so the optional RAG
+        # retry and the stored decision use exactly the same deterministic rules.
+        confidence, status = verdict["score"], verdict["status"]
+        print(f"  └─ [Step 3: Validation Gate] Score: {confidence} -> {status} "
+              f"(amount {verdict['amount_state']})")
+        if verdict["amount_state"] != "verified":
+            print(f"     {verdict['reason']}")
 
-            # 4. Storage, then archive.
-            # The database write commits first. If the move then fails, the file simply stays
-            # in inbox/ and the next run upserts onto the same row, rather than the old
-            # failure mode of a file archived with no record.
-            target_archive_path = os.path.abspath(os.path.join(self.archive_dir, file_name))
-            source_sha256 = storage.sha256_file(source_path)
-            if source_sha256 is None:
-                # The file was readable a moment ago, so this is close to impossible. Guard
-                # anyway: source_sha256 is NOT NULL, and a violation here would abort the run.
-                print(f"  └─ [Skip] Could not hash {file_name}.")
-                continue
-            content_sha256 = storage.content_hash(raw_text, source_sha256)
+        # 3b. Document Intelligence: category, summary, action items.
+        # Independent of steps 2-3 above; a failure here does not stop the document
+        # from being stored, it is just stored without these three fields.
+        print("  └─ [Step 3b: Document Intelligence] Categorising with Ollama...")
+        analysis = self.intelligence.analyse(file_name, raw_text)
+        if analysis:
+            print(f"     Category: {analysis.category} | "
+                  f"{len(analysis.action_items)} action item(s)")
 
-            record = ProcessedRecord(
-                file_name=file_name,
-                status=status,
-                confidence_score=confidence,
-                extracted_data=data,
-                archive_path=target_archive_path,
-                processed_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            )
+        # 4. Storage, then archive.
+        # The database write commits first. If the move then fails, the file simply stays
+        # in inbox/ and the next run upserts onto the same row, rather than the old
+        # failure mode of a file archived with no record.
+        target_archive_path = os.path.abspath(os.path.join(self.archive_dir, file_name))
+        content_sha256 = storage.content_hash(raw_text, source_sha256)
 
-            result = self.storage.save_invoice(
-                run_id=run_id,
-                file_name=record.file_name,
-                source_sha256=source_sha256,
-                content_sha256=content_sha256,
-                extracted=data.model_dump(),
-                validation_score=record.confidence_score,
-                validation_status=record.status,
-                archive_path=record.archive_path,
-                raw_json=data.model_dump_json(),
-                raw_text=raw_text,
-                category=analysis.category if analysis else None,
-                summary=analysis.summary if analysis else None,
-                action_items=self.intelligence.as_action_item_rows(analysis),
-                email_id=email_id,
-            )
-            processed_count += 1
+        record = ProcessedRecord(
+            file_name=file_name,
+            status=status,
+            confidence_score=confidence,
+            extracted_data=data,
+            archive_path=target_archive_path,
+            processed_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
 
-            action = "Updated" if result["was_update"] else "Inserted"
-            total = storage.from_cents(result["total_cents"])
-            total_text = "no total" if total is None else f"{total:,.2f}"
-            if result["recovery_note"]:
-                total_text += f" (recovered from {result['recovery_note']})"
-            print(f"  └─ [Step 4: Storage] {action} invoice_id={result['invoice_id']}: "
-                  f"{total_text}, {result['line_item_count']} line items, "
-                  f"{result['document_type']}, reconciliation {result['reconciliation']}")
-            if result["reconciliation"] == "short":
-                print("     [Warn] The stated total is less than the line items add up to. "
-                      "Tax and shipping cannot reduce a total, so one of the two is wrong.")
+        result = self.storage.save_invoice(
+            run_id=run_id,
+            file_name=record.file_name,
+            source_sha256=source_sha256,
+            content_sha256=content_sha256,
+            extracted=data.model_dump(),
+            validation_score=record.confidence_score,
+            validation_status=record.status,
+            archive_path=record.archive_path,
+            raw_json=data.model_dump_json(),
+            raw_text=raw_text,
+            category=analysis.category if analysis else None,
+            summary=analysis.summary if analysis else None,
+            action_items=self.intelligence.as_action_item_rows(analysis),
+            email_id=email_id,
+        )
+        self.storage.resolve_ingestion_failure(source_sha256)
 
-            try:
-                shutil.move(source_path, target_archive_path)
-                print(f"  └─ [Step 4b: Archive] Moved to: {target_archive_path}")
-            except OSError as error:
-                print(f"  └─ [Warn] Record saved but archiving failed: {error}. "
-                      f"File left in {self.inbox_dir} for the next run.")
+        action = "Updated" if result["was_update"] else "Inserted"
+        total = storage.from_cents(result["total_cents"])
+        total_text = "no total" if total is None else f"{total:,.2f}"
+        if result["recovery_note"]:
+            total_text += f" (recovered from {result['recovery_note']})"
+        print(f"  └─ [Step 4: Storage] {action} invoice_id={result['invoice_id']}: "
+              f"{total_text}, {result['line_item_count']} line items, "
+              f"{result['document_type']}, reconciliation {result['reconciliation']}")
+        kept = kept_decision_notice(result)
+        if kept:
+            print(red(kept))
+        if result["reconciliation"] == "short":
+            print("     [Warn] The stated total is less than the line items add up to. "
+                  "Tax and shipping cannot reduce a total, so one of the two is wrong.")
 
-            # 5. Downstream Dispatch
-            # Auto-approval is a hard rule, not a weight implication: score 1.0 alone is
-            # not enough. The amount must also be verified against the document
-            # (validation-gate-spec.md section 2). Checking amount_state explicitly means a
-            # future weight change cannot silently auto-approve unverified money. Anything
-            # that fails either check still opens a task and waits for a person.
+        try:
+            shutil.move(source_path, target_archive_path)
+            print(f"  └─ [Step 4b: Archive] Moved to: {target_archive_path}")
+        except OSError as error:
+            print(f"  └─ [Warn] Record saved but archiving failed: {error}. "
+                  f"File left in {self.inbox_dir} for the next run.")
+
+        # 5. Downstream Dispatch
+        # Auto-approval is a hard rule, not a weight implication: score 1.0 alone is
+        # not enough. The amount must also be verified against the document
+        # (validation-gate-spec.md section 2). Checking amount_state explicitly means a
+        # future weight change cannot silently auto-approve unverified money. Anything
+        # that fails either check still opens a task and waits for a person.
+        try:
             if confidence >= 1.0 and verdict["amount_state"] == "verified":
                 followup = self.storage.auto_approve(result["invoice_id"])
                 print(f"  └─ [Auto-Approval] Score {confidence:.2f}, amount verified -- "
@@ -822,9 +999,64 @@ class WorkflowOrchestrator:
             else:
                 self.dispatcher.dispatch(result["invoice_id"], file_name, status, confidence,
                                          reason=verdict["reason"])
+        except Exception as error:
+            # The invoice row is already committed. A task failure must not send the
+            # file back through extraction, or a stored document would be quarantined
+            # after three attempts.
+            print(f"  └─ [Warn] Stored, but the follow-up task failed: {error}")
 
+        return FileOutcome(
+            file_name=file_name,
+            status="stored",
+            reason="",
+            source_sha256=source_sha256,
+            attempt_count=0,
+        )
+
+    def run(self) -> List[FileOutcome]:
+        """Processes all documents in inbox. One outcome per file, including failures."""
+        files = [f for f in os.listdir(self.inbox_dir) if not f.startswith(".")]
+
+        if not files:
+            print(f"[*] Notice: No documents found in '{self.inbox_dir}'.")
+            return []
+
+        run_id = self.storage.start_run(
+            model_name=self.extractor.model_name,
+            threshold=self.threshold,
+        )
+        print(f"=== Starting AI Automation Pipeline ({len(files)} files found, run_id={run_id}) ===")
+
+        outcomes: List[FileOutcome] = []
+        for file_name in files:
+            print(f"\n[Step 1: Ingestion] Reading file: {file_name}")
+            try:
+                outcome = self._process_file(file_name, run_id)
+            except Exception as error:
+                # One bad file must not abandon the rest of the batch.
+                print(f"  └─ [Fail] {file_name}: {error}")
+                try:
+                    outcome = self._record_failure(
+                        file_name,
+                        os.path.join(self.inbox_dir, file_name),
+                        "retryable_failure",
+                        str(error),
+                    )
+                except Exception as record_error:
+                    print(f"  └─ [Warn] Could not record the failure: {record_error}")
+                    outcome = FileOutcome(
+                        file_name=file_name,
+                        status="retryable_failure",
+                        reason=str(error),
+                        source_sha256=None,
+                        attempt_count=1,
+                    )
+            outcomes.append(outcome)
+
+        processed_count = sum(1 for outcome in outcomes if outcome.status == "stored")
         self.storage.finish_run(run_id, processed_count)
         print(f"\n=== Workflow Completed: {processed_count}/{len(files)} documents stored (run_id={run_id}) ===")
+        return outcomes
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -856,4 +1088,7 @@ if __name__ == "__main__":
         rag_limit=args.rag_limit,
         rag_examples_path=args.rag_examples,
     )
-    orchestrator.run()
+    outcomes = orchestrator.run()
+    # Imported here so loading the pipeline does not load the mailbox listener.
+    from email_listener import dispose_outcomes
+    dispose_outcomes(orchestrator.inbox_dir, outcomes)

@@ -11,7 +11,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from signed_in import REPO_ROOT, sign_in  # noqa: E402
+from signed_in import REPO_ROOT, active_db_path, sign_in  # noqa: E402
 
 import auth  # noqa: E402
 from storage import DEFAULT_DB_PATH, StorageManager  # noqa: E402
@@ -20,7 +20,7 @@ APP = os.path.join(REPO_ROOT, "app.py")
 
 
 def _token_for(username="neo"):
-    store = StorageManager(os.path.join(REPO_ROOT, DEFAULT_DB_PATH))
+    store = StorageManager(active_db_path())
     auth.ensure_default_users(store)
     return auth.issue_session_token(store, store.user_by_username(username)["user_id"])
 
@@ -53,7 +53,7 @@ def test_a_bad_token_shows_the_login_form_and_is_dropped_from_the_url():
 
 
 def test_a_forced_password_change_survives_a_refresh():
-    store = StorageManager(os.path.join(REPO_ROOT, DEFAULT_DB_PATH))
+    store = StorageManager(active_db_path())
     auth.ensure_default_users(store)
     # jj's flag is 1 on a fresh database; a person who has since changed it makes this moot.
     if not store.user_by_username("jj")["must_change_password"]:
@@ -68,7 +68,7 @@ def test_a_forced_password_change_survives_a_refresh():
 def test_log_out_clears_the_token():
     """Uses the first-login screen, which has a Log out button whether or not any document
     exists. The sidebar's Log out calls the same sign_out_session()."""
-    store = StorageManager(os.path.join(REPO_ROOT, DEFAULT_DB_PATH))
+    store = StorageManager(active_db_path())
     auth.ensure_default_users(store)
     if not store.user_by_username("luke")["must_change_password"]:
         pytest.skip("luke has already chosen a password in this database")

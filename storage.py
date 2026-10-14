@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 18
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
@@ -30,6 +30,13 @@ VALID_DOCUMENT_TYPES = ("Invoice", "Receipt", "Unknown")
 VALID_OUTBOUND_CHANNELS = ("Teams", "Jira", "Planner", "Email")
 VALID_OUTBOUND_STATES = ("Pending", "Sent", "Failed")
 VALID_RUN_KINDS = ("invoice", "email")
+# A file the pipeline could not store. `stored` is not a row: a clean save writes an invoice
+# and, if a failure row already exists for those bytes, sets resolved_at.
+# `retry_exhausted` is the same failure as `retryable_failure` after MAX_INGESTION_ATTEMPTS.
+VALID_INGESTION_STATUSES = (
+    "needs_ocr", "unsupported", "retryable_failure", "retry_exhausted",
+)
+MAX_INGESTION_ATTEMPTS = 3
 VALID_THREAD_SOURCES = ("headers", "subject", "manual")
 
 # JJ's module owns this list; it is a Literal on EmailAnalysis in email_ai.py. Constrained
@@ -331,6 +338,27 @@ CREATE TABLE invoice_decisions (
 );
 CREATE INDEX ix_invoice_decisions_invoice ON invoice_decisions(invoice_id, decided_at);
 
+-- A file the pipeline could not turn into an invoice. Added by migration 017.
+-- Sits above the migration 011 marker for the same reason invoice_decisions does: 011
+-- builds its tables from everything after that marker.
+-- Keyed on the file bytes, not the extracted text. A scanned PDF has no text layer, so
+-- every one of them would share an empty text hash and collapse into one row.
+-- One row per hash. A later attempt updates it and increments attempt_count.
+-- first_seen_at stays. resolved_at is set when a later run stores an invoice for those bytes.
+CREATE TABLE ingestion_failures (
+    failure_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_name       TEXT    NOT NULL,
+    source_sha256   TEXT    NOT NULL UNIQUE,
+    status          TEXT    NOT NULL
+                    CHECK (status IN ('needs_ocr','unsupported','retryable_failure','retry_exhausted')),
+    reason          TEXT    NOT NULL,
+    attempt_count   INTEGER NOT NULL CHECK (attempt_count >= 1),
+    first_seen_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    last_attempt_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    resolved_at     TEXT
+);
+CREATE INDEX ix_ingestion_failures_status ON ingestion_failures(status);
+
 -- ---------------------------------------------------------------------
 -- The email AI module's output. Added by migration 011.
 --
@@ -444,6 +472,72 @@ CREATE TABLE thread_decisions (
     decision           TEXT    NOT NULL,
     UNIQUE (thread_analysis_id, decision_no)
 );
+
+-- End of migration 011 email-analysis objects.
+
+-- One monotonic value for dashboard cache invalidation. Triggers make every write to a
+-- dashboard-visible table observable, including in-place state changes such as an outbox row
+-- moving from Pending to Failed. COUNT/MAX fingerprints cannot see those updates reliably.
+CREATE TABLE dashboard_revision (
+    id       INTEGER PRIMARY KEY CHECK (id = 1),
+    revision INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO dashboard_revision (id, revision) VALUES (1, 0);
+
+CREATE TRIGGER dashboard_processing_runs_insert AFTER INSERT ON processing_runs BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_processing_runs_update AFTER UPDATE ON processing_runs BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_processing_runs_delete AFTER DELETE ON processing_runs BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_email_messages_insert AFTER INSERT ON email_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_email_messages_update AFTER UPDATE ON email_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_email_messages_delete AFTER DELETE ON email_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoices_insert AFTER INSERT ON invoices BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoices_update AFTER UPDATE ON invoices BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoices_delete AFTER DELETE ON invoices BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_line_items_insert AFTER INSERT ON line_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_line_items_update AFTER UPDATE ON line_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_line_items_delete AFTER DELETE ON line_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_tasks_insert AFTER INSERT ON tasks BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_tasks_update AFTER UPDATE ON tasks BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_tasks_delete AFTER DELETE ON tasks BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_outbound_messages_insert AFTER INSERT ON outbound_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_outbound_messages_update AFTER UPDATE ON outbound_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_outbound_messages_delete AFTER DELETE ON outbound_messages BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_decisions_insert AFTER INSERT ON invoice_decisions BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_decisions_update AFTER UPDATE ON invoice_decisions BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_decisions_delete AFTER DELETE ON invoice_decisions BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_actions_insert AFTER INSERT ON invoice_action_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_actions_update AFTER UPDATE ON invoice_action_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_invoice_actions_delete AFTER DELETE ON invoice_action_items BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_ingestion_failures_insert AFTER INSERT ON ingestion_failures BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_ingestion_failures_update AFTER UPDATE ON ingestion_failures BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_ingestion_failures_delete AFTER DELETE ON ingestion_failures BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
 """
 
 
@@ -857,6 +951,91 @@ class StorageManager:
             )
             conn.commit()
 
+    # -- ingestion failures -------------------------------------------
+    def record_ingestion_failure(
+        self,
+        file_name: str,
+        source_sha256: str,
+        status: str,
+        reason: str,
+    ) -> Dict[str, Any]:
+        """Upserts one failure for a file the pipeline did not store.
+
+        Keyed on the byte hash, so the same attachment updates one row instead of inserting
+        another each time a poll claims it. attempt_count climbs. first_seen_at does not.
+        A resolved row is reopened: resolved_at is cleared, because the file has failed again.
+
+        A retryable failure at MAX_INGESTION_ATTEMPTS is stored as retry_exhausted. The
+        caller still treats it as retryable for the attempt that just happened; the stored
+        status is what a later reader should show.
+        """
+        if not file_name:
+            raise ValueError("file_name is required")
+        if not source_sha256:
+            raise ValueError("source_sha256 is required")
+        if status not in VALID_INGESTION_STATUSES:
+            raise ValueError(
+                f"status must be one of {VALID_INGESTION_STATUSES}, got {status!r}"
+            )
+        reason = (reason or "").strip() or "unspecified"
+
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                INSERT INTO ingestion_failures
+                    (file_name, source_sha256, status, reason, attempt_count)
+                VALUES (?, ?, ?, ?, 1)
+                ON CONFLICT(source_sha256) DO UPDATE SET
+                    file_name       = excluded.file_name,
+                    status          = excluded.status,
+                    reason          = excluded.reason,
+                    attempt_count   = ingestion_failures.attempt_count + 1,
+                    last_attempt_at = datetime('now'),
+                    resolved_at     = NULL
+                RETURNING failure_id, file_name, source_sha256, status, reason,
+                          attempt_count, first_seen_at, last_attempt_at, resolved_at
+                """,
+                (file_name, source_sha256, status, reason),
+            ).fetchone()
+            attempt_count = int(row["attempt_count"])
+            stored_status = status
+            if status == "retryable_failure" and attempt_count >= MAX_INGESTION_ATTEMPTS:
+                stored_status = "retry_exhausted"
+                conn.execute(
+                    "UPDATE ingestion_failures SET status = ? WHERE failure_id = ?",
+                    (stored_status, row["failure_id"]),
+                )
+            conn.commit()
+
+        return {
+            "failure_id": int(row["failure_id"]),
+            "file_name": row["file_name"],
+            "source_sha256": row["source_sha256"],
+            "status": stored_status,
+            "reason": row["reason"],
+            "attempt_count": attempt_count,
+            "first_seen_at": row["first_seen_at"],
+            "last_attempt_at": row["last_attempt_at"],
+            "resolved_at": None,
+        }
+
+    def resolve_ingestion_failure(self, source_sha256: str) -> int:
+        """Marks a failure resolved once an invoice for those bytes has been stored.
+
+        A clean first store has no row, and this updates nothing. A file that failed and
+        later succeeds keeps the row, with resolved_at set, so the attempt history stays.
+        """
+        if not source_sha256:
+            return 0
+        with connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE ingestion_failures SET resolved_at = datetime('now') "
+                "WHERE source_sha256 = ? AND resolved_at IS NULL",
+                (source_sha256,),
+            )
+            conn.commit()
+            return int(cursor.rowcount)
+
     # -- invoices -----------------------------------------------------
     def save_invoice(
         self,
@@ -1046,6 +1225,16 @@ class StorageManager:
         return {
             "invoice_id": invoice_id,
             "was_update": existing is not None,
+            # The decision a person had already made, which this write left in force. None
+            # for a new row and for an automatic approval (no reviewer). The caller says so,
+            # so a re-sent document does not look as if it vanished.
+            "kept_decision": (
+                existing["approval_status"]
+                if existing is not None
+                and existing["approval_status"] != "Pending"
+                and existing["reviewed_at"] is not None
+                else None
+            ),
             "total_cents": total_cents,
             "total_source": total_source,
             "recovery_note": recovery_note,
@@ -1261,6 +1450,14 @@ class StorageManager:
         with connect(self.db_path) as conn:
             return int(conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"])
 
+    def change_token(self) -> str:
+        """The monotonic revision changed by triggers on dashboard-visible tables."""
+        with connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT revision FROM dashboard_revision WHERE id = 1"
+            ).fetchone()
+        return str(row["revision"])
+
     def user_by_id(self, user_id: int) -> Optional[sqlite3.Row]:
         """Display name and Jira account id for a reviewer. No password hash."""
         with connect(self.db_path) as conn:
@@ -1278,8 +1475,11 @@ class StorageManager:
         as the pipeline left them. An unknown user_id is rejected rather than stored: a
         decision with no real reviewer is not a decision. Returns whether a row changed.
 
-        "Pending" is no longer accepted. Taking a decision back also has to deal with the work
-        that followed it, which is `reopen_for_review`'s job, and a second way in would skip it.
+        A pending document may be approved or rejected. A system-approved document may be
+        rejected by a person, but approving it again is not a decision. A human-approved or
+        human-rejected document is immutable until `reopen_for_review` returns it to Pending.
+        These rules are enforced here as well as in the UI so a stale browser tab cannot
+        overwrite a newer decision.
         """
         if decision not in ("Approved", "Rejected"):
             raise ValueError(f"unknown decision {decision!r}")
@@ -1289,13 +1489,28 @@ class StorageManager:
             ).fetchone()
             if not reviewer:
                 raise ValueError(f"unknown reviewer {reviewed_by}")
+            if decision == "Approved":
+                allowed = "approval_status = 'Pending'"
+            else:
+                allowed = ("(approval_status = 'Pending' OR "
+                           "(approval_status = 'Approved' AND reviewed_at IS NULL))")
             cursor = conn.execute(
                 "UPDATE invoices SET approval_status = ?, reviewed_at = datetime('now'), "
-                "reviewed_by = ? WHERE invoice_id = ?",
+                f"reviewed_by = ? WHERE invoice_id = ? AND {allowed}",
                 (decision, reviewed_by, invoice_id),
             )
             if cursor.rowcount:
                 self._log_decision(conn, invoice_id, decision, reviewed_by)
+            else:
+                current = conn.execute(
+                    "SELECT approval_status, reviewed_at FROM invoices WHERE invoice_id = ?",
+                    (invoice_id,),
+                ).fetchone()
+                if current:
+                    raise ValueError(
+                        "This document already has a human decision. Reopen it before "
+                        "recording another decision."
+                    )
             conn.commit()
             return cursor.rowcount > 0
 

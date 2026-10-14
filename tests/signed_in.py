@@ -26,6 +26,11 @@ import auth  # noqa: E402
 from storage import DEFAULT_DB_PATH, StorageManager  # noqa: E402
 
 
+def active_db_path():
+    """The isolated UI database selected by conftest, with a CLI-safe fallback."""
+    return os.environ.get("WORKFLOW_DB_PATH", os.path.join(REPO_ROOT, DEFAULT_DB_PATH))
+
+
 def sign_in(at, username: str = "neo"):
     """Puts a real user in `AppTest`'s session. Returns the same AppTest, for chaining.
 
@@ -35,7 +40,7 @@ def sign_in(at, username: str = "neo"):
     `must_change_password` is forced False. These tests are about the approval screen, and a
     first-login password prompt is a different screen with its own coverage in `test_auth.py`.
     """
-    store = StorageManager(os.path.join(REPO_ROOT, DEFAULT_DB_PATH))
+    store = StorageManager(active_db_path())
     auth.ensure_default_users(store)
     user = store.user_by_username(username)
     assert user is not None, f"{username!r} is missing after ensure_default_users"

@@ -4,7 +4,7 @@
 Supersedes `database-redesign-spec.md` and `database-completion-spec.md`, both of which are folded
 into this document. Their earlier versions remain in git history.
 
-**Owner:** Neo. **Branch:** `neo/integrate-team`. **Schema version:** 14.
+**Owner:** Neo. **Branch:** `neo/integrate-team`. **Schema version:** 17.
 **Last verified:** 2026-09-17, by `./.venv/bin/python -m pytest tests/ -q` plus an
 end-to-end pipeline run. The test count is deliberately not quoted here: it changes on
 every push and a number in a document rots where a command does not.
@@ -356,6 +356,30 @@ time a model was re-run. This table records what the model said. Lifecycle belon
 because a list is ordered and a set of rows is not. Storing a list as a delimited blob was the
 `line_items` mistake and it cost a migration to undo.
 
+### 4.11 `ingestion_failures`
+
+One row per file the pipeline could not store. Added by migration 017.
+
+This is not an invoice. A scanned PDF never reaches `invoices` until something can read it.
+The key is the file bytes, not the extracted text: a page with no text layer would make every
+scanned PDF share one empty text hash.
+
+| Field | Type | Null | Meaning and notes |
+|---|---|---|---|
+| `failure_id` | INTEGER PK | no | Autoincrement. |
+| `file_name` | TEXT | no | The name as claimed. Updated when the same bytes arrive under a new name. |
+| `source_sha256` | TEXT | no | SHA-256 of the raw file bytes. **UNIQUE.** Provenance for an invoice is not unique, because two files can carry the same text; this table is the opposite, because the text is missing. |
+| `status` | TEXT | no | `needs_ocr` / `unsupported` / `retryable_failure` / `retry_exhausted`. A retryable failure is stored as `retry_exhausted` once `attempt_count` reaches 3. |
+| `reason` | TEXT | no | Why this attempt stopped. A sentence, not a code: these rows are there so a person can see them later. |
+| `attempt_count` | INTEGER | no | How many times this hash has been tried. `CHECK >= 1`. Climbs on each attempt. Not reset when the row is resolved and then fails again. |
+| `first_seen_at` | TEXT | no | The first attempt. Not updated. |
+| `last_attempt_at` | TEXT | no | The most recent attempt. |
+| `resolved_at` | TEXT | yes | Set when a later run stores an invoice for the same bytes. NULL while the failure is still open. Cleared if that file fails again. |
+
+A second attempt updates the same row. `first_seen_at` stays. A clean first store does not insert a row; it only sets `resolved_at` when a row is already there.
+
+**Index:** `ix_ingestion_failures_status`, plus the unique index on `source_sha256`.
+
 ---
 
 ---
@@ -666,6 +690,10 @@ better report line than a normaliser that guesses and is usually right.
 | 12 | `migrations/012_invoice_ai_fields.py` | Added `email_attachments` and `invoice_action_items`, and `invoices.category` / `invoices.summary`. Luke's SQL, re-landed at a free number. Additive. | **Applied** |
 | 13 | `migrations/013_reviewer_login.py` | Added `users` and `invoices.reviewed_by`. Written on `luke/team-tasks` as 010 and re-landed here because 010 was already taken. Additive. | **Applied** |
 | 14 | `migrations/014_must_change_password.py` | Added `users.must_change_password`. Written as 011 and re-landed for the same reason. Additive. | **Applied** |
+| 15 | `migrations/015_review_note.py` | Added `invoices.review_note` and `review_note_at`. Additive. | **Applied** |
+| 16 | `migrations/016_invoice_decisions.py` | Added `invoice_decisions`, one row per decision a person makes. Additive. | **Applied** |
+| 17 | `migrations/017_ingestion_failures.py` | Added `ingestion_failures`, one row per file-byte hash the pipeline could not store. Additive. | **Applied** |
+| 18 | `migrations/018_dashboard_revision.py` | Added one monotonic dashboard revision and triggers for dashboard-visible writes. Additive. | **Applied** |
 
 Every migration backs the database up first, refuses to run out of order, is idempotent, and prints
 a before/after report that proves no money moved.

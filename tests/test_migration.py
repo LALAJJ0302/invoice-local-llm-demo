@@ -48,6 +48,8 @@ m013 = load_migration("013_reviewer_login.py")
 m014 = load_migration("014_must_change_password.py")
 m015 = load_migration("015_review_note.py")
 m016 = load_migration("016_invoice_decisions.py")
+m017 = load_migration("017_ingestion_failures.py")
+m018 = load_migration("018_dashboard_revision.py")
 
 
 LEGACY_DDL = """
@@ -132,6 +134,8 @@ def migrated_db(legacy_db):
     assert m014.migrate(legacy_db) == 0
     assert m015.migrate(legacy_db) == 0
     assert m016.migrate(legacy_db) == 0
+    assert m017.migrate(legacy_db) == 0
+    assert m018.migrate(legacy_db) == 0
     return legacy_db
 
 
@@ -433,6 +437,8 @@ class TestEmailBodyAndAttachments:
         m014.migrate(at_v7)
         m015.migrate(at_v7)
         m016.migrate(at_v7)
+        m017.migrate(at_v7)
+        m018.migrate(at_v7)
         store = StorageManager(at_v7)
         email = store.record_email("<x@mail>", "a@b.com", attachment_count=1)
         assert store.has_seen_attachment(email["email_id"], "a" * 64) is False
@@ -521,6 +527,8 @@ class TestAIDocumentFields:
         m014.migrate(at_v8)
         m015.migrate(at_v8)
         m016.migrate(at_v8)
+        m017.migrate(at_v8)
+        m018.migrate(at_v8)
         store = StorageManager(at_v8)
         run_id = store.start_run("llama3.2", 0.8)
         result = store.save_invoice(
@@ -601,7 +609,7 @@ class TestChain:
         with connect(migrated_db) as conn:
             versions = [r["version"] for r in
                         conn.execute("SELECT version FROM schema_version ORDER BY version")]
-        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        assert versions == list(range(1, SCHEMA_VERSION + 1))
 
     def test_migrated_matches_fresh(self, migrated_db, tmp_path):
         """A replayed migration chain and a fresh storage.DDL database must agree.
@@ -619,7 +627,8 @@ class TestChain:
                               "email_messages", "email_attachments", "tasks",
                               "outbound_messages", "invoice_action_items",
                               "email_analysis", "thread_analysis", "email_action_items",
-                              "thread_decisions", "users"):
+                              "thread_decisions", "users", "invoice_decisions",
+                              "ingestion_failures"):
                     tables[table] = [
                         (r["name"], r["type"], r["notnull"], r["dflt_value"])
                         for r in conn.execute(f"PRAGMA table_info({table})")
@@ -663,7 +672,7 @@ class TestChain:
         """A teammate following the quickstart runs every migration in order. Doing that
         twice must succeed, not report failure on the ones already applied."""
         for module in (m001, m002, m003, m004, m005, m006, m007,
-                       m008, m009, m010, m011, m012, m013, m014, m015, m016):
+                       m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018):
             assert module.migrate(migrated_db) == 0, f"{module.__name__} failed on re-run"
 
 
@@ -884,6 +893,8 @@ class TestEmailAnalysisTables:
         m014.migrate(before_011)
         m015.migrate(before_011)
         m016.migrate(before_011)
+        m017.migrate(before_011)
+        m018.migrate(before_011)
         store = StorageManager(before_011)
         store.record_email("<m@mail>", "pm@client.com", "Budget")
         run_id = store.start_email_run("llama3.2:latest")
@@ -1000,3 +1011,76 @@ class TestInvoiceDecisionsMigration:
                   m009, m010, m011, m012, m013, m014):
             assert m.migrate(legacy_db) == 0
         assert m016.migrate(legacy_db) == 1
+
+
+# =====================================================================
+# Migration 017
+# =====================================================================
+class TestIngestionFailuresMigration:
+    @pytest.fixture
+    def at_v16(self, legacy_db):
+        for m in (m001, m002, m003, m004, m005, m006, m007, m008,
+                  m009, m010, m011, m012, m013, m014, m015, m016):
+            assert m.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_adds_the_table_and_moves_no_invoices(self, at_v16):
+        with connect(at_v16) as conn:
+            before = conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"]
+        assert m017.migrate(at_v16) == 0
+        with connect(at_v16) as conn:
+            tables = {r["name"] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            after = conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"]
+            version = conn.execute("SELECT MAX(version) v FROM schema_version").fetchone()["v"]
+        assert "ingestion_failures" in tables
+        assert after == before
+        assert version == 17
+
+    def test_is_idempotent(self, at_v16):
+        assert m017.migrate(at_v16) == 0
+        assert m017.migrate(at_v16) == 0
+
+    def test_refuses_a_database_that_is_not_at_16(self, legacy_db):
+        for m in (m001, m002, m003, m004, m005, m006, m007, m008,
+                  m009, m010, m011, m012, m013, m014, m015):
+            assert m.migrate(legacy_db) == 0
+        assert m017.migrate(legacy_db) == 1
+
+
+# =====================================================================
+# Migration 018
+# =====================================================================
+class TestDashboardRevisionMigration:
+    @pytest.fixture
+    def at_v17(self, legacy_db):
+        for module in (m001, m002, m003, m004, m005, m006, m007, m008, m009,
+                       m010, m011, m012, m013, m014, m015, m016, m017):
+            assert module.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_adds_revision_and_triggers_without_moving_rows(self, at_v17):
+        with connect(at_v17) as conn:
+            before = conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"]
+        assert m018.migrate(at_v17) == 0
+        with connect(at_v17) as conn:
+            after = conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"]
+            revision = conn.execute(
+                "SELECT revision FROM dashboard_revision WHERE id = 1"
+            ).fetchone()["revision"]
+            triggers = conn.execute(
+                "SELECT COUNT(*) c FROM sqlite_master WHERE type = 'trigger' "
+                "AND name LIKE 'dashboard_%'"
+            ).fetchone()["c"]
+            version = conn.execute("SELECT MAX(version) v FROM schema_version").fetchone()["v"]
+        assert after == before
+        assert revision == 0
+        assert triggers == len(m018.TABLES) * 3
+        assert version == 18
+
+    def test_is_idempotent(self, at_v17):
+        assert m018.migrate(at_v17) == 0
+        assert m018.migrate(at_v17) == 0
+
+    def test_refuses_a_database_that_is_not_at_17(self, legacy_db):
+        assert m018.migrate(legacy_db) == 1

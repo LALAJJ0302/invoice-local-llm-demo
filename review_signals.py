@@ -47,7 +47,8 @@ DETAIL = {
     "Total is less than the line items add up to":
         "Tax and shipping push a total above its parts. Nothing legitimate pushes it below.",
     "Did not pass the validation gate":
-        "At least one check failed. The document is here because a person has to decide anyway.",
+        "At least one check failed. A document can clear the score and still fail a rule, so a "
+        "person has to decide anyway.",
     "No line items to check the total against":
         "The model read a total but no rows, so nothing adds up to it. Every other check passed.",
     "Total was recovered by our code, not read from the document":
@@ -144,3 +145,12 @@ SCORE_NOTE_SHORT = "How much of our own check it passed. Not the model's confide
 def verdict_word(row: Mapping[str, Any]) -> str:
     """The gate's verdict as a reader sees it, or an em-less dash when there is none."""
     return VERDICT.get(row.get("validation_status") or "", "-")
+
+
+# The note above the Documents list, where a score sits in a column rather than on a card. It is
+# here and not in app.py so the sentence about what the number measures lives in one module.
+# The column header says "Validation score" and this says what it is and where the gate sits.
+DOCUMENTS_SCORE_NOTE = (
+    "Validation score is how much of our own check passed, not the model's confidence. "
+    "The gate passes at 0.80."
+)

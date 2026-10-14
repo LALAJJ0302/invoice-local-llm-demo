@@ -4,13 +4,12 @@
 # Typical use:
 #   docker compose up -d ollama              # start Ollama, pull llama3.2 (first run is slow)
 #   docker compose run --rm pipeline         # process inbox/ once, then exits
-#   docker compose run --rm listener         # fetch Gmail attachments once, then exits
+#   docker compose run --rm listener         # poll unread invoice mail until stopped
 #   docker compose up app                    # dashboard on http://localhost:8501
 #
-# pipeline and listener are one-shot batch jobs, same as running `python main.py` or
-# `python email_listener.py` directly: they process what is there and exit. Bringing them
-# up with plain `docker compose up` (no service name) is harmless -- they just run once
-# and report "Exited (0)" -- but `run --rm` above is the intended way to invoke them.
+# pipeline is a one-shot batch job, same as `python main.py`: it processes what is there
+# and exits. listener keeps polling, same as `python email_listener.py`, until it is
+# stopped. A single pass is `python email_listener.py --once`.
 
 services:
   ollama:

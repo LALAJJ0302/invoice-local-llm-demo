@@ -24,6 +24,16 @@ def run():
     return at
 
 
+def run_view(view):
+    """Renders one sidebar destination. The Overview page no longer hosts the document cards,
+    so the tests about the card read the Awaiting approval destination, where it lives."""
+    at = sign_in(AppTest.from_file(APP, default_timeout=120))
+    at.query_params["v"] = view
+    at.run()
+    assert not at.exception, [str(e.value) for e in at.exception]
+    return at
+
+
 def tab_labels(at):
     return [label for block in at.get("tabs") for label in getattr(block, "labels", [])] or None
 
@@ -83,9 +93,16 @@ def test_overview_agrees_with_the_tab_labels():
     at = run()
     rendered = " ".join(m.value for m in at.markdown if m.value)
 
-    tiles = [int(n) for n in re.findall(r"<span class='ov-number'>(\d+)</span>", rendered)]
-    assert tiles[:2] == [len(pending), len(auto)], (
-        f"the tiles show {tiles[:2]}, the tabs count {[len(pending), len(auto)]}")
+    def tile_number(label):
+        found = re.search(
+            rf"<span class='ov-label'>{label}</span><div class='ov-value'>"
+            rf"<span class='ov-number'>(\d+)</span>", rendered)
+        assert found, f"no tile labelled {label!r}"
+        return int(found.group(1))
+
+    assert tile_number("Waiting for you") == len(pending), "the tile and the tab disagree"
+    assert tile_number("Approved by the system") == len(auto), "the tile and the tab disagree"
+    assert tile_number("Invoices") == len(df)
 
     jira = outbox[outbox["channel"] == "Jira"]
     pushable = len(jira[jira["state"].isin(["Pending", "Failed"])])
@@ -102,7 +119,7 @@ def test_overview_shows_the_waiting_documents_and_not_only_a_count():
     at = run()
     rendered = " ".join(m.value for m in at.markdown if m.value)
     if pending.empty:
-        assert "Nothing is waiting for you" in rendered
+        assert "Nothing is waiting" in rendered
     else:
         top = pending.sort_values("email_received_at", na_position="last").iloc[0]
         assert str(top["vendor_name"]) in rendered, (
@@ -161,7 +178,7 @@ def test_the_card_carries_everything_the_approved_design_carries():
     df = app.load_data()
     if df.empty:
         return
-    at = run()
+    at = run_view("awaiting")
     rendered = " ".join(m.value for m in at.markdown if m.value)
     assert "Covering email" in rendered, "the covering email chip is missing from the card"
     assert [b for b in at.button if b.label == "Open the document"] or \
@@ -180,7 +197,7 @@ def test_the_signal_explanation_comes_from_the_module():
     flagged = [r for _, r in on_a_card.iterrows() if risk_detail(r)]
     if not flagged:
         return
-    at = run()
+    at = run_view("awaiting")
     rendered = " ".join(m.value for m in at.markdown if m.value)
     assert risk_detail(flagged[0]) in rendered
     assert not any(d in pathlib.Path(APP).read_text(encoding="utf-8") for d in DETAIL.values())
@@ -235,8 +252,12 @@ def test_a_section_header_opens_its_destination():
     two commits while the button did nothing. So this asserts the thing a person would notice:
     the sidebar's selection moves.
     """
-    for key, destination in (("open-awaiting", "awaiting"), ("open-outbox", "outbox"),
-                             ("open-history", "history")):
+    # Outbox appears on Overview only while something is waiting to go out, so it is checked
+    # when it is there rather than required.
+    headers = [("open-awaiting", "awaiting"), ("open-recent", "documents")]
+    if any(b.key == "open-outbox" for b in run().button):
+        headers.append(("open-outbox", "outbox"))
+    for key, destination in headers:
         at = run()
         assert at.sidebar.radio[0].value == "overview"
         next(b for b in at.button if b.key == key).click().run()
@@ -310,6 +331,33 @@ def test_the_human_jira_dispatch_names_the_reviewer():
         "the human approval path dispatches to Jira without saying which human")
 
 
+def test_a_missing_invoice_number_still_joins():
+    """SQL NULL comes back from pandas as NaN, and NaN is truthy.
+
+    `value or "-"` therefore keeps the float, and `' · '.join` raises TypeError. That took
+    Overview down on 2026-10-12: the newest pending document has no invoice number, and the
+    card meta line is the first thing the page draws.
+    """
+    import app
+
+    blank = {
+        "invoice_number": float("nan"),
+        "invoice_date": "2026-08-19",
+        "email_received_at": None,
+        "system_processed_at": None,
+    }
+    parts = app.meta_parts(blank)
+    assert parts[0] == "-"
+    assert all(isinstance(part, str) for part in parts)
+    joined = " · ".join(parts)
+    assert joined.startswith("- · issued 2026-08-19")
+    assert "nan" not in joined
+
+    present = dict(blank, invoice_number="INV-2026-1820")
+    assert app.meta_parts(present)[0] == "INV-2026-1820"
+    assert app.dialog_meta(present).startswith("INV-2026-1820")
+
+
 def test_the_auth_screens_carry_the_product_name():
     """Luke's call, 2026-09-28: Invoice approvals on both, no lightning bolt.
 
@@ -328,6 +376,8 @@ def test_the_auth_screens_carry_the_product_name():
     # whether the two screens Luke named are the ones that carry it.
     import inspect
 
-    for screen in (app.require_login, app.require_password_change):
-        body = inspect.getsource(screen)
-        assert 'st.title("Invoice approvals")' in body, screen.__name__
+    # The sign-in card now carries the name as the title art (INVOICE APPROVAL, singular, drawn
+    # by title_art), per the Square-style design accepted on 2026-10-12. The password screen keeps
+    # the plain st.title, so the name is still on both screens.
+    assert "title_art(stacked=True)" in inspect.getsource(app.require_login)
+    assert 'st.title("Invoice approvals")' in inspect.getsource(app.require_password_change)

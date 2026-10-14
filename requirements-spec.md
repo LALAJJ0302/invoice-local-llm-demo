@@ -53,8 +53,9 @@ storage, a review dashboard, and an evaluation harness.
 **Out of scope:** training or fine-tuning any model, real accounting integration, payment execution,
 multi-user authentication, production deployment, and any cloud service.
 
-**Explicitly deferred:** OCR for scanned documents, Jira and Teams integration beyond simulated
-calls, and the Trigger/Approval round.
+**Explicitly deferred:** Jira and Teams integration beyond simulated
+calls, and the Trigger/Approval round. Scanned PDFs are read locally with Tesseract when that
+program is installed. Without it they stay on the retry-then-quarantine path.
 
 ## 5. Functional requirements
 
@@ -76,7 +77,7 @@ Priority: **M** must have for the demonstration, **S** should have, **C** could 
 | FR-2.2 | The system shall extract invoice number, vendor, date, total and currency into a typed structure | M | **Implemented. 10/15 field-values from the model alone, 15/15 as shipped.** The gap is our own repair code, and `run_eval.py` switches every repair off by default so the model can always be measured alone. The earlier "3/15" in this row was the 2026-08-26 baseline and was left here after the prompt and the fallback changed it |
 | FR-2.3 | The system shall extract line items with description, quantity and unit price | M | Implemented |
 | FR-2.4 | The system shall run entirely on a local model with no external API call | M | Implemented |
-| FR-2.5 | The system shall process scanned or image-only PDFs | C | **Not implemented, no OCR** |
+| FR-2.5 | The system shall process scanned or image-only PDFs | C | **Implemented when Tesseract is installed.** A page with no text layer is rendered and read locally. The text then follows the same extraction path as an embedded text layer. If Tesseract is missing, the file is retried and then quarantined. Nothing is uploaded. |
 
 ### Phase 3, email understanding (JJ + Neo)
 

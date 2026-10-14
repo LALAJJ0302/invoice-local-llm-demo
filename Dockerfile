@@ -7,6 +7,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Tesseract reads scanned pages. The Python packages only call this program.
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
+
 # Installed in their own layer so `docker compose build` only re-runs pip when
 # requirements.txt actually changes, not on every source edit.
 COPY requirements.txt .

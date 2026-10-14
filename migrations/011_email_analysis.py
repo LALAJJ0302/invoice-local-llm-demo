@@ -59,9 +59,12 @@ def ddl_tail():
     fragments that are not SQL.
     """
     marker = "-- The email AI module's output. Added by migration 011."
+    end_marker = "-- End of migration 011 email-analysis objects."
     if marker not in DDL:
         raise RuntimeError("storage.DDL no longer carries the migration 011 marker.")
-    return DDL[DDL.index(marker):]
+    if end_marker not in DDL:
+        raise RuntimeError("storage.DDL no longer carries the migration 011 end marker.")
+    return DDL[DDL.index(marker):DDL.index(end_marker)]
 
 
 def created_objects(script):
