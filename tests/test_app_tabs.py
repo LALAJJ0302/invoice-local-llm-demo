@@ -331,6 +331,33 @@ def test_the_human_jira_dispatch_names_the_reviewer():
         "the human approval path dispatches to Jira without saying which human")
 
 
+def test_a_missing_invoice_number_still_joins():
+    """SQL NULL comes back from pandas as NaN, and NaN is truthy.
+
+    `value or "-"` therefore keeps the float, and `' · '.join` raises TypeError. That took
+    Overview down on 2026-10-12: the newest pending document has no invoice number, and the
+    card meta line is the first thing the page draws.
+    """
+    import app
+
+    blank = {
+        "invoice_number": float("nan"),
+        "invoice_date": "2026-08-19",
+        "email_received_at": None,
+        "system_processed_at": None,
+    }
+    parts = app.meta_parts(blank)
+    assert parts[0] == "-"
+    assert all(isinstance(part, str) for part in parts)
+    joined = " · ".join(parts)
+    assert joined.startswith("- · issued 2026-08-19")
+    assert "nan" not in joined
+
+    present = dict(blank, invoice_number="INV-2026-1820")
+    assert app.meta_parts(present)[0] == "INV-2026-1820"
+    assert app.dialog_meta(present).startswith("INV-2026-1820")
+
+
 def test_the_auth_screens_carry_the_product_name():
     """Luke's call, 2026-09-28: Invoice approvals on both, no lightning bolt.
 

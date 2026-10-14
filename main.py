@@ -2,6 +2,7 @@ import argparse
 import os
 import re
 import shutil
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,23 +26,113 @@ from storage import StorageManager
 # fields out of documents. These regexes backfill fields the model
 # missed (returned null / 0.0 / "Unknown") using the same "fallback
 # only fills gaps" approach as the existing vendor-name heuristic.
+#
+# Each optional separator carries its own trailing \s*, so two \s* runs are never
+# adjacent. Adjacent runs made the total pattern cubic on PDF text: "Amount Due"
+# plus 2,000 spaces took 25 s, and the other two quadratic (codeql-fixes-spec.md).
 INVOICE_NUMBER_PATTERN = re.compile(
     r"(?:Invoice\s*(?:Number|No\.?|#)|Tax\s*Invoice\s*(?:Number|No\.?)|Receipt\s*(?:Number|No\.?)|Order\s*#|Ref\s*#)"
-    r"\s*[:\-]?\s*([A-Za-z0-9][A-Za-z0-9\-\/]{2,})",
+    r"\s*(?:[:\-]\s*)?([A-Za-z0-9][A-Za-z0-9\-\/]{2,})",
     re.IGNORECASE
 )
 DATE_LABEL_PATTERN = re.compile(
     r"(?:Date\s*of\s*Issue|Invoice\s*Date|Bill\s*Date|Transaction\s*Date|Date)"
-    r"\s*[:\-]?\s*([A-Za-z0-9,\/\-\. ]{6,25})",
+    r"\s*(?:[:\-]\s*)?([A-Za-z0-9,\/\-\. ]{6,25})",
     re.IGNORECASE
 )
 TOTAL_AMOUNT_PATTERN = re.compile(
     r"(?:Grand\s*Total|Total\s*Amount\s*Due|Amount\s*Due|Balance\s*Due|Total\s*Payable)"
-    r"\s*[:\-]?\s*(?:[A-Z]{3}|\$|€|£)?\s*([\d,]+\.\d{2})",
+    r"\s*(?:[:\-]\s*)?(?:(?:[A-Z]{3}|\$|€|£)\s*)?([\d,]+\.\d{2})",
     re.IGNORECASE
 )
 CURRENCY_CODE_PATTERN = re.compile(r"\b(AUD|USD|EUR|GBP|CAD|NZD|TWD|JPY|SGD|HKD|CNY|INR)\b", re.IGNORECASE)
 INVOICE_CODE_TOKEN_PATTERN = re.compile(r"^[A-Za-z]{2,5}-?\d+", re.IGNORECASE)
+
+# A grand total printed on the same line as its label. When a document has one, it outranks
+# every other amount. A summary table puts its labels on one line and its amounts on the
+# next, and only the column position says which amount is the total; plain text loses that.
+# Found 2026-10-13 on a scanned water bill: "Last bill ... Total amount due" over
+# "$268.47 ... $279.40". The model took 268.47, the previous bill, and so would
+# TOTAL_AMOUNT_PATTERN, whose \s* crosses the line break. The same bill later says
+# "Total amount due $279.40" on one line, which is what this reads.
+#
+# A subtotal is not the payable amount, so a "sub" prefix is excluded. A bare "Total" counts
+# only at the start of a line and not when it introduces tax ("Total GST 25.40"). Every
+# separator is [ \t]* between literals, so matching stays linear on sender-controlled text.
+STATED_TOTAL_LABEL_PATTERN = re.compile(
+    r"(?<!sub)(?<!sub-)(?<!sub )"
+    r"(?:grand[ \t]*total|total[ \t]*amount[ \t]*due|total[ \t]*due|amount[ \t]*due"
+    r"|balance[ \t]*due|total[ \t]*payable|amount[ \t]*payable|invoice[ \t]*total)\b"
+    r"|^[ \t]*total\b(?![ \t]*(?:gst|tax|vat|excl?\b|ex\b))",
+    re.IGNORECASE,
+)
+MONEY_TOKEN_PATTERN = re.compile(r"\d[\d,]*(?:\.\d+)?")
+TWO_DECIMAL_AMOUNT = re.compile(r"[\d,]+\.\d{2}")
+
+
+def red(text: str, stream=None) -> str:
+    """`text` in red when it is going to a terminal, unchanged otherwise.
+
+    Redirected output and NO_COLOR (https://no-color.org) get plain text, so a log file never
+    fills with escape codes. Windows consoles only draw ANSI colour once virtual-terminal
+    processing is switched on, which _enable_windows_ansi does.
+    """
+    stream = stream or sys.stdout
+    if os.environ.get("NO_COLOR") or not getattr(stream, "isatty", lambda: False)():
+        return text
+    if os.name == "nt":
+        _enable_windows_ansi()
+    return f"\033[31m{text}\033[0m"
+
+
+def _enable_windows_ansi() -> None:
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)  # VIRTUAL_TERMINAL_PROCESSING
+    except Exception:
+        pass  # No colour is the worst case, never a failed run.
+
+
+def kept_decision_notice(result: dict) -> Optional[str]:
+    """What to say when a re-sent document kept a person's decision, or None.
+
+    storage.save_invoice never overwrites a human decision, so a rejected document sent
+    again stays rejected and opens no review task. Without this line it looks as if the
+    document vanished. History's Reopen is the way back into the approval queue.
+    """
+    decision = result.get("kept_decision")
+    if not decision:
+        return None
+    return (f"     [Kept] invoice_id={result['invoice_id']} was already {decision} by a "
+            f"person, so it stays {decision} and is not back in the approval queue. "
+            "To review it again, open History in the dashboard and press Reopen.")
+
+
+def stated_total_cents(raw_text: str) -> List[int]:
+    """Every distinct amount that follows a grand-total label on the label's own line.
+
+    In cents, in the order they first appear. Only the first amount after each label is
+    taken, and it must have two decimal places, so a quantity or a date beside the label is
+    not mistaken for money. An empty list means the document never states its total on one
+    line, which is how the generated invoices are laid out; callers then behave as before.
+    """
+    found: List[int] = []
+    for line in raw_text.splitlines():
+        label = STATED_TOTAL_LABEL_PATTERN.search(line)
+        if not label:
+            continue
+        for token in MONEY_TOKEN_PATTERN.findall(line, label.end()):
+            if TWO_DECIMAL_AMOUNT.fullmatch(token):
+                cents = storage.to_cents(token.replace(",", ""))
+                if cents and cents not in found:
+                    found.append(cents)
+                break
+    return found
 
 # =====================================================================
 # 1. Enhanced Data Schema Definitions
@@ -481,6 +572,7 @@ class DocumentExtractor:
                 parsed_data.vendor_name = self._infer_vendor_fallback(raw_text, file_name)
 
             parsed_data.vendor_name = self._clean_vendor_label(parsed_data.vendor_name)
+            parsed_data = self._clean_total_amount(parsed_data, raw_text)
 
             # Deterministic regex fallback for the remaining structured fields
             parsed_data = self._infer_missing_fields_fallback(parsed_data, raw_text)
@@ -511,6 +603,25 @@ class DocumentExtractor:
                 return text[len(label):].strip() or None
         return text
 
+    def _clean_total_amount(self, data: ExtractedInvoice, raw_text: str) -> ExtractedInvoice:
+        """Replaces a total the document contradicts with the one it states beside its label.
+
+        On 2026-10-13 the model returned 268.47 for a water bill whose summary table reads
+        "Last bill ... Total amount due" over "$268.47 ... $279.40": the first amount under
+        the label line, which is the previous bill. The bill also prints "Total amount due
+        $279.40" on one line. See stated_total_cents.
+
+        Acts only when the document states exactly one total that way. Two different stated
+        totals are left for a person, and the gate will not verify either. A missing total
+        is the fallback's job, not this one. Named _clean_* so evaluation/run_eval.py
+        switches it off when measuring the model alone.
+        """
+        stated = stated_total_cents(raw_text)
+        extracted = storage.to_cents(data.total_amount)
+        if len(stated) == 1 and extracted and extracted != stated[0]:
+            data.total_amount = storage.from_cents(stated[0])
+        return data
+
     def _infer_missing_fields_fallback(self, data: ExtractedInvoice, raw_text: str) -> ExtractedInvoice:
         """Deterministic regex fallback that backfills fields the LLM missed.
 
@@ -533,8 +644,13 @@ class DocumentExtractor:
                     pass
 
         if not data.total_amount or data.total_amount <= 0:
-            match = TOTAL_AMOUNT_PATTERN.search(raw_text)
-            if match:
+            # A total stated on its label's line comes first. The pattern below can cross a
+            # line break, and under a summary table's label line that reaches the wrong column.
+            stated = stated_total_cents(raw_text)
+            match = None if len(stated) == 1 else TOTAL_AMOUNT_PATTERN.search(raw_text)
+            if len(stated) == 1:
+                data.total_amount = storage.from_cents(stated[0])
+            elif match:
                 try:
                     data.total_amount = float(match.group(1).replace(",", ""))
                 except ValueError:
@@ -607,6 +723,17 @@ class ConfidenceValidator:
             return "absent"
 
         lines = raw_text.splitlines()
+
+        # A total printed beside its own label settles the question. Proximity alone does
+        # not: under a summary table's label line every column's amount is one line away,
+        # and on 2026-10-13 that verified a previous bill's 268.47 as the total.
+        stated = stated_total_cents(raw_text)
+        if stated:
+            if target in stated:
+                return "verified"
+            on_page = any(target in self._cents_on_line(line) for line in lines)
+            return "present" if on_page else "absent"
+
         label_lines = [
             i for i, line in enumerate(lines)
             if any(label in line.lower() for label in self.TOTAL_LABELS)
@@ -682,7 +809,14 @@ class ConfidenceValidator:
 
         empty = [k for k, v in complete.items() if not v] + ([] if has_items else ["items"])
 
-        if amount_state == "absent":
+        stated = stated_total_cents(raw_text)
+        extracted = storage.to_cents(data.total_amount)
+
+        if stated and extracted and extracted not in stated:
+            reason = (f"The document states the total as "
+                      f"{' or '.join(f'{c / 100:,.2f}' for c in stated)} beside its label, "
+                      f"but {data.total_amount} was extracted.")
+        elif amount_state == "absent":
             reason = (f"The total {data.total_amount} does not appear in the document."
                       if data.total_amount else "No total amount was extracted.")
         elif amount_state == "present":
@@ -1090,6 +1224,9 @@ class WorkflowOrchestrator:
         print(f"  └─ [Step 4: Storage] {action} invoice_id={result['invoice_id']}: "
               f"{total_text}, {result['line_item_count']} line items, "
               f"{result['document_type']}, reconciliation {result['reconciliation']}")
+        kept = kept_decision_notice(result)
+        if kept:
+            print(red(kept))
         if result["reconciliation"] == "short":
             print("     [Warn] The stated total is less than the line items add up to. "
                   "Tax and shipping cannot reduce a total, so one of the two is wrong.")
