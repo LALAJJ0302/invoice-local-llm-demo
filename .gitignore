@@ -9,6 +9,8 @@ __pycache__/
 workflow_platform.db
 # Signing key for the login token in the page URL, created on first sign-in.
 .session_secret
+# Key that encrypts the Gmail App Password stored by the dashboard, created on first use.
+.mail_secret.key
 inbox/
 archive/
 *.pdf

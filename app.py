@@ -9,6 +9,7 @@ import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 import auth
+import gmail_panel
 from document_reader import DocumentReader
 import overview_data
 import task_dispatch
@@ -757,6 +758,17 @@ st.markdown("""
                color:var(--text-strong); font-size:11px; font-weight:600; flex:none;
                display:flex; align-items:center; justify-content:center; }
 .side-who { font-size:12.5px; font-weight:500; color:var(--text); }
+/* The Gmail row, above the signed-in block. System state, so it is a row and not a button. */
+.side-mail { margin-top:22px; display:flex; align-items:center; gap:10px; padding:6px 9px 10px; }
+.side-gmail { position:relative; width:22px; height:22px; flex:none; display:flex;
+              align-items:center; justify-content:center; }
+/* The state dot sits on the logo's corner, ringed in the surface colour so it reads on the red. */
+.side-gmail .side-dot { position:absolute; right:-4px; bottom:-3px; border:2px solid var(--surface); }
+.side-dot { width:10px; height:10px; box-sizing:border-box; border-radius:50%; flex:none;
+            background:var(--text-faint); }
+.side-dot.ok { background:var(--positive); }
+.side-dot.warn { background:var(--caution); }
+.side-mail .side-sub { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:170px; }
 
 /* The navigation, drawn as approval-screen-design-v3.html draws it: icon, name, count at the
    far edge, the current row filled with the accent wash and its count in a filled pill.
@@ -1158,6 +1170,11 @@ h1.title-art { margin:0; font-size:48px !important; font-weight:800 !important;
 .st-key-login-card [data-testid="stTextInputRootElement"] { border:1px solid var(--field-border);
   border-radius:var(--radius); background:var(--page); min-height:46px; }
 .st-key-login-card [data-testid="stTextInputRootElement"] input { font-size:15px; color:var(--text); }
+/* Streamlit draws the focus ring on the inner input, which this box then clips, so a focused
+   field showed a second border inside the first. The ring moves to the box that has the border. */
+.st-key-login-card [data-testid="stTextInputRootElement"] input:focus { box-shadow:none !important; }
+.st-key-login-card [data-testid="stTextInputRootElement"]:focus-within { border-color:var(--blue);
+  box-shadow:0 0 0 3px rgba(10,102,255,0.18); }
 .st-key-login-card [data-testid="stTextInputRootElement"] button { color:var(--text-muted); }
 .st-key-login-card [data-testid="stTextInputRootElement"] button svg { transform:scale(1.3); }
 .st-key-login-card [data-testid="stBaseButton-secondary"] { margin-top:12px; }
@@ -2006,6 +2023,29 @@ def sidebar_css(dest: dict) -> str:
     return "<style>" + "".join(rules) + "</style>"
 
 
+def _gmail_dismissed():
+    """The dialog was closed with the X or Esc. Lets the live refresh run again."""
+    st.session_state["dialog_open"] = False
+
+
+@st.dialog("Gmail connection", on_dismiss=_gmail_dismissed)
+def gmail_dialog():
+    """Connect or disconnect the mailbox the listener reads. See gmail-connect-spec.md."""
+    gmail_panel.dialog_body(StorageManager(DB_PATH), st.session_state.get("user_id"))
+
+
+def gmail_status_row(width="stretch"):
+    """The Gmail row: a dot, one line of state and a button to open the dialog.
+
+    In the sidebar normally. On an empty database the page has no sidebar, and that is exactly
+    when the mailbox has to be connected, so the same row is drawn in the page body there.
+    """
+    saved = StorageManager(DB_PATH).mail_connection()
+    st.markdown(gmail_panel.status_row_html(saved), unsafe_allow_html=True)
+    if st.button(gmail_panel.row_state(saved)[3], key="gmail_manage", width=width):
+        gmail_dialog()
+
+
 def sidebar(frame, pending, auto, outbox, history):
     """Draws the sidebar. Returns the search text and the chosen destination."""
     dest = destinations(frame, pending, auto, outbox, history)
@@ -2041,6 +2081,8 @@ def sidebar(frame, pending, auto, outbox, history):
         chosen = st.radio("Destinations", list(dest), key="view",
                           label_visibility="collapsed",
                           format_func=lambda key: dest[key]["label"])
+
+        gmail_status_row()
 
         # Was "Local session / No sign-in on this machine", which stopped being true the
         # moment require_login() landed. A footer that denies the login the user just passed
@@ -2115,7 +2157,7 @@ def empty_overview_html() -> str:
     """The Overview with nothing stored yet: grey placeholders, never a number that is not real.
 
     Drawn inside the early stop for an empty database, so it has no sidebar and no buttons that
-    would lead anywhere. The design's blue Open documents button is replaced by the one
+    would lead anywhere, apart from the Gmail row the caller adds below it. The design's blue Open documents button is replaced by the one
     instruction that applies, because a documents page with nothing on it is a dead end.
     """
     labels = ["Invoices", "Total amount", "Waiting for you", "Approved by a person",
@@ -2289,6 +2331,7 @@ df = load_data()
 if df.empty:
     with st.container(key="ovroot", gap=None):
         st.markdown(empty_overview_html(), unsafe_allow_html=True)
+        gmail_status_row(width="content")
     st.stop()
 
 # The search runs before the counts, so what the sidebar says and what the body shows are the

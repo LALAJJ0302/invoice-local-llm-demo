@@ -114,11 +114,19 @@ ATTACHMENT_DIR=./inbox
 |---|---|---|
 | `EMAIL_HOST` | No | `imap.gmail.com`. This is the default if the line is missing. |
 | `EMAIL_PORT` | No | `993`, the IMAP SSL port. This is the default if the line is missing. |
-| `EMAIL_USER` | Yes | The full Gmail address, such as `name@gmail.com`. |
-| `EMAIL_PASSWORD` | Yes | A Gmail App Password. The normal Gmail password is rejected by IMAP. |
+| `EMAIL_USER` | Yes, unless Gmail is connected from the dashboard | The full Gmail address, such as `name@gmail.com`. |
+| `EMAIL_PASSWORD` | Yes, unless Gmail is connected from the dashboard | A Gmail App Password. The normal Gmail password is rejected by IMAP. |
 | `ATTACHMENT_DIR` | No | Folder for saved files. Defaults to `./inbox`, which is also where `main.py` reads from. |
 
 The Jira lines further down `.env.example` are optional and are not used by the listener.
+
+**Or connect Gmail from the dashboard.** The sidebar has a Gmail row. Click it, enter the Gmail
+address and an App Password, and the dashboard checks the pair with Gmail before saving it. The
+listener reads that connection on every check, so it applies without a restart and takes
+priority over the two `.env` lines. The saved App Password is encrypted; the key is
+`MAIL_SECRET_KEY` if you set it, otherwise the file `.mail_secret.key`, created on first use and
+ignored by git. This needs `./.venv/bin/python migrations/019_mail_connection.py` once. See
+`gmail-connect-spec.md`.
 
 Create the App Password:
 
