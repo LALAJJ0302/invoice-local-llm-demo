@@ -14,6 +14,10 @@ pypdfium2==5.14.0
 pytesseract==0.3.13
 pydantic==2.13.4
 python-dotenv==1.2.3
+# Encrypts the Gmail App Password the dashboard stores (mail_connection.py).
+cryptography==50.0.2
+# The CA bundle the Gmail IMAP connection verifies against (mail_connection.imap_ssl_context).
+certifi==2026.7.22
 # Used by DocumentExtractor's regex date fallback. Declared explicitly even though
 # pandas pulls it in transitively: an import in our own code is a direct dependency,
 # and relying on someone else's tree to supply it is how a pinned file stops pinning.

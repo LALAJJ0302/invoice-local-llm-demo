@@ -50,6 +50,7 @@ m015 = load_migration("015_review_note.py")
 m016 = load_migration("016_invoice_decisions.py")
 m017 = load_migration("017_ingestion_failures.py")
 m018 = load_migration("018_dashboard_revision.py")
+m019 = load_migration("019_mail_connection.py")
 
 
 LEGACY_DDL = """
@@ -136,6 +137,7 @@ def migrated_db(legacy_db):
     assert m016.migrate(legacy_db) == 0
     assert m017.migrate(legacy_db) == 0
     assert m018.migrate(legacy_db) == 0
+    assert m019.migrate(legacy_db) == 0
     return legacy_db
 
 
@@ -439,6 +441,7 @@ class TestEmailBodyAndAttachments:
         m016.migrate(at_v7)
         m017.migrate(at_v7)
         m018.migrate(at_v7)
+        m019.migrate(at_v7)
         store = StorageManager(at_v7)
         email = store.record_email("<x@mail>", "a@b.com", attachment_count=1)
         assert store.has_seen_attachment(email["email_id"], "a" * 64) is False
@@ -529,6 +532,7 @@ class TestAIDocumentFields:
         m016.migrate(at_v8)
         m017.migrate(at_v8)
         m018.migrate(at_v8)
+        m019.migrate(at_v8)
         store = StorageManager(at_v8)
         run_id = store.start_run("llama3.2", 0.8)
         result = store.save_invoice(
@@ -672,7 +676,7 @@ class TestChain:
         """A teammate following the quickstart runs every migration in order. Doing that
         twice must succeed, not report failure on the ones already applied."""
         for module in (m001, m002, m003, m004, m005, m006, m007,
-                       m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018):
+                       m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019):
             assert module.migrate(migrated_db) == 0, f"{module.__name__} failed on re-run"
 
 
@@ -895,6 +899,7 @@ class TestEmailAnalysisTables:
         m016.migrate(before_011)
         m017.migrate(before_011)
         m018.migrate(before_011)
+        m019.migrate(before_011)
         store = StorageManager(before_011)
         store.record_email("<m@mail>", "pm@client.com", "Budget")
         run_id = store.start_email_run("llama3.2:latest")
@@ -1084,3 +1089,44 @@ class TestDashboardRevisionMigration:
 
     def test_refuses_a_database_that_is_not_at_17(self, legacy_db):
         assert m018.migrate(legacy_db) == 1
+
+
+# =====================================================================
+# Migration 019
+# =====================================================================
+class TestMailConnectionMigration:
+    @pytest.fixture
+    def at_v18(self, legacy_db):
+        for module in (m001, m002, m003, m004, m005, m006, m007, m008, m009,
+                       m010, m011, m012, m013, m014, m015, m016, m017, m018):
+            assert module.migrate(legacy_db) == 0
+        return legacy_db
+
+    def test_adds_the_table_without_moving_rows(self, at_v18):
+        with connect(at_v18) as conn:
+            before = conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"]
+        assert m019.migrate(at_v18) == 0
+        with connect(at_v18) as conn:
+            after = conn.execute("SELECT COUNT(*) c FROM invoices").fetchone()["c"]
+            tables = {r["name"] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'")}
+            triggers = {r["name"] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+                "AND name LIKE 'dashboard_mail_connection_%'")}
+            version = conn.execute("SELECT MAX(version) v FROM schema_version").fetchone()["v"]
+        assert "mail_connection" in tables
+        assert len(triggers) == 3
+        assert after == before
+        assert version == 19
+
+    def test_is_idempotent(self, at_v18):
+        assert m019.migrate(at_v18) == 0
+        assert m019.migrate(at_v18) == 0
+
+    def test_takes_a_backup_first(self, at_v18, tmp_path):
+        assert m019.migrate(at_v18) == 0
+        assert any(p.name.startswith("legacy.db.bak-") for p in tmp_path.iterdir())
+
+    def test_refuses_a_database_that_is_not_at_18(self, legacy_db):
+        assert m001.migrate(legacy_db) == 0
+        assert m019.migrate(legacy_db) == 1

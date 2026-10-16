@@ -42,7 +42,7 @@ def isolated(tmp_path, monkeypatch):
 
 def test_search_is_unread_invoice_mail_only(isolated, monkeypatch):
     mail = _mailbox(b"")
-    monkeypatch.setattr(email_listener, "connect_to_gmail", lambda: mail)
+    monkeypatch.setattr(email_listener, "connect_to_gmail", lambda db_path=None: mail)
 
     email_listener.download_attachments(db_path=isolated)
 
@@ -67,7 +67,7 @@ def test_marks_seen_only_after_the_message_is_recorded(isolated, monkeypatch):
         return ("OK", None)
 
     monkeypatch.setattr(storage.StorageManager, "record_email", record)
-    monkeypatch.setattr(email_listener, "connect_to_gmail", lambda: mail)
+    monkeypatch.setattr(email_listener, "connect_to_gmail", lambda db_path=None: mail)
     mail.store.side_effect = store_flag
 
     email_listener.download_attachments(db_path=isolated)
@@ -79,7 +79,7 @@ def test_marks_seen_only_after_the_message_is_recorded(isolated, monkeypatch):
 def test_fetch_failure_leaves_the_message_unread(isolated, monkeypatch):
     mail = _mailbox(b"1")
     mail.fetch.return_value = ("NO", [None])
-    monkeypatch.setattr(email_listener, "connect_to_gmail", lambda: mail)
+    monkeypatch.setattr(email_listener, "connect_to_gmail", lambda db_path=None: mail)
 
     email_listener.download_attachments(db_path=isolated)
 
@@ -88,7 +88,7 @@ def test_fetch_failure_leaves_the_message_unread(isolated, monkeypatch):
 
 def test_record_failure_leaves_the_message_unread(isolated, monkeypatch):
     mail = _mailbox(b"1")
-    monkeypatch.setattr(email_listener, "connect_to_gmail", lambda: mail)
+    monkeypatch.setattr(email_listener, "connect_to_gmail", lambda db_path=None: mail)
 
     def boom(self, *args, **kwargs):
         raise RuntimeError("db down")
@@ -104,7 +104,7 @@ def test_record_failure_leaves_the_message_unread(isolated, monkeypatch):
 
 def test_poll_searches_more_than_once_then_stops(isolated, tmp_path, monkeypatch):
     mail = _mailbox(b"")
-    monkeypatch.setattr(email_listener, "connect_to_gmail", lambda: mail)
+    monkeypatch.setattr(email_listener, "connect_to_gmail", lambda db_path=None: mail)
     sleeps = {"n": 0}
 
     def fake_sleep(seconds):

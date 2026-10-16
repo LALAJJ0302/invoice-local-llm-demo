@@ -114,11 +114,28 @@ ATTACHMENT_DIR=./inbox
 |---|---|---|
 | `EMAIL_HOST` | No | `imap.gmail.com`. This is the default if the line is missing. |
 | `EMAIL_PORT` | No | `993`, the IMAP SSL port. This is the default if the line is missing. |
-| `EMAIL_USER` | Yes | The full Gmail address, such as `name@gmail.com`. |
-| `EMAIL_PASSWORD` | Yes | A Gmail App Password. The normal Gmail password is rejected by IMAP. |
+| `EMAIL_USER` | Yes, unless Gmail is connected from the dashboard | The full Gmail address, such as `name@gmail.com`. |
+| `EMAIL_PASSWORD` | Yes, unless Gmail is connected from the dashboard | A Gmail App Password. The normal Gmail password is rejected by IMAP. |
 | `ATTACHMENT_DIR` | No | Folder for saved files. Defaults to `./inbox`, which is also where `main.py` reads from. |
 
 The Jira lines further down `.env.example` are optional and are not used by the listener.
+
+**Or connect Gmail from the dashboard.** The sidebar has a Gmail row. Click it, enter the Gmail
+address and an App Password, and the dashboard checks the pair with Gmail before saving it. The
+listener reads that connection on every check, so it applies without a restart and takes
+priority over the two `.env` lines. The saved App Password is encrypted; the key is
+`MAIL_SECRET_KEY` if you set it, otherwise the file `.mail_secret.key`, created on first use and
+ignored by git. This needs `./.venv/bin/python migrations/019_mail_connection.py` once. See
+`gmail-connect-spec.md`.
+
+When nothing is connected in the dashboard but `EMAIL_USER` and `EMAIL_PASSWORD` are set in `.env`,
+the listener still reads that mailbox, and the sidebar says so ("Gmail read from .env") instead of
+claiming no mailbox is being read. Disconnect removes only the dashboard connection, so the
+listener goes back to `.env`; to stop it reading altogether, clear those two lines.
+
+Every IMAP login, from the listener and from the dashboard's check, verifies Gmail's certificate and
+host name against the CA bundle in `certifi`. The operating system's store is not used because a
+python.org Python on macOS has none until its Install Certificates step has been run.
 
 Create the App Password:
 

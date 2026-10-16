@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 DEFAULT_DB_PATH = "workflow_platform.db"
 
 VALID_VALIDATION_STATUSES = ("Validated", "NeedsReview", "Failed")
@@ -538,6 +538,27 @@ CREATE TRIGGER dashboard_ingestion_failures_update AFTER UPDATE ON ingestion_fai
     UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
 CREATE TRIGGER dashboard_ingestion_failures_delete AFTER DELETE ON ingestion_failures BEGIN
     UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+
+-- The one mailbox the listener reads, set from the dashboard (gmail-connect-spec.md). At most
+-- one row. The App Password is stored encrypted by mail_connection.py, never in plaintext.
+-- The triggers watch only the columns the sidebar shows, so the listener recording the same
+-- failure on every poll does not redraw the page.
+CREATE TABLE mail_connection (
+    id               INTEGER PRIMARY KEY CHECK (id = 1),
+    email            TEXT NOT NULL,
+    secret_encrypted BLOB NOT NULL,
+    status           TEXT NOT NULL CHECK (status IN ('connected', 'error')),
+    last_error       TEXT,
+    connected_by     INTEGER REFERENCES users(user_id),
+    connected_at     TEXT NOT NULL
+);
+CREATE TRIGGER dashboard_mail_connection_insert AFTER INSERT ON mail_connection BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_mail_connection_update AFTER UPDATE OF email, status, last_error
+    ON mail_connection BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
+CREATE TRIGGER dashboard_mail_connection_delete AFTER DELETE ON mail_connection BEGIN
+    UPDATE dashboard_revision SET revision = revision + 1 WHERE id = 1; END;
 """
 
 
@@ -607,6 +628,44 @@ def table_exists(conn: sqlite3.Connection, name: str) -> bool:
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
     ).fetchone()
     return row is not None
+
+
+def read_mail_connection(db_path: str) -> Optional[sqlite3.Row]:
+    """The saved Gmail connection with its encrypted secret, for the listener.
+
+    Not a StorageManager method on purpose: StorageManager refuses a database that is not at the
+    current schema, and the listener should still run from .env on one that is not. A missing
+    file or a missing table both mean nothing is connected.
+    """
+    if not os.path.exists(db_path):
+        return None
+    with connect(db_path) as conn:
+        if not table_exists(conn, "mail_connection"):
+            return None
+        return conn.execute(
+            "SELECT email, secret_encrypted, status FROM mail_connection WHERE id = 1"
+        ).fetchone()
+
+
+def write_mail_status(db_path: str, status: str, reason: Optional[str]) -> None:
+    """Records whether the last login worked. Writes only when something changed.
+
+    The listener calls this on every poll. A write that changes nothing would still cost a
+    transaction, so the comparison happens first.
+    """
+    with connect(db_path) as conn:
+        if not table_exists(conn, "mail_connection"):
+            return
+        row = conn.execute(
+            "SELECT status, last_error FROM mail_connection WHERE id = 1"
+        ).fetchone()
+        if row is None or (row["status"], row["last_error"]) == (status, reason):
+            return
+        conn.execute(
+            "UPDATE mail_connection SET status = ?, last_error = ? WHERE id = 1",
+            (status, reason),
+        )
+        conn.commit()
 
 
 # =====================================================================
@@ -1457,6 +1516,38 @@ class StorageManager:
                 "SELECT revision FROM dashboard_revision WHERE id = 1"
             ).fetchone()
         return str(row["revision"])
+
+    # -- the Gmail connection -------------------------------------------
+    def mail_connection(self) -> Optional[sqlite3.Row]:
+        """The saved connection without its secret, for the sidebar."""
+        with connect(self.db_path) as conn:
+            return conn.execute(
+                "SELECT m.email, m.status, m.last_error, m.connected_at, "
+                "u.display_name AS connected_by_name "
+                "FROM mail_connection m LEFT JOIN users u ON u.user_id = m.connected_by "
+                "WHERE m.id = 1"
+            ).fetchone()
+
+    def save_mail_connection(self, email: str, secret_encrypted: bytes, user_id: int) -> None:
+        """Replaces the one connection. `secret_encrypted` must already be encrypted."""
+        with connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO mail_connection "
+                "(id, email, secret_encrypted, status, last_error, connected_by, connected_at) "
+                "VALUES (1, ?, ?, 'connected', NULL, ?, datetime('now')) "
+                "ON CONFLICT(id) DO UPDATE SET email = excluded.email, "
+                "secret_encrypted = excluded.secret_encrypted, status = 'connected', "
+                "last_error = NULL, connected_by = excluded.connected_by, "
+                "connected_at = excluded.connected_at",
+                (email, secret_encrypted, user_id),
+            )
+            conn.commit()
+
+    def clear_mail_connection(self) -> bool:
+        with connect(self.db_path) as conn:
+            cursor = conn.execute("DELETE FROM mail_connection WHERE id = 1")
+            conn.commit()
+            return cursor.rowcount > 0
 
     def user_by_id(self, user_id: int) -> Optional[sqlite3.Row]:
         """Display name and Jira account id for a reviewer. No password hash."""
