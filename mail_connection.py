@@ -21,7 +21,9 @@ import ssl
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
+import certifi
 from cryptography.fernet import Fernet, InvalidToken
+from dotenv import dotenv_values
 
 import storage
 
@@ -78,6 +80,35 @@ def decrypt(blob: bytes) -> str:
 
 
 # =====================================================================
+# Reaching Gmail
+# =====================================================================
+def imap_ssl_context() -> ssl.SSLContext:
+    """A TLS context that checks Gmail's certificate and host name. Used by every IMAP login.
+
+    `imaplib.IMAP4_SSL` with no context builds one that verifies nothing, so anyone who could sit
+    between this machine and Gmail could read the App Password. The CA bundle comes from certifi
+    and not from the operating system: a python.org Python on macOS ships with no CA certificates
+    until its Install Certificates step has been run, and the default context then refuses Gmail
+    itself with "unable to get local issuer certificate".
+    """
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+def env_credentials() -> Optional[Tuple[str, str]]:
+    """(address, password) from EMAIL_USER and EMAIL_PASSWORD, or None unless both are set.
+
+    The environment wins over the .env file, as with python-dotenv's load_dotenv. The file is read
+    with dotenv_values so that looking does not copy the password into this process's environment.
+    This is the one definition of "the .env fallback", used by the listener to log in and by the
+    dashboard to say what the listener will do.
+    """
+    file_values = dotenv_values()
+    user = os.getenv("EMAIL_USER") or file_values.get("EMAIL_USER")
+    password = os.getenv("EMAIL_PASSWORD") or file_values.get("EMAIL_PASSWORD")
+    return (user, password) if user and password else None
+
+
+# =====================================================================
 # Checking a login
 # =====================================================================
 def _host_port() -> Tuple[str, int]:
@@ -114,7 +145,7 @@ def check_login(
     imap_factory = imap_factory or imaplib.IMAP4_SSL
     host, port = _host_port()
     try:
-        mail = imap_factory(host, port, timeout=timeout)
+        mail = imap_factory(host, port, timeout=timeout, ssl_context=imap_ssl_context())
     except (socket.timeout, TimeoutError) as error:
         raise LoginProblem("Gmail did not answer in time. Check the connection and try again.") from error
     except (OSError, ssl.SSLError) as error:

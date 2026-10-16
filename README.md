@@ -128,6 +128,15 @@ priority over the two `.env` lines. The saved App Password is encrypted; the key
 ignored by git. This needs `./.venv/bin/python migrations/019_mail_connection.py` once. See
 `gmail-connect-spec.md`.
 
+When nothing is connected in the dashboard but `EMAIL_USER` and `EMAIL_PASSWORD` are set in `.env`,
+the listener still reads that mailbox, and the sidebar says so ("Gmail read from .env") instead of
+claiming no mailbox is being read. Disconnect removes only the dashboard connection, so the
+listener goes back to `.env`; to stop it reading altogether, clear those two lines.
+
+Every IMAP login, from the listener and from the dashboard's check, verifies Gmail's certificate and
+host name against the CA bundle in `certifi`. The operating system's store is not used because a
+python.org Python on macOS has none until its Install Certificates step has been run.
+
 Create the App Password:
 
 1. Turn on 2-Step Verification: https://myaccount.google.com/signinoptions/two-step-verification

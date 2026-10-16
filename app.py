@@ -768,6 +768,7 @@ st.markdown("""
             background:var(--text-faint); }
 .side-dot.ok { background:var(--positive); }
 .side-dot.warn { background:var(--caution); }
+.side-dot.env { background:var(--accent); }
 .side-mail .side-sub { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:170px; }
 
 /* The navigation, drawn as approval-screen-design-v3.html draws it: icon, name, count at the
@@ -2041,8 +2042,9 @@ def gmail_status_row(width="stretch"):
     when the mailbox has to be connected, so the same row is drawn in the page body there.
     """
     saved = StorageManager(DB_PATH).mail_connection()
-    st.markdown(gmail_panel.status_row_html(saved), unsafe_allow_html=True)
-    if st.button(gmail_panel.row_state(saved)[3], key="gmail_manage", width=width):
+    env = gmail_panel.env_address()
+    st.markdown(gmail_panel.status_row_html(saved, env), unsafe_allow_html=True)
+    if st.button(gmail_panel.row_state(saved, env)[3], key="gmail_manage", width=width):
         gmail_dialog()
 
 

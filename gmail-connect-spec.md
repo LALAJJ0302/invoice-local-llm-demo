@@ -13,6 +13,27 @@ Option B from the group discussion of 2026-10-15.
 5. `email_listener.py` is Luke's. The change is `connect_to_gmail()` plus the five test lambdas that
    mock it, and goes to him as a PR with evidence. Tell him first.
 
+## Changes made on review (JJ, 2026-10-16)
+
+1. **TLS verification.** `imaplib.IMAP4_SSL` builds a context that verifies nothing when it is given
+   none, on Python 3.12 as well as 3.13. Both IMAP logins, the listener's and the dashboard's check,
+   now pass `mail_connection.imap_ssl_context()`. Passing `ssl.create_default_context()` alone was
+   tried first and is not enough here: on this machine's python.org Python for macOS it refuses
+   Gmail itself (`unable to get local issuer certificate`), because that build ships no CA
+   certificates. The context therefore loads the bundle from `certifi`, which is now a pinned direct
+   dependency. Checked against real Gmail (handshake with verification succeeds) and against hosts
+   with an expired and a mismatched certificate (both rejected).
+2. **The `.env` fallback is shown, not hidden.** With no saved connection the listener still logs in
+   from `EMAIL_USER` and `EMAIL_PASSWORD`, so "No mailbox is being read" was untrue on any machine
+   with those set. The sidebar now says "Gmail read from .env" with the address, the connect form
+   says that connecting replaces it, and the Disconnect dialog says where the listener goes next.
+   The listener and the dashboard share one definition of the fallback, `env_credentials()`, so
+   they cannot disagree. The other option, an explicit disabled state that suppresses the
+   fallback, was not built: it needs a schema change and a way to turn the `.env` mailbox off
+   from the dashboard, and the honest label fixes the wrong statement in every state, including
+   the one before anything was ever connected. It remains an option if the group wants Disconnect to
+   mean "stop reading".
+
 ## What differs from the draft below
 
 - `last_ok_at` was dropped. Writing it on every poll would have redrawn the page every ten seconds,

@@ -31,9 +31,11 @@ class FakeIMAP:
 
     refuse = None
     logins = []
+    contexts = []
 
-    def __init__(self, host, port, timeout=None):
+    def __init__(self, host, port, timeout=None, ssl_context=None):
         self.host, self.port, self.timeout = host, port, timeout
+        FakeIMAP.contexts.append(ssl_context)
 
     def login(self, user, password):
         FakeIMAP.logins.append((user, password))
@@ -49,8 +51,18 @@ def fake_imap(monkeypatch):
     """imaplib is one module, so patching it here is patching it for the dialog and the listener."""
     FakeIMAP.refuse = None
     FakeIMAP.logins = []
+    FakeIMAP.contexts = []
     monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeIMAP)
     return FakeIMAP
+
+
+@pytest.fixture(autouse=True)
+def no_dotenv_file(monkeypatch):
+    """The machine's own .env must not decide what these tests see. The environment still can."""
+    monkeypatch.delenv("EMAIL_USER", raising=False)
+    monkeypatch.delenv("EMAIL_PASSWORD", raising=False)
+    monkeypatch.setattr(mail_connection, "dotenv_values", lambda *a, **k: {})
+    monkeypatch.setattr(email_listener, "load_dotenv", lambda *a, **k: None)
 
 
 @pytest.fixture(autouse=True)
@@ -428,3 +440,122 @@ def test_the_row_carries_the_gmail_mark_and_a_state_dot_for_each_state():
         html = gmail_panel.status_row_html(saved)
         assert "<svg" in html and "aria-hidden='true'" in html
         assert dot in html
+
+
+# =====================================================================
+# Certificate verification (JJ's review of PR #25)
+# =====================================================================
+def assert_verifies(context):
+    import ssl
+    assert context is not None, "no TLS context was passed, so imaplib would verify nothing"
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+    # A context that verifies but trusts nothing refuses Gmail itself. That is what the default
+    # context does on a python.org Python for macOS, and why the bundle comes from certifi.
+    assert context.cert_store_stats()["x509_ca"] > 0
+
+
+def test_the_context_verifies_and_trusts_the_bundle():
+    assert_verifies(mail_connection.imap_ssl_context())
+
+
+def test_the_dashboard_check_verifies_gmails_certificate(store):
+    connected(store)
+    assert_verifies(FakeIMAP.contexts[-1])
+
+
+def test_the_listener_login_verifies_gmails_certificate(store, monkeypatch):
+    monkeypatch.setenv("EMAIL_USER", "env@example.com")
+    monkeypatch.setenv("EMAIL_PASSWORD", "from-the-env-file")
+    email_listener.connect_to_gmail(store.db_path)
+    assert_verifies(FakeIMAP.contexts[-1])
+
+
+def test_a_saved_connection_login_verifies_gmails_certificate(store):
+    connected(store)
+    FakeIMAP.contexts.clear()
+    email_listener.connect_to_gmail(store.db_path)
+    assert_verifies(FakeIMAP.contexts[-1])
+
+
+# =====================================================================
+# The .env fallback, shown honestly (JJ's review of PR #25)
+# =====================================================================
+ENV_FILE = {"EMAIL_USER": "env@example.com", "EMAIL_PASSWORD": "from-the-env-file"}
+
+
+class TestEnvCredentials:
+    def test_none_without_both_values(self, monkeypatch):
+        assert mail_connection.env_credentials() is None
+        monkeypatch.setenv("EMAIL_USER", "env@example.com")
+        assert mail_connection.env_credentials() is None
+
+    def test_the_environment_counts(self, monkeypatch):
+        monkeypatch.setenv("EMAIL_USER", "env@example.com")
+        monkeypatch.setenv("EMAIL_PASSWORD", "x")
+        assert mail_connection.env_credentials() == ("env@example.com", "x")
+
+    def test_the_file_counts_and_the_environment_wins(self, monkeypatch):
+        monkeypatch.setattr(mail_connection, "dotenv_values", lambda *a, **k: ENV_FILE)
+        assert mail_connection.env_credentials() == ("env@example.com", "from-the-env-file")
+        monkeypatch.setenv("EMAIL_USER", "shell@example.com")
+        assert mail_connection.env_credentials()[0] == "shell@example.com"
+
+    def test_looking_does_not_copy_the_password_into_the_process(self, monkeypatch):
+        monkeypatch.setattr(mail_connection, "dotenv_values", lambda *a, **k: ENV_FILE)
+        mail_connection.env_credentials()
+        assert "EMAIL_PASSWORD" not in os.environ
+
+    def test_the_listener_and_the_dashboard_agree_on_what_the_fallback_is(self, store, monkeypatch):
+        monkeypatch.setattr(mail_connection, "dotenv_values", lambda *a, **k: ENV_FILE)
+        email_listener.connect_to_gmail(store.db_path)
+        assert FakeIMAP.logins[-1] == mail_connection.env_credentials()
+
+
+def test_the_row_says_the_listener_reads_env_when_nothing_is_connected():
+    import gmail_panel
+    html = gmail_panel.status_row_html(None, "env@example.com")
+    assert "Gmail read from .env" in html and "env@example.com" in html
+    assert "side-dot env" in html
+    assert "No mailbox is being read" not in html
+
+
+def test_the_row_still_says_nothing_is_read_when_env_has_no_login():
+    import gmail_panel
+    assert "No mailbox is being read" in gmail_panel.status_row_html(None, None)
+
+
+def test_a_saved_connection_outranks_the_env_wording():
+    import gmail_panel
+    saved = {"status": "connected", "email": "ap@example.com", "last_error": None}
+    html = gmail_panel.status_row_html(saved, "env@example.com")
+    assert "Gmail connected" in html and "from .env" not in html
+
+
+def test_after_disconnect_the_sidebar_names_the_env_mailbox(ui_store, monkeypatch):
+    """JJ's second point: on a machine whose .env is filled in, the listener goes on reading
+    Gmail after Disconnect, so the sidebar must not say that no mailbox is being read."""
+    monkeypatch.setattr(mail_connection, "dotenv_values", lambda *a, **k: ENV_FILE)
+    uid = ui_store.user_by_username("neo")["user_id"]
+    mail_connection.connect(ui_store, "ap@example.com", SECRET, uid, imap_factory=FakeIMAP)
+    at = draw_dialog()
+    [b for b in at.button if b.label == "Disconnect"][0].click()
+    at.run()
+    assert ui_store.mail_connection() is None
+    text = sidebar_text(render())
+    assert "Gmail read from .env" in text and "env@example.com" in text
+    assert "No mailbox is being read" not in text
+
+
+def test_the_connected_dialog_says_where_the_listener_goes_after_disconnect(ui_store, monkeypatch):
+    uid = ui_store.user_by_username("neo")["user_id"]
+    mail_connection.connect(ui_store, "ap@example.com", SECRET, uid, imap_factory=FakeIMAP)
+    assert any("reads no mailbox" in c.value for c in draw_dialog().caption)
+    monkeypatch.setattr(mail_connection, "dotenv_values", lambda *a, **k: ENV_FILE)
+    assert any("goes back to env@example.com from .env" in c.value for c in draw_dialog().caption)
+
+
+def test_the_connect_form_warns_that_it_replaces_the_env_mailbox(ui_store, monkeypatch):
+    assert not draw_dialog().info
+    monkeypatch.setattr(mail_connection, "dotenv_values", lambda *a, **k: ENV_FILE)
+    assert any("env@example.com from .env" in i.value for i in draw_dialog().info)

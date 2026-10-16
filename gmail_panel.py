@@ -18,8 +18,21 @@ import streamlit as st
 import mail_connection
 
 
-def row_state(saved) -> tuple:
-    """(dot class, title, one line of detail, button label) for the saved connection."""
+def env_address() -> Optional[str]:
+    """The address the listener would read from .env, or None when .env gives it no login."""
+    credentials = mail_connection.env_credentials()
+    return credentials[0] if credentials else None
+
+
+def row_state(saved, env=None) -> tuple:
+    """(dot class, title, one line of detail, button label).
+
+    With no saved connection the listener still logs in from .env when that has a login, so
+    "not connected" is only true when it has none either. Saying so is what keeps Disconnect
+    honest on a machine whose .env is filled in.
+    """
+    if saved is None and env:
+        return "env", "Gmail read from .env", env, "Connect Gmail"
     if saved is None:
         return "", "Gmail not connected", "No mailbox is being read", "Connect Gmail"
     if saved["status"] == "error":
@@ -38,8 +51,8 @@ GMAIL_MARK = (
 )
 
 
-def status_row_html(saved) -> str:
-    dot, title, sub, _ = row_state(saved)
+def status_row_html(saved, env=None) -> str:
+    dot, title, sub, _ = row_state(saved, env)
     return (
         f"<div class='side-mail'><span class='side-gmail'>{GMAIL_MARK}"
         f"<span class='side-dot {dot}'></span></span>"
@@ -48,7 +61,7 @@ def status_row_html(saved) -> str:
     )
 
 
-def dialog_body(store, user_id: Optional[int]) -> None:
+def dialog_body(store, user_id: Optional[int], env: Optional[str] = None) -> None:
     """Connect form when nothing works, status and Disconnect when it does.
 
     The App Password is checked against Gmail before anything is stored and is never drawn back
@@ -57,11 +70,16 @@ def dialog_body(store, user_id: Optional[int]) -> None:
     """
     st.session_state["dialog_open"] = True
     saved = store.mail_connection()
+    env = env_address() if env is None else env
 
     if saved is not None and saved["status"] == "connected":
         st.markdown(f"Connected as **{escape(saved['email'])}**.")
         by = saved["connected_by_name"] or "someone"
         st.caption(f"Connected by {by}. The listener uses this mailbox on its next check.")
+        st.caption(
+            f"After you disconnect, the listener goes back to {env} from .env." if env else
+            "After you disconnect, the listener reads no mailbox until one is connected."
+        )
         if st.button("Disconnect", key="gmail_disconnect", width="stretch"):
             store.clear_mail_connection()
             st.session_state["dialog_open"] = False
@@ -70,6 +88,8 @@ def dialog_body(store, user_id: Optional[int]) -> None:
 
     if saved is not None:
         st.error(saved["last_error"] or "The last login failed.")
+    elif env:
+        st.info(f"The listener is reading {env} from .env. Connecting here replaces it.")
     with st.form("gmail_connect", border=False):
         address = st.text_input("Gmail address", value=saved["email"] if saved else "")
         app_password = st.text_input("App Password", type="password")

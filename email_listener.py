@@ -131,19 +131,15 @@ def connect_to_gmail(db_path=storage.DEFAULT_DB_PATH):
     except mail_connection.WrongKey as error:
         mail_connection.record_failure(db_path, str(error))
         raise
-    if saved:
-        user, password = saved
-    else:
-        user = os.getenv("EMAIL_USER")
-        password = os.getenv("EMAIL_PASSWORD")
-
-    if not user or not password:
+    credentials = saved or mail_connection.env_credentials()
+    if not credentials:
         raise ValueError(
             "Missing EMAIL_USER or EMAIL_PASSWORD in .env file, and no Gmail is connected "
             "in the dashboard."
         )
+    user, password = credentials
 
-    mail = imaplib.IMAP4_SSL(host, port)
+    mail = imaplib.IMAP4_SSL(host, port, ssl_context=mail_connection.imap_ssl_context())
     try:
         mail.login(user, password)
     except imaplib.IMAP4.error as error:
